@@ -42,7 +42,6 @@ INSTALLED_APPS = [
     "corsheaders",
     "events",
     "proxy.apps.ProxyConfig",
-    "dotenv",
     "authentication",
 ]
 
