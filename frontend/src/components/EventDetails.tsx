@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ArrowLeft, Edit, Trash2, UserPlus, Loader } from 'lucide-react';
 import Sidebar from './Sidebar';
 import ConfirmationModal from './ConfirmationModal';
-import eventService, { EventDetail } from '../services/eventService';
+import eventService, { type EventDetail } from '../services/eventService';
 
 interface EventDetailsProps {
   onBack?: () => void;

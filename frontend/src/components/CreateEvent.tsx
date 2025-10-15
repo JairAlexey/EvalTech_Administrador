@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ArrowLeft, Search, Info } from 'lucide-react';
 import Sidebar from './Sidebar';
-import eventService, { EventFormData } from '../services/eventService';
+import eventService, { type EventFormData } from '../services/eventService';
 import candidateService from '../services/candidateService';
 
 interface Candidate {
