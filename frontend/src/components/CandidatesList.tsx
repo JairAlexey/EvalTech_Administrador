@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Search, Plus, Filter, Edit, Trash2, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
 import Sidebar from './Sidebar';
 import ConfirmationModal from './ConfirmationModal';
-import candidateService, { Candidate as CandidateType } from '../services/candidateService';
+import candidateService, { type Candidate as CandidateType } from '../services/candidateService';
 
 interface Candidate extends CandidateType {
   selected: boolean;

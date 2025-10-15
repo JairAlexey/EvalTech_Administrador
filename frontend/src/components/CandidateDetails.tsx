@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { ArrowLeft, Loader } from 'lucide-react';
 import Sidebar from './Sidebar';
-import { candidateService, CandidateDetail } from '../services/candidateService';
-import { eventService, EventDetail } from '../services/eventService'; // Añadido EventDetail a la importación
+import candidateService, { type CandidateDetail } from '../services/candidateService';
+import eventService, { type EventDetail } from '../services/eventService';
 
 interface CandidateDetailsProps {
   onBack?: () => void;

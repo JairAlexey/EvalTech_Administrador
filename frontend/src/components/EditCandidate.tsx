@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { ArrowLeft, Loader } from 'lucide-react';
 import Sidebar from './Sidebar';
 import ConfirmationModal from './ConfirmationModal';
-import { candidateService, CandidateDetail } from '../services/candidateService';
-import { eventService, Event } from '../services/eventService';
+import candidateService, { type CandidateDetail } from '../services/candidateService';
+import eventService, { type Event } from '../services/eventService';
 
 interface EditCandidateProps {
   onBack?: () => void;
