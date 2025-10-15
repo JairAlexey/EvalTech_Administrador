@@ -2,17 +2,30 @@ import { useState } from 'react';
 import { Activity, Settings, FileText, Shield } from 'lucide-react';
 
 interface LoginProps {
-  onLogin: () => void;
+  onLogin: (email: string, password: string) => Promise<void>;
+  onRegister: () => void;
 }
 
-export default function Login({ onLogin }: LoginProps) {
+export default function Login({ onLogin, onRegister }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onLogin();
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      await onLogin(email, password);
+      // Don't navigate here - let the App component decide based on user role
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Error al iniciar sesión');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -61,7 +74,7 @@ export default function Login({ onLogin }: LoginProps) {
           </div>
 
           <div className="mt-auto pt-8 text-sm text-blue-100">
-            © 2023 EvalTech. Todos los derechos reservados.
+            © 2025 EvalTech. Todos los derechos reservados.
           </div>
         </div>
 
@@ -121,12 +134,32 @@ export default function Login({ onLogin }: LoginProps) {
                 </label>
               </div>
 
+              {error && (
+                <div className="p-3 bg-red-50 text-red-700 rounded-lg border border-red-200 mb-4">
+                  {error}
+                </div>
+              )}
+
               <button
                 type="submit"
-                className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-3 rounded-lg font-medium hover:from-blue-700 hover:to-blue-800 transition shadow-md"
+                disabled={isLoading}
+                className={`w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-3 rounded-lg font-medium hover:from-blue-700 hover:to-blue-800 transition shadow-md ${isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
               >
-                Iniciar Sesión
+                {isLoading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
               </button>
+
+              <div className="flex items-center justify-center mt-6 mb-4">
+                <p className="text-sm text-gray-600">
+                  ¿No tiene una cuenta?{' '}
+                  <button
+                    type="button"
+                    onClick={onRegister}
+                    className="text-blue-600 hover:text-blue-700 font-medium focus:outline-none"
+                  >
+                    Registrarse
+                  </button>
+                </p>
+              </div>
 
               <div className="flex items-center gap-3 p-4 bg-green-50 rounded-lg border border-green-200">
                 <div className="flex-shrink-0">
