@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Search, Filter, Plus, Loader, Eye, Edit, Trash2 } from 'lucide-react';
 import Sidebar from './Sidebar';
 import ConfirmationModal from './ConfirmationModal';
-import eventService, { Event as BaseEvent } from '../services/eventService';
+import eventService, { type Event as BaseEvent } from '../services/eventService';
 
 // Ampliamos el tipo para incluir campos que podrían estar ausentes en la API
 type Event = BaseEvent & {

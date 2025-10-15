@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { ArrowLeft, Loader } from 'lucide-react';
 import Sidebar from './Sidebar';
-import { candidateService } from '../services/candidateService';
-import { eventService, Event } from '../services/eventService';
+import candidateService from '../services/candidateService';
+import eventService, { type Event } from '../services/eventService';
 
 interface CreateCandidateProps {
   onBack?: () => void;
