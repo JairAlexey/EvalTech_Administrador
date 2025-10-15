@@ -1,79 +1,94 @@
-import { useState } from 'react';
-import { ArrowLeft, UserPlus, Trash2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ArrowLeft, Edit, Trash2, UserPlus, Loader } from 'lucide-react';
 import Sidebar from './Sidebar';
 import ConfirmationModal from './ConfirmationModal';
+import eventService, { EventDetail } from '../services/eventService';
 
 interface EventDetailsProps {
   onBack?: () => void;
   onEdit?: (eventId: string) => void;
   onNavigate?: (page: string) => void;
   onLogout?: () => void;
+  eventId?: string;
 }
 
-export default function EventDetails({ onBack, onEdit, onNavigate, onLogout }: EventDetailsProps) {
+export default function EventDetails({ onBack, onEdit, onNavigate, onLogout, eventId }: EventDetailsProps) {
   // Estado para el modal de confirmación de eliminación
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  
-  // Datos de ejemplo para la demostración
-  const eventData = {
-    id: 'EVT-2023-089',
-    name: 'Evaluación Técnica - Desarrolladores Frontend',
-    date: '15 de Noviembre, 2023',
-    time: '10:00 AM - 11:30 AM',
-    duration: '90 minutos',
-    type: 'Entrevista Técnica',
-    status: 'Programado',
-    evaluator: 'Carlos Rodríguez (Tech Lead)',
-    description: 'Evaluación técnica para candidatos a la posición de Desarrollador Frontend. Se evaluarán conocimientos en HTML, CSS, JavaScript y frameworks modernos. Los candidatos deberán resolver problemas prácticos y responder preguntas técnicas durante la sesión.',
-    participants: [
-      {
-        id: 'CAND-2023-045',
-        initials: 'JD',
-        name: 'Juan Díaz',
-        experience: '3 años',
-        role: 'Frontend Developer',
-        email: 'jdiaz@email.com',
-        phone: '+34 612 345 678',
-        status: 'Confirmado'
-      },
-      {
-        id: 'CAND-2023-046',
-        initials: 'MR',
-        name: 'María Rodríguez',
-        experience: '5 años',
-        role: 'Frontend Developer',
-        email: 'mrodriguez@email.com',
-        phone: '+34 623 456 789',
-        status: 'Confirmado'
-      },
-      {
-        id: 'CAND-2023-047',
-        initials: 'PL',
-        name: 'Pedro López',
-        experience: '2 años',
-        role: 'Frontend Developer',
-        email: 'plopez@email.com',
-        phone: '+34 634 567 890',
-        status: 'Confirmado'
+
+  // Estados para manejar la carga de datos
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [event, setEvent] = useState<EventDetail | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Cargar los datos del evento cuando el componente se monta
+  useEffect(() => {
+    const fetchEventDetails = async () => {
+      if (!eventId) {
+        setLoading(false);
+        setError("No event ID provided");
+        console.error("EventDetails component rendered without eventId prop");
+        return;
       }
-    ]
-  };
 
-  // Funciones para manejar la eliminación
-  const handleDeleteClick = () => {
-    setShowDeleteModal(true);
-  };
+      try {
+        setLoading(true);
+        setError(null);
 
-  const handleConfirmDelete = () => {
-    console.log(`Eliminando evento con ID: ${eventData.id}`);
-    setShowDeleteModal(false);
-    onBack && onBack();
-  };
+        // Convert the event ID to the proper format if needed
+        // Some APIs expect numeric IDs without any prefix
+        const formattedEventId = String(eventId).replace(/\D/g, '');
 
-  const handleCancelDelete = () => {
-    setShowDeleteModal(false);
-  };
-  
+        console.log("EventDetails - Original eventId:", eventId);
+        console.log("EventDetails - Formatted eventId for API call:", formattedEventId);
+
+        // Añadimos un timeout para evitar bloqueos
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Tiempo de espera agotado')), 10000)
+        );
+
+        const eventPromise = eventService.getEventDetails(formattedEventId);
+        const response = await Promise.race([eventPromise, timeoutPromise]);
+
+        console.log("EventDetails - Data received:", response);
+
+        if (!response) {
+          setError('No se pudieron obtener los datos del evento');
+          setLoading(false);
+          return;
+        }
+
+        // Verificamos si la respuesta tiene la estructura anidada {event: {...}}
+        let eventData: EventDetail | null = null;
+        if (response && typeof response === 'object') {
+          if ('event' in response && response.event) {
+            // La respuesta tiene la estructura {event: {...}}
+            eventData = response.event as EventDetail;
+            console.log("EventDetails - Extracted event data:", eventData);
+          } else {
+            // La respuesta ya es el objeto de evento directamente
+            eventData = response as EventDetail;
+            console.log("EventDetails - Using direct event data");
+          }
+        } else {
+          throw new Error('Formato de respuesta inesperado');
+        }
+
+        // Ahora actualizar el estado con los datos del evento
+        setEvent(eventData);
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Error al cargar los datos del evento';
+        console.error('EventDetails - Error al cargar datos del evento:', err);
+        setError(errorMessage);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchEventDetails();
+  }, [eventId]);
+
   // Función para generar colores consistentes para las iniciales basados en el nombre
   const getInitialsColor = (name: string) => {
     const colors = [
@@ -86,10 +101,62 @@ export default function EventDetails({ onBack, onEdit, onNavigate, onLogout }: E
       'bg-indigo-500',
       'bg-teal-500'
     ];
-    
+
     // Genera un índice basado en el nombre
     const charCodeSum = name.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
     return colors[charCodeSum % colors.length];
+  };
+
+  // Funciones para manejar la eliminación
+  const handleDeleteClick = () => {
+    setShowDeleteModal(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!eventId) return;
+
+    try {
+      setDeleting(true);
+      await eventService.deleteEvent(eventId);
+      setShowDeleteModal(false);
+      onBack && onBack();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al eliminar el evento');
+      console.error('Error al eliminar evento:', err);
+      setDeleting(false);
+      setShowDeleteModal(false);
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setShowDeleteModal(false);
+  };
+
+  // Renderizar estado con el color adecuado
+  const renderStatusBadge = (status?: string) => {
+    if (!status) return null;
+
+    let bgColor = 'bg-blue-100 text-blue-700';
+    switch (status.toLowerCase()) {
+      case 'programado':
+        bgColor = 'bg-blue-100 text-blue-700';
+        break;
+      case 'en progreso':
+        bgColor = 'bg-yellow-100 text-yellow-700';
+        break;
+      case 'completado':
+        bgColor = 'bg-green-100 text-green-700';
+        break;
+      case 'cancelado':
+        bgColor = 'bg-red-100 text-red-700';
+        break;
+    }
+
+    return (
+      <span className={`px-3 py-1 rounded-full text-sm font-medium ${bgColor}`}>
+        {status}
+      </span>
+    );
   };
 
   return (
@@ -110,211 +177,213 @@ export default function EventDetails({ onBack, onEdit, onNavigate, onLogout }: E
               <h1 className="text-2xl font-bold text-gray-900">Detalles del Evento</h1>
               <p className="text-gray-600 mt-1">Información completa del evento de evaluación</p>
             </div>
-            <div className="flex gap-4">
-              <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
-                Exportar datos
-              </button>
-              <button 
-                onClick={() => onEdit && onEdit(eventData.id)}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition shadow-sm"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-                </svg>
-                Editar evento
-              </button>
-              <button 
-                onClick={handleDeleteClick}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition shadow-sm"
-              >
-                <Trash2 size={20} />
-                Eliminar evento
-              </button>
-            </div>
+            {!loading && !error && event && (
+              <div className="flex gap-4">
+                <button
+                  onClick={() => onEdit && onEdit(eventId || '')}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition shadow-sm"
+                >
+                  <Edit size={20} />
+                  Editar evento
+                </button>
+                <button
+                  onClick={handleDeleteClick}
+                  disabled={loading || deleting}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition shadow-sm disabled:opacity-50"
+                >
+                  <Trash2 size={20} />
+                  Eliminar evento
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
         <div className="p-8">
-          <div className="bg-white rounded-lg border border-gray-200 mb-6">
-            <div className="p-6">
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900">{eventData.name}</h2>
-                  <p className="text-sm text-gray-500 mt-1">ID: {eventData.id}</p>
-                </div>
-                <span className={`px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-700`}>
-                  {eventData.status}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-4 gap-6 mb-6">
-                <div>
-                  <p className="text-sm text-gray-500 mb-1">Fecha</p>
-                  <div className="flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400">
-                      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                      <line x1="16" y1="2" x2="16" y2="6" />
-                      <line x1="8" y1="2" x2="8" y2="6" />
-                      <line x1="3" y1="10" x2="21" y2="10" />
-                    </svg>
-                    <p className="text-sm font-medium">{eventData.date}</p>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-sm text-gray-500 mb-1">Hora</p>
-                  <div className="flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400">
-                      <circle cx="12" cy="12" r="10" />
-                      <polyline points="12 6 12 12 16 14" />
-                    </svg>
-                    <p className="text-sm font-medium">{eventData.time}</p>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-sm text-gray-500 mb-1">Duración</p>
-                  <div className="flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400">
-                      <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-                    </svg>
-                    <p className="text-sm font-medium">{eventData.duration}</p>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-sm text-gray-500 mb-1">Tipo</p>
-                  <div className="flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                      <polyline points="14 2 14 8 20 8" />
-                      <line x1="16" y1="13" x2="8" y2="13" />
-                      <line x1="16" y1="17" x2="8" y2="17" />
-                      <line x1="10" y1="9" x2="8" y2="9" />
-                    </svg>
-                    <p className="text-sm font-medium">{eventData.type}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mb-6">
-                <div className="flex items-center gap-2 mb-2">
-                  <p className="text-sm text-gray-700 font-medium">Evaluador asignado</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-medium text-sm">
-                    CR
-                  </div>
-                  <p className="text-sm font-medium">{eventData.evaluator}</p>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-sm text-gray-700 font-medium mb-2">Descripción</p>
-                <p className="text-sm text-gray-600 whitespace-pre-line">
-                  {eventData.description}
-                </p>
-              </div>
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader className="w-8 h-8 text-blue-600 animate-spin mr-3" />
+              <span className="text-gray-600 text-lg">Cargando información del evento...</span>
             </div>
-          </div>
+          ) : error ? (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-red-700">
+              <h3 className="text-lg font-medium mb-2">Error al cargar datos</h3>
+              <p>{error}</p>
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-4 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition"
+              >
+                Reintentar
+              </button>
+            </div>
+          ) : event ? (
+            <>
+              <div className="bg-white rounded-lg border border-gray-200 mb-6">
+                <div className="p-6">
+                  <div className="flex justify-between items-start mb-6">
+                    <div>
+                      <h2 className="text-xl font-bold text-gray-900">{event.name}</h2>
+                      <p className="text-sm text-gray-500 mt-1">ID: {event.code}</p>
+                    </div>
+                    {renderStatusBadge(event.status)}
+                  </div>
 
-          <div className="bg-white rounded-lg border border-gray-200">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">Participantes del Evento</h3>
-                <button className="flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition">
-                  <UserPlus className="w-4 h-4" />
-                  Añadir participante
-                </button>
+                  <div className="grid grid-cols-4 gap-6 mb-6">
+                    <div>
+                      <p className="text-sm text-gray-500 mb-1">Fecha</p>
+                      <div className="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400">
+                          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                          <line x1="16" y1="2" x2="16" y2="6" />
+                          <line x1="8" y1="2" x2="8" y2="6" />
+                          <line x1="3" y1="10" x2="21" y2="10" />
+                        </svg>
+                        <p className="text-sm font-medium">{event.date || 'No disponible'}</p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-sm text-gray-500 mb-1">Hora</p>
+                      <div className="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400">
+                          <circle cx="12" cy="12" r="10" />
+                          <polyline points="12 6 12 12 16 14" />
+                        </svg>
+                        <p className="text-sm font-medium">{event.time || 'No disponible'}</p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-sm text-gray-500 mb-1">Duración</p>
+                      <div className="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400">
+                          <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                        </svg>
+                        <p className="text-sm font-medium">{event.duration || '60 minutos'}</p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-sm text-gray-500 mb-1">Tipo</p>
+                      <div className="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                          <polyline points="14 2 14 8 20 8" />
+                          <line x1="16" y1="13" x2="8" y2="13" />
+                          <line x1="16" y1="17" x2="8" y2="17" />
+                          <line x1="10" y1="9" x2="8" y2="9" />
+                        </svg>
+                        <p className="text-sm font-medium">{event.evaluationType || 'Evaluación Técnica'}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mb-6">
+                    <div className="flex items-center gap-2 mb-2">
+                      <p className="text-sm text-gray-700 font-medium">Evaluador asignado</p>
+                    </div>
+                    {event.evaluator ? (
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-medium text-sm">
+                          {event.evaluator.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                        </div>
+                        <p className="text-sm font-medium">{event.evaluator}</p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500">No hay evaluador asignado</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <p className="text-sm text-gray-700 font-medium mb-2">Descripción</p>
+                    <p className="text-sm text-gray-600 whitespace-pre-line">
+                      {event.description || 'No hay descripción disponible'}
+                    </p>
+                  </div>
+                </div>
               </div>
-            </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Candidato
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Experiencia
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Contacto
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Estado
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Acciones
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {eventData.participants.map((participant) => (
-                    <tr key={participant.id} className="hover:bg-gray-50 transition">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-full ${getInitialsColor(participant.name)} flex items-center justify-center text-white font-medium text-xs`}>
-                            {participant.initials}
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{participant.name}</p>
-                            <p className="text-xs text-gray-500">ID: {participant.id}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div>
-                          <p className="text-sm text-gray-900">{participant.experience}</p>
-                          <p className="text-xs text-gray-500">{participant.role}</p>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div>
-                          <p className="text-sm text-gray-900">{participant.email}</p>
-                          <p className="text-xs text-gray-500">{participant.phone}</p>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          {participant.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <button className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                              <circle cx="12" cy="12" r="3" />
-                            </svg>
-                          </button>
-                          <button className="p-1.5 text-gray-600 hover:bg-gray-100 rounded transition">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-                            </svg>
-                          </button>
-                          <button className="p-1.5 text-red-600 hover:bg-red-50 rounded transition">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="3 6 5 6 21 6" />
-                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                              <line x1="10" y1="11" x2="10" y2="17" />
-                              <line x1="14" y1="11" x2="14" y2="17" />
-                            </svg>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="bg-white rounded-lg border border-gray-200">
+                <div className="p-6 border-b border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold">Participantes del Evento</h3>
+                    <button className="flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition">
+                      <UserPlus className="w-4 h-4" />
+                      Añadir participante
+                    </button>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 text-left">
+                      <tr>
+                        <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                        <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Nombre</th>
+                        <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                        <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                        <th className="px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {event.participants && event.participants.length > 0 ? (
+                        event.participants.map((participant) => (
+                          <tr key={participant.id} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{participant.id}</td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center">
+                                <div className={`w-8 h-8 rounded-full ${getInitialsColor(participant.name || '')} flex items-center justify-center text-white font-medium text-sm`}>
+                                  {participant.name ?
+                                    participant.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
+                                    : '??'}
+                                </div>
+                                <div className="ml-3">
+                                  <p className="text-sm font-medium text-gray-900">{participant.name || 'Sin nombre'}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <p className="text-sm text-gray-500">{participant.email || 'Sin email'}</p>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                                {participant.is_active !== undefined ? (participant.is_active ? 'Activo' : 'Inactivo') : 'Desconocido'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              <button className="text-blue-600 hover:text-blue-800 mr-3">
+                                Ver
+                              </button>
+                              <button className="text-red-600 hover:text-red-800">
+                                Eliminar
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">
+                            No hay participantes asignados a este evento
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-yellow-700">
+              <h3 className="text-lg font-medium mb-2">Evento no encontrado</h3>
+              <p>El evento solicitado no existe o ha sido eliminado.</p>
+              <button
+                onClick={onBack}
+                className="mt-4 px-4 py-2 bg-yellow-100 text-yellow-700 rounded-lg hover:bg-yellow-200 transition"
+              >
+                Volver a la lista de eventos
+              </button>
             </div>
-          </div>
+          )}
         </div>
       </div>
 
