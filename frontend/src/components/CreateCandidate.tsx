@@ -1,6 +1,8 @@
-import { useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ArrowLeft, Loader } from 'lucide-react';
 import Sidebar from './Sidebar';
+import { candidateService } from '../services/candidateService';
+import { eventService, Event } from '../services/eventService';
 
 interface CreateCandidateProps {
   onBack?: () => void;
@@ -21,24 +23,70 @@ export default function CreateCandidate({ onBack, onCreate, onNavigate }: Create
   const [enviarCredenciales, setEnviarCredenciales] = useState(true);
   const [enviarRecordatorio, setEnviarRecordatorio] = useState(true);
 
-  // Manejar el envío del formulario
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onCreate && onCreate({
-      nombre,
-      apellidos,
-      correo,
-      puesto,
-      experiencia,
-      habilidades: habilidades.split(',').map(h => h.trim()),
-      evento,
-      notas,
-      configuracion: {
-        enviarCredenciales,
-        enviarRecordatorio
+  // Estados para la lista de eventos
+  const [eventos, setEventos] = useState<Event[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Cargar eventos al iniciar
+  useEffect(() => {
+    const fetchEvents = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const fetchedEvents = await eventService.getEvents();
+        setEventos(fetchedEvents);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error al cargar eventos');
+        console.error('Error al cargar eventos:', err);
+      } finally {
+        setLoading(false);
       }
-    });
-    onBack && onBack();
+    };
+
+    fetchEvents();
+  }, []);
+
+  // Manejar el envío del formulario
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSubmitting(true);
+      setError(null);
+
+      // Preparar datos del candidato en el formato esperado por el backend
+      const candidateData: any = {
+        nombre: nombre,
+        apellidos: apellidos,
+        correo: correo,
+        puesto: puesto,
+        experiencia: experiencia ? parseInt(experiencia) : 0,
+        habilidades: habilidades.split(',').filter(h => h.trim() !== ''),
+        notas: notas,
+        configuracion: {
+          enviarCredenciales: enviarCredenciales,
+          enviarRecordatorio: enviarRecordatorio
+        }
+      };
+
+      // Solo incluir el evento si se ha seleccionado uno
+      if (evento) {
+        candidateData.evento = evento;
+      }
+
+      // Enviar datos al backend
+      const result = await candidateService.createCandidate(candidateData);
+
+      // Notificar éxito
+      onCreate && onCreate(result);
+      onBack && onBack();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al crear el candidato');
+      console.error('Error al crear candidato:', err);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -82,7 +130,7 @@ export default function CreateCandidate({ onBack, onCreate, onNavigate }: Create
                       required
                     />
                   </div>
-                  
+
                   <div>
                     <label htmlFor="apellidos" className="block text-sm font-medium text-gray-700 mb-1">
                       Apellidos <span className="text-red-500">*</span>
@@ -96,7 +144,7 @@ export default function CreateCandidate({ onBack, onCreate, onNavigate }: Create
                       required
                     />
                   </div>
-                  
+
                   <div>
                     <label htmlFor="correo" className="block text-sm font-medium text-gray-700 mb-1">
                       Correo Electrónico <span className="text-red-500">*</span>
@@ -131,7 +179,7 @@ export default function CreateCandidate({ onBack, onCreate, onNavigate }: Create
                       required
                     />
                   </div>
-                  
+
                   <div>
                     <label htmlFor="experiencia" className="block text-sm font-medium text-gray-700 mb-1">
                       Años de experiencia
@@ -152,7 +200,7 @@ export default function CreateCandidate({ onBack, onCreate, onNavigate }: Create
                       </div>
                     </div>
                   </div>
-                  
+
                   <div>
                     <label htmlFor="habilidades" className="block text-sm font-medium text-gray-700 mb-1">
                       Habilidades principales
@@ -176,21 +224,34 @@ export default function CreateCandidate({ onBack, onCreate, onNavigate }: Create
                 <div className="space-y-4">
                   <div>
                     <label htmlFor="evento" className="block text-sm font-medium text-gray-700 mb-1">
-                      Evento <span className="text-red-500">*</span>
+                      Evento
                     </label>
                     <div className="relative">
-                      <select
-                        id="evento"
-                        value={evento}
-                        onChange={(e) => setEvento(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm appearance-none"
-                        required
-                      >
-                        <option value="">Seleccionar evento</option>
-                        <option value="EVT-2023-089">EVT-2023-089: Evaluación Frontend (15/11/2023)</option>
-                        <option value="EVT-2023-090">EVT-2023-090: Evaluación Backend (20/11/2023)</option>
-                        <option value="EVT-2023-091">EVT-2023-091: Evaluación UX/UI (25/11/2023)</option>
-                      </select>
+                      {loading ? (
+                        <div className="flex items-center justify-center p-2 border border-gray-300 rounded-md">
+                          <Loader className="h-4 w-4 text-gray-400 animate-spin" />
+                          <span className="ml-2 text-sm text-gray-500">Cargando eventos...</span>
+                        </div>
+                      ) : error ? (
+                        <div className="p-2 border border-red-300 bg-red-50 rounded-md">
+                          <p className="text-sm text-red-600">{error}</p>
+                        </div>
+                      ) : (
+                        <select
+                          id="evento"
+                          value={evento}
+                          onChange={(e) => setEvento(e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm appearance-none"
+                          disabled={loading || submitting}
+                        >
+                          <option value="">Seleccionar evento (opcional)</option>
+                          {eventos.map((event) => (
+                            <option key={event.id} value={event.id}>
+                              {event.code}: {event.name} ({event.date})
+                            </option>
+                          ))}
+                        </select>
+                      )}
                       <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
                           <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 011.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -198,7 +259,7 @@ export default function CreateCandidate({ onBack, onCreate, onNavigate }: Create
                       </div>
                     </div>
                   </div>
-                  
+
                   <div>
                     <label htmlFor="notas" className="block text-sm font-medium text-gray-700 mb-1">
                       Notas adicionales
@@ -215,7 +276,7 @@ export default function CreateCandidate({ onBack, onCreate, onNavigate }: Create
 
                   <div className="pt-3">
                     <h3 className="text-sm font-medium text-gray-700 mb-3">Configuración de Acceso</h3>
-                    
+
                     <div className="bg-blue-50 border border-blue-100 rounded-md p-3 mb-4">
                       <div className="flex items-start">
                         <div className="flex-shrink-0 mt-0.5">
@@ -223,12 +284,13 @@ export default function CreateCandidate({ onBack, onCreate, onNavigate }: Create
                             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                           </svg>
                         </div>
-                        <p className="ml-3 text-xs text-blue-700">
-                          El sistema generará automáticamente las credenciales de acceso y las enviará al correo proporcionado.
-                        </p>
+                        <div className="ml-3 text-xs text-blue-700">
+                          <p>El sistema generará automáticamente las credenciales de acceso y las enviará al correo proporcionado.</p>
+                          <p className="mt-1">El candidato puede ser creado sin asignar a un evento, y asignado posteriormente.</p>
+                        </div>
                       </div>
                     </div>
-                    
+
                     <div className="space-y-2">
                       <label className="flex items-center">
                         <input
@@ -239,7 +301,7 @@ export default function CreateCandidate({ onBack, onCreate, onNavigate }: Create
                         />
                         <span className="ml-2 text-sm text-gray-700">Enviar credenciales por correo</span>
                       </label>
-                      
+
                       <label className="flex items-center">
                         <input
                           type="checkbox"
@@ -255,19 +317,44 @@ export default function CreateCandidate({ onBack, onCreate, onNavigate }: Create
               </div>
             </div>
 
+            {error && (
+              <div className="p-4 mb-4 bg-red-50 border border-red-200 rounded-md">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="ml-3">
+                    <h3 className="text-sm font-medium text-red-800">Error al crear el candidato</h3>
+                    <p className="text-sm text-red-700 mt-1">{error}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="flex justify-end mt-6 space-x-3">
               <button
                 type="button"
                 onClick={onBack}
-                className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                disabled={submitting}
+                className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                disabled={submitting}
+                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[120px]"
               >
-                Crear Candidato
+                {submitting ? (
+                  <>
+                    <Loader className="h-4 w-4 animate-spin mr-2" />
+                    Creando...
+                  </>
+                ) : (
+                  "Crear Candidato"
+                )}
               </button>
             </div>
           </form>
