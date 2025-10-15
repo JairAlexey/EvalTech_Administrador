@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Loader, Search, Check, X } from 'lucide-react';
 import Sidebar from './Sidebar';
-import { authService, User as AuthUser } from '../services/authService';
+import authService, { type User as AuthUser } from '../services/authService';
 
 interface User extends AuthUser {
     roleName?: string;
