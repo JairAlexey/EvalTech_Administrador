@@ -3,3 +3,5 @@ django-cors-headers
 gunicorn
 python-dotenv
 requests
+PyJWT
+supervisor
