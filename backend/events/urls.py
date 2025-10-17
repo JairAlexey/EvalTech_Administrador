@@ -14,5 +14,4 @@ urlpatterns = [
     # Rutas para la gestión de candidatos/participantes
     path("api/candidates", views.participant_list_create),
     path("api/candidates/<int:participant_id>", views.participant_detail),
-    path("api/candidates/<int:participant_id>/status", views.participant_status_update),
 ]

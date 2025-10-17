@@ -15,6 +15,7 @@ import EvaluationDetails from './components/EvaluationDetails';
 import UserRoleManagement from './components/UserRoleManagement';
 import WaitingForRole from './components/WaitingForRole';
 import { useAuth } from './contexts/AuthContext';
+import CreateCandidate from './components/CreateCandidate';
 
 type Page = 'home' | 'login' | 'register' | 'dashboard' | 'eventos' | 'create-event' | 'event-details' | 'edit-event' | 'candidatos' | 'candidate-details' | 'edit-candidate' | 'create-candidate' | 'evaluaciones' | 'evaluation-details' | 'estadisticas' | 'exportar' | 'ajustes' | 'cuenta' | 'roles';
 
@@ -333,6 +334,16 @@ function App() {
                         onNavigate={handleNavigate}
                     />
                 );
+
+            case 'create-candidate':
+                return (
+                    <CreateCandidate
+                        onBack={handleBackToCandidates}
+                        onNavigate={handleNavigate}
+                        onCreate={() => setCurrentPage('candidatos')}
+                    />
+                );
+
 
             case 'candidate-details':
                 console.log("Rendering CandidateDetails with ID:", selectedCandidateId);
