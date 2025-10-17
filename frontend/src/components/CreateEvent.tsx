@@ -1,11 +1,15 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowLeft, Search, Info } from 'lucide-react';
 import Sidebar from './Sidebar';
+import eventService, { type EventFormData } from '../services/eventService';
+import candidateService from '../services/candidateService';
 
 interface Candidate {
   id: string;
   name: string;
-  role: string;
+  role?: string;
+  position?: string;
+  email: string;
   initials: string;
   color: string;
   selected: boolean;
@@ -14,9 +18,10 @@ interface Candidate {
 interface CreateEventProps {
   onBack?: () => void;
   onNavigate?: (page: string) => void;
+  onEventCreated?: (eventId: string) => void;
 }
 
-export default function CreateEvent({ onBack, onNavigate }: CreateEventProps) {
+export default function CreateEvent({ onBack, onNavigate, onEventCreated }: CreateEventProps) {
   const [eventName, setEventName] = useState('');
   const [description, setDescription] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -28,13 +33,45 @@ export default function CreateEvent({ onBack, onNavigate }: CreateEventProps) {
   const [micEnabled, setMicEnabled] = useState(true);
   const [screenEnabled, setScreenEnabled] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [isLoadingCandidates, setIsLoadingCandidates] = useState(true);
 
-  const [candidates, setCandidates] = useState<Candidate[]>([
-    { id: '1', name: 'Juan Pérez', role: 'Frontend Developer', initials: 'JP', color: 'bg-blue-500', selected: false },
-    { id: '2', name: 'María Rodríguez', role: 'Backend Developer', initials: 'MR', color: 'bg-green-500', selected: false },
-    { id: '3', name: 'Alejandro López', role: 'Full Stack Developer', initials: 'AL', color: 'bg-purple-500', selected: false },
-    { id: '4', name: 'Sofía García', role: 'UX/UI Designer', initials: 'SG', color: 'bg-red-500', selected: false },
-  ]);
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+
+  // Cargar los candidatos al montar el componente
+  useEffect(() => {
+    const fetchCandidates = async () => {
+      setIsLoadingCandidates(true);
+      try {
+        const candidatesData = await candidateService.getCandidates();
+        // Transformar los datos al formato que necesitamos
+        const formattedCandidates: Candidate[] = candidatesData.map(candidate => ({
+          id: candidate.id,
+          name: candidate.name,
+          position: candidate.position,
+          email: candidate.email,
+          initials: candidate.initials,
+          color: candidate.color,
+          selected: false
+        }));
+        setCandidates(formattedCandidates);
+      } catch (error) {
+        console.error('Error al cargar los candidatos:', error);
+      } finally {
+        setIsLoadingCandidates(false);
+      }
+    };
+
+    fetchCandidates();
+  }, []);
+
+  // Filtrar candidatos según el término de búsqueda
+  const filteredCandidates = candidates.filter(candidate =>
+    candidate.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    candidate.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (candidate.position && candidate.position.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
 
   const selectedCount = candidates.filter(c => c.selected).length;
 
@@ -48,9 +85,62 @@ export default function CreateEvent({ onBack, onNavigate }: CreateEventProps) {
     setCandidates(candidates.map(c => ({ ...c, selected: false })));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('Event created');
+    setIsSubmitting(true);
+    setErrorMessage('');
+
+    try {
+      // Validar campos obligatorios
+      if (!eventName || !startDate || !startTime || !duration || !evaluationType || !evaluator) {
+        throw new Error('Por favor complete todos los campos obligatorios');
+      }
+
+      // Validar que al menos un candidato esté seleccionado
+      if (selectedCount === 0) {
+        throw new Error('Debe seleccionar al menos un candidato para el evento');
+      }
+
+      // Obtener timezone del navegador
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Guayaquil';
+
+      // Preparar los datos del formulario
+      const eventData: EventFormData = {
+        eventName,
+        description,
+        startDate,
+        startTime,
+        duration,
+        evaluationType,
+        evaluator,
+        cameraEnabled,
+        micEnabled,
+        screenEnabled,
+        candidates: candidates.map(c => ({
+          id: c.id,
+          name: c.name,
+          email: c.email,
+          role: c.role || c.position,
+          selected: c.selected
+        })),
+        timezone
+      };
+
+      // Enviar los datos al servidor
+      const result = await eventService.createEvent(eventData);
+
+      // Si todo sale bien, notificar y redirigir
+      if (onEventCreated) {
+        onEventCreated(result.id); // Cambiado de result.eventId a result.id
+      } else if (onBack) {
+        onBack();
+      }
+    } catch (error) {
+      console.error('Error al crear el evento:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'Error al crear el evento');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -239,37 +329,52 @@ export default function CreateEvent({ onBack, onNavigate }: CreateEventProps) {
 
               <div className="mb-4 flex items-center justify-between">
                 <p className="text-sm text-gray-600">Candidatos disponibles</p>
-                <span className="text-sm font-medium text-blue-600">{candidates.length} disponibles</span>
+                <span className="text-sm font-medium text-blue-600">{filteredCandidates.length} disponibles</span>
               </div>
 
-              <div className="space-y-2 mb-6">
-                {candidates.map((candidate) => (
-                  <div
-                    key={candidate.id}
-                    onClick={() => toggleCandidate(candidate.id)}
-                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition ${
-                      candidate.selected
+              {isLoadingCandidates ? (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">Cargando candidatos...</p>
+                </div>
+              ) : filteredCandidates.length === 0 ? (
+                <div className="text-center py-8 border border-dashed border-gray-300 rounded-lg">
+                  <p className="text-gray-500">No se encontraron candidatos{searchTerm ? ` para "${searchTerm}"` : ''}</p>
+                </div>
+              ) : (
+                <div className="space-y-2 mb-6 max-h-64 overflow-y-auto">
+                  {filteredCandidates.map((candidate) => (
+                    <div
+                      key={candidate.id}
+                      onClick={() => toggleCandidate(candidate.id)}
+                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition ${candidate.selected
                         ? 'border-blue-500 bg-blue-50'
                         : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className={`w-10 h-10 rounded-full ${candidate.color} flex items-center justify-center text-white font-semibold text-sm flex-shrink-0`}>
-                      {candidate.initials}
+                        }`}
+                    >
+                      <div className={`w-10 h-10 rounded-full ${candidate.color} flex items-center justify-center text-white font-semibold text-sm flex-shrink-0`}>
+                        {candidate.initials}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-900 text-sm">{candidate.name}</p>
+                        <p className="text-xs text-gray-600">{candidate.position || candidate.role || 'Sin puesto'}</p>
+                      </div>
                     </div>
-                    <div className="flex-1">
-                      <p className="font-medium text-gray-900 text-sm">{candidate.name}</p>
-                      <p className="text-xs text-gray-600">{candidate.role}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
 
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+              <div className={`${selectedCount === 0 ? "bg-red-50 border-red-200" : "bg-blue-50 border-blue-200"} border rounded-lg p-4 mb-4`}>
                 <div className="flex gap-3">
-                  <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <Info className={`w-5 h-5 ${selectedCount === 0 ? "text-red-600" : "text-blue-600"} flex-shrink-0 mt-0.5`} />
                   <div>
                     <p className="text-sm font-medium text-gray-900 mb-1">Información</p>
-                    <p className="text-xs text-gray-700">Los candidatos seleccionados recibirán una notificación por correo electrónico con los detalles del evento y las instrucciones para acceder a la evaluación.</p>
+                    {selectedCount === 0 ? (
+                      <p className="text-xs text-gray-700">
+                        <strong>Importante:</strong> Debe seleccionar al menos un candidato para crear el evento.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-700">Los candidatos seleccionados recibirán una notificación por correo electrónico con los detalles del evento y las instrucciones para acceder a la evaluación.</p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -292,17 +397,25 @@ export default function CreateEvent({ onBack, onNavigate }: CreateEventProps) {
             </div>
 
             <div className="col-span-2 flex justify-end gap-3">
+              {errorMessage && (
+                <div className="flex-1 text-red-600 text-sm mt-1">
+                  {errorMessage}
+                </div>
+              )}
               <button
                 type="button"
-                className="px-6 py-2.5 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition"
+                onClick={onBack}
+                disabled={isSubmitting}
+                className="px-6 py-2.5 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition disabled:opacity-50"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition shadow-sm"
+                disabled={isSubmitting || selectedCount === 0}
+                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition shadow-sm disabled:opacity-50"
               >
-                Crear Evento
+                {isSubmitting ? 'Creando...' : 'Crear Evento'}
               </button>
             </div>
           </form>
