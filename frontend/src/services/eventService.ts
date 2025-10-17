@@ -67,6 +67,7 @@ export interface EventFormData {
   micEnabled: boolean;
   screenEnabled: boolean;
   candidates?: Candidate[];
+  timezone: string;
 }
 
 export const eventService = {
@@ -261,7 +262,7 @@ export const eventService = {
         throw new Error('No hay token de autenticación');
       }
 
-      const response = await fetch(`${API_URL}/events/api/events/${eventId}/send-emails`, {
+      const response = await fetch(`${API_URL}/events/api/events/${eventId}/emails`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

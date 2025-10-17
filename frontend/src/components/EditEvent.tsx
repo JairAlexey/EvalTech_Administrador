@@ -49,6 +49,18 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
   // Estado para participantes
   const [participants, setParticipants] = useState<Candidate[]>([]);
 
+  // Utilidad para convertir UTC a local y formatear para input date/time
+  function formatUTCToLocalInput(dateStr?: string, timeStr?: string) {
+    if (!dateStr || !timeStr) return { localDate: '', localTime: '' };
+    // Construir el objeto Date en UTC
+    const utcDate = new Date(`${dateStr}T${timeStr}:00Z`);
+    // Obtener fecha local en formato YYYY-MM-DD
+    const localDate = `${utcDate.getFullYear()}-${(utcDate.getMonth() + 1).toString().padStart(2, '0')}-${utcDate.getDate().toString().padStart(2, '0')}`;
+    // Obtener hora local en formato HH:MM
+    const localTime = `${utcDate.getHours().toString().padStart(2, '0')}:${utcDate.getMinutes().toString().padStart(2, '0')}`;
+    return { localDate, localTime };
+  }
+
   // Cargar datos del evento
   useEffect(() => {
     const fetchEventData = async () => {
@@ -101,20 +113,21 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
           setEventName(eventData.name);
           setDescription(eventData.description || '');
 
-          // Formatear fecha y hora
-          if (eventData.startDate) {
-            setEventDate(eventData.startDate);
-          } else if (eventData.date) {
-            // Intentar usar el formato alternativo si startDate no está disponible
-            setEventDate(eventData.date);
+          // Formatear fecha y hora en base a la zona horaria local
+          let localDate = '';
+          let localTime = '';
+          if (eventData.startDate && eventData.startTime) {
+            const formatted = formatUTCToLocalInput(eventData.startDate, eventData.startTime);
+            localDate = formatted.localDate;
+            localTime = formatted.localTime;
+          } else if (eventData.date && eventData.time) {
+            const formatted = formatUTCToLocalInput(eventData.date, eventData.time);
+            localDate = formatted.localDate;
+            localTime = formatted.localTime;
           }
 
-          if (eventData.startTime) {
-            setEventTime(eventData.startTime);
-          } else if (eventData.time) {
-            // Intentar usar el formato alternativo si startTime no está disponible
-            setEventTime(eventData.time);
-          }
+          setEventDate(localDate);
+          setEventTime(localTime);
 
           setDuration(eventData.duration ? eventData.duration.toString() : '60');
           setEvaluationType(eventData.evaluationType || '');
@@ -220,6 +233,9 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
       setSaving(true);
       setError(null);
 
+      // Obtener el timezone del usuario
+      const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
       // Format date and time properly
       // Make sure date is in YYYY-MM-DD format
       let formattedDate = eventDate;
@@ -286,7 +302,8 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
         cameraEnabled: cameraEnabled,
         micEnabled: micEnabled,
         screenEnabled: screenEnabled,
-        candidates: [...selectedParticipants, ...newSelectedCandidates]
+        candidates: [...selectedParticipants, ...newSelectedCandidates],
+        timezone: userTimezone
       };
 
       console.log('Sending event update:', eventData);

@@ -177,7 +177,7 @@ export default function CandidateDetails({ onBack, onNavigate, candidateId, onEd
                 <div className="space-y-4">
                   <div>
                     <p className="text-xs text-gray-500">Nombre completo</p>
-                    <p className="font-medium">{`${candidate.nombre} ${candidate.apellidos}`}</p>
+                    <p className="font-medium">{`${candidate.first_name} ${candidate.last_name}`}</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Correo electrónico</p>
@@ -553,10 +553,10 @@ export default function CandidateDetails({ onBack, onNavigate, candidateId, onEd
           ) : candidate ? (
             <div className="mb-8 flex items-center space-x-6">
               <div className={`w-16 h-16 ${getColor(candidate.id || '0')} rounded-full flex items-center justify-center text-gray-700 text-2xl font-medium`}>
-                {getInitials(`${candidate.nombre} ${candidate.apellidos}`)}
+                {getInitials(`${candidate.first_name} ${candidate.last_name}`)}
               </div>
               <div>
-                <h2 className="text-xl font-bold">{`${candidate.nombre} ${candidate.apellidos}`}</h2>
+                <h2 className="text-xl font-bold">{`${candidate.first_name} ${candidate.last_name}`}</h2>
                 <p className="text-gray-600">{candidate.position}</p>
               </div>
               <div className="ml-auto flex items-center space-x-4">

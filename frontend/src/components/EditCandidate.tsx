@@ -66,8 +66,8 @@ export default function EditCandidate({ onBack, onSave, candidateId, onNavigate 
           setCandidate(candidateData);
 
           // Actualizar estados del formulario
-          setNombre(candidateData.nombre || '');
-          setApellidos(candidateData.apellidos || '');
+          setNombre(candidateData.first_name || '');
+          setApellidos(candidateData.last_name || '');
           setCorreo(candidateData.email || '');
           setPuesto(candidateData.position || '');
           setExperiencia(candidateData.experienceYears?.toString() || '');
@@ -75,20 +75,19 @@ export default function EditCandidate({ onBack, onSave, candidateId, onNavigate 
           setEvento(candidateData.eventId ?? '');
           setEstado(candidateData.status || '');
           setNotas(candidateData.notes || '');
-          setInitials(getInitials(candidateData.nombre || '', candidateData.apellidos || ''));
+          setInitials(getInitials(candidateData.first_name || '', candidateData.last_name || ''));
         } catch (candidateError) {
           console.error("EditCandidate - Error loading candidate data:", candidateError);
-          throw candidateError; // Re-throw to be caught by outer try-catch
+          throw candidateError;
         }
 
-        // Cargar eventos (continuar incluso si falla la carga del candidato)
+        // Cargar eventos
         try {
           const eventsData = await eventService.getEvents();
           console.log("EditCandidate - Events data received:", eventsData);
           setEventos(eventsData);
         } catch (eventsError) {
           console.error("EditCandidate - Error loading events:", eventsError);
-          // No throw here, we can still edit the candidate without events list
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error al cargar los datos');
@@ -132,12 +131,13 @@ export default function EditCandidate({ onBack, onSave, candidateId, onNavigate 
         first_name: nombre,
         last_name: apellidos,
         email: correo,
-        role: puesto,  // This is correctly mapped to 'puesto' in the service layer now
+        role: puesto,
         experience: experiencia ? parseInt(experiencia) : 0,
         skills: habilidades.split(',').map(h => h.trim()).filter(h => h !== ''),
         notes: notas,
-        send_credentials: true,  // You might want to add controls for these
-        send_reminder: true
+        send_credentials: true,
+        send_reminder: true,
+        status: getBackendStatus(estado),
       };
 
       // Solo incluir evento si se seleccionó uno
@@ -149,11 +149,6 @@ export default function EditCandidate({ onBack, onSave, candidateId, onNavigate 
 
       // Actualizar candidato
       await candidateService.updateCandidate(candidateId, updatedData);
-
-      // Actualizar estado si es necesario (usando el mapeo correcto)
-      if (candidate && candidate.statusKey !== getBackendStatus(estado)) {
-        await candidateService.updateCandidateStatus(candidateId, getBackendStatus(estado));
-      }
 
       // Notificar éxito
       onSave && onSave(updatedData);
@@ -264,14 +259,6 @@ export default function EditCandidate({ onBack, onSave, candidateId, onNavigate 
                     </svg>
                     {puesto}
                   </span>
-                  {candidate?.eventKey && (
-                    <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-yellow-100 text-yellow-700">
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3 mr-1">
-                        <path d="M5.25 12a.75.75 0 01.75-.75h7.5a.75.75 0 010 1.5h-7.5a.75.75 0 01-.75-.75zM6.25 4.25a.75.75 0 00-.75.75v3.5c0 .414.336.75.75.75h3.5a.75.75 0 00.75-.75V5a.75.75 0 00-.75-.75h-3.5zM5.5 15.25a.75.75 0 01.75-.75h7.5a.75.75 0 010 1.5h-7.5a.75.75 0 01-.75-.75zM14.25 4.25a.75.75 0 00-.75.75v3.5c0 .414.336.75.75.75h3.5a.75.75 0 00.75-.75V5a.75.75 0 00-.75-.75h-3.5z" />
-                      </svg>
-                      {candidate.eventKey}
-                    </span>
-                  )}
                 </div>
               </>
             )}

@@ -30,6 +30,82 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
 
+  function parseEventDateTime(
+    dateStr?: string,
+    timeStr?: string,
+    targetTimeZone: string = Intl.DateTimeFormat().resolvedOptions().timeZone // usa la zona del navegador por defecto
+  ) {
+    if (
+      !dateStr ||
+      !timeStr ||
+      dateStr === 'Fecha no disponible' ||
+      timeStr === '--:--'
+    ) {
+      return { localDate: '', localTime: '' };
+    }
+
+    // dateStr esperado: "DD/MM/YYYY"
+    const [day, month, year] = dateStr.split('/');
+    if (!day || !month || !year) return { localDate: '', localTime: '' };
+
+    // timeStr puede ser "HH:MM" o "HH:MM AM/PM"
+    let [time, period] = timeStr.split(' ');
+    if (!time) return { localDate: '', localTime: '' };
+    let [hStr, mStr] = time.split(':');
+    if (!hStr || !mStr) return { localDate: '', localTime: '' };
+
+    let h = parseInt(hStr, 10);
+    const min = parseInt(mStr, 10);
+
+    // Normalizar 12h → 24h si trae AM/PM
+    if (period) {
+      const p = period.trim().toUpperCase();
+      if (p === 'PM' && h < 12) h += 12;
+      if (p === 'AM' && h === 12) h = 0;
+    }
+
+    // Construir un instante en UTC de forma segura (sin parseo de string ambiguo)
+    const utcMs = Date.UTC(
+      parseInt(year, 10),
+      parseInt(month, 10) - 1,
+      parseInt(day, 10),
+      h,
+      min,
+      0,
+      0
+    );
+    const utcDate = new Date(utcMs);
+    if (isNaN(utcDate.getTime())) return { localDate: '', localTime: '' };
+
+    // Formatear en la zona objetivo *sin depender* de la zona del sistema
+    const fmt = new Intl.DateTimeFormat('es-EC', {
+      timeZone: targetTimeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+
+    // Extraer partes para armar "DD/MM/YYYY" y "HH:MM"
+    const parts = fmt.formatToParts(utcDate);
+    const get = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find(p => p.type === type)?.value ?? '';
+
+    const localDay = get('day');
+    const localMonth = get('month');
+    const localYear = get('year');
+    const localHour = get('hour');
+    const localMinute = get('minute');
+
+    const localDate = `${localDay}/${localMonth}/${localYear}`;
+    const localTime = `${localHour}:${localMinute}`;
+
+    return { localDate, localTime };
+  }
+
+
   // Cargar eventos desde el backend
   useEffect(() => {
     const fetchEvents = async () => {
@@ -290,79 +366,83 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
                         </td>
                       </tr>
                     ) : (
-                      paginatedEvents.map((event) => (
-                        <tr key={event.id} className="hover:bg-gray-50 transition cursor-pointer"
-                          onClick={(e) => handleViewEvent(e, event.id)}>
-                          <td className="px-6 py-4">
-                            <input
-                              type="checkbox"
-                              checked={event.selected}
-                              onChange={(e) => {
-                                e.stopPropagation(); // Prevenir la navegación al hacer clic en el checkbox
-                                toggleEvent(event.id);
-                              }}
-                              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                            />
-                          </td>
-                          <td className="px-6 py-4">
-                            <div>
-                              <p className="text-sm font-medium text-gray-900">{event.name || 'Sin nombre'}</p>
-                              <p className="text-xs text-gray-500 mt-0.5">{event.code || 'Sin código'}</p>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div>
-                              <p className="text-sm text-gray-900">{event.date || 'Fecha no disponible'}</p>
-                              <p className="text-xs text-gray-500 mt-0.5">{event.time || '--:--'}</p>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <p className="text-sm text-gray-900">{event.duration || 'N/A'}</p>
-                          </td>
-                          <td className="px-6 py-4">
-                            <p className="text-sm text-gray-900">{event.participants || 0} candidatos</p>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(event.status || '')}`}>
-                              {event.status || 'No definido'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  handleViewEvent(e, event.id);
+
+                      paginatedEvents.map((event) => {
+                        const { localDate, localTime } = parseEventDateTime(event.date, event.time);
+                        return (
+                          <tr key={event.id} className="hover:bg-gray-50 transition cursor-pointer"
+                            onClick={(e) => handleViewEvent(e, event.id)}>
+                            <td className="px-6 py-4">
+                              <input
+                                type="checkbox"
+                                checked={event.selected}
+                                onChange={(e) => {
+                                  e.stopPropagation(); // Prevenir la navegación al hacer clic en el checkbox
+                                  toggleEvent(event.id);
                                 }}
-                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  onEditEvent && onEditEvent(event.id);
-                                }}
-                                className="p-1.5 text-gray-600 hover:bg-gray-100 rounded transition"
-                              >
-                                <Edit className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  handleDeleteClick(event.id);
-                                }}
-                                className="p-1.5 text-red-600 hover:bg-red-50 rounded transition"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                              />
+                            </td>
+                            <td className="px-6 py-4">
+                              <div>
+                                <p className="text-sm font-medium text-gray-900">{event.name || 'Sin nombre'}</p>
+                                <p className="text-xs text-gray-500 mt-0.5">{event.code || 'Sin código'}</p>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div>
+                                <p className="text-sm text-gray-900">{localDate || 'Fecha no disponible'}</p>
+                                <p className="text-xs text-gray-500 mt-0.5">{localTime || '--:--'}</p>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <p className="text-sm text-gray-900">{event.duration || 'N/A'}</p>
+                            </td>
+                            <td className="px-6 py-4">
+                              <p className="text-sm text-gray-900">{event.participants || 0} candidatos</p>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(event.status || '')}`}>
+                                {event.status || 'No definido'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleViewEvent(e, event.id);
+                                  }}
+                                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    onEditEvent && onEditEvent(event.id);
+                                  }}
+                                  className="p-1.5 text-gray-600 hover:bg-gray-100 rounded transition"
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleDeleteClick(event.id);
+                                  }}
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded transition"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
