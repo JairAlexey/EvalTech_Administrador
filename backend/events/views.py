@@ -2,12 +2,12 @@ from django.utils import timezone
 from datetime import timedelta, datetime
 from django.http import JsonResponse, HttpRequest
 import json
-import random
 from events.communication import send_bulk_emails
 from .models import Event, Participant, ParticipantLog
 from django.views.decorators.csrf import csrf_exempt
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Q
+from zoneinfo import ZoneInfo
 
 
 def check_event_time(event):
@@ -141,15 +141,16 @@ def log_participant_audio_video_event(request: HttpRequest):
 
 
 def trigger_emails(request, event_id):
-    try:
-        send_bulk_emails(
-            event_id=event_id,
-            subject="Nuevo comunicado del evento",
-            body="<h1>Contenido importante del evento</h1>",
-        )
-        return JsonResponse({"status": "Correos enviados exitosamente"})
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=400)
+    if request.method == "POST":
+        try:
+            send_bulk_emails(
+                event_id=event_id,
+                subject="Nuevo comunicado del evento",
+                body="<h1>Contenido importante del evento</h1>",
+            )
+            return JsonResponse({"status": "Correos enviados exitosamente"})
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=400)
 
 
 @csrf_exempt
@@ -289,8 +290,8 @@ def participant_detail(request, participant_id):
         # Preparar respuesta
         participant_data = {
             "id": participant.id,
-            "nombre": participant.first_name,
-            "apellidos": participant.last_name,
+            "first_name": participant.first_name,
+            "last_name": participant.last_name,
             "name": participant.name,
             "email": participant.email,
             "position": participant.position or "",
@@ -321,59 +322,50 @@ def participant_detail(request, participant_id):
             print("Received data for update:", data)
 
             # Actualizar campos básicos
-            if "nombre" in data:
-                participant.first_name = data.get("nombre", participant.first_name)
-                # Also update the last name if it exists
-                if "apellidos" in data:
-                    participant.last_name = data.get("apellidos", participant.last_name)
+            if "first_name" in data and data["first_name"] != participant.first_name:
+                participant.first_name = data["first_name"]
+                if "last_name" in data and data["last_name"] != participant.last_name:
+                    participant.last_name = data["last_name"]
                 participant.name = (
                     f"{participant.first_name} {participant.last_name}".strip()
                 )
 
-            if "correo" in data:
-                participant.email = data.get("correo", participant.email)
+            if "email" in data and data["email"] != participant.email:
+                participant.email = data["email"]
 
-            if "puesto" in data:
-                print(
-                    f"Updating position from '{participant.position}' to '{data.get('puesto')}'"
+            if "role" in data and data["role"] != participant.position:
+                participant.position = data["role"]
+
+            if (
+                "experience" in data
+                and data["experience"] != participant.experience_years
+            ):
+                participant.experience_years = data["experience"]
+
+            if "skills" in data:
+                skills = data["skills"]
+                skills_str = (
+                    ",".join(skills) if isinstance(skills, list) else str(skills)
                 )
-                participant.position = data.get("puesto", participant.position)
+                if skills_str != participant.skills:
+                    participant.skills = skills_str
 
-            if "experiencia" in data:
-                participant.experience_years = data.get(
-                    "experiencia", participant.experience_years
-                )
+            if "notes" in data and data["notes"] != participant.notes:
+                participant.notes = data["notes"]
 
-            # Procesar habilidades
-            if "habilidades" in data:
-                skills = data.get("habilidades", [])
-                if isinstance(skills, list):
-                    participant.skills = ",".join(skills)
-                else:
-                    participant.skills = str(skills)
+            if "status" in data and data["status"] != participant.status:
+                participant.status = data["status"]
 
-            if "notas" in data:
-                participant.notes = data.get("notas", participant.notes)
-
-            if "status" in data:
-                participant.status = data.get("status", participant.status)
-
-            if "evento" in data:
-                try:
-                    event_id = data.get("evento")
-                    event = Event.objects.get(id=event_id)
-                    participant.event = event
-                except Event.DoesNotExist:
-                    return JsonResponse({"error": "Evento no encontrado"}, status=404)
-
-            if "configuracion" in data:
-                config = data.get("configuracion", {})
-                participant.send_credentials = config.get(
-                    "enviarCredenciales", participant.send_credentials
-                )
-                participant.send_reminder = config.get(
-                    "enviarRecordatorio", participant.send_reminder
-                )
+            if "event" in data:
+                event_id = data["event"]
+                if not participant.event or participant.event.id != event_id:
+                    try:
+                        event = Event.objects.get(id=event_id)
+                        participant.event = event
+                    except Event.DoesNotExist:
+                        return JsonResponse(
+                            {"error": "Evento no encontrado"}, status=404
+                        )
 
             # Guardar cambios
             participant.save()
@@ -396,38 +388,6 @@ def participant_detail(request, participant_id):
             return JsonResponse(
                 {"message": f'Candidato "{participant_name}" eliminado exitosamente'}
             )
-        except Exception as e:
-            return JsonResponse({"error": str(e)}, status=400)
-
-    return JsonResponse({"error": "Método no permitido"}, status=405)
-
-
-@csrf_exempt
-def participant_status_update(request, participant_id):
-    """Endpoint para actualizar únicamente el estado de un participante"""
-    try:
-        participant = Participant.objects.get(id=participant_id)
-    except Participant.DoesNotExist:
-        return JsonResponse({"error": "Candidato no encontrado"}, status=404)
-
-    if request.method == "PUT":
-        try:
-            data = json.loads(request.body)
-            status = data.get("status")
-
-            if status in [s[0] for s in Participant.STATUS_CHOICES]:
-                participant.status = status
-                participant.save(update_fields=["status", "updated_at"])
-
-                return JsonResponse(
-                    {
-                        "message": "Estado actualizado exitosamente",
-                        "status": participant.get_status_display(),
-                    }
-                )
-            else:
-                return JsonResponse({"error": "Estado no válido"}, status=400)
-
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=400)
 
@@ -487,22 +447,52 @@ def event_list_create(request):
         try:
             data = json.loads(request.body)
 
-            # Convertir la fecha y hora a datetime
+            # =======================
+            # 1) Fecha/hora → UTC
+            # =======================
             start_date_str = data.get("startDate", "")
             start_time_str = data.get("startTime", "")
+            tz_str = (data.get("timezone") or "").strip() or "America/Guayaquil"
+
+            # Duración segura
+            try:
+                duration_minutes = int(float(data.get("duration", 60)))
+            except (ValueError, TypeError):
+                duration_minutes = 60
+
+            start_utc = None
+            end_utc = None
 
             if start_date_str and start_time_str:
                 start_datetime_str = f"{start_date_str} {start_time_str}"
-                start_datetime = datetime.strptime(start_datetime_str, "%Y-%m-%d %H:%M")
+                # Parseo flexible de fecha/hora
+                try:
+                    start_naive = datetime.strptime(
+                        start_datetime_str, "%Y-%m-%d %H:%M"
+                    )
+                except ValueError:
+                    start_naive = datetime.strptime(
+                        start_datetime_str, "%d/%m/%Y %H:%M"
+                    )
 
-                # Calcular end_date basado en start_date y duration
-                duration_minutes = int(data.get("duration", 60))
-                end_datetime = start_datetime + timedelta(minutes=duration_minutes)
-            else:
-                start_datetime = None
-                end_datetime = None
+                # Zona horaria IANA del usuario
+                try:
+                    user_tz = ZoneInfo(tz_str)
+                except Exception:
+                    # Fallback si viene una TZ inválida
+                    user_tz = ZoneInfo("America/Guayaquil")
 
-            # Verificar que haya al menos un participante seleccionado
+                # Aware en tz del usuario
+                start_local = timezone.make_aware(start_naive, user_tz)
+                end_local = start_local + timedelta(minutes=duration_minutes)
+
+                # Convertir a UTC para guardar
+                start_utc = start_local.astimezone(ZoneInfo("UTC"))
+                end_utc = end_local.astimezone(ZoneInfo("UTC"))
+
+            # =======================
+            # 2) Validación candidatos
+            # =======================
             candidates = data.get("candidates", [])
             selected_candidates = [c for c in candidates if c.get("selected", False)]
 
@@ -511,13 +501,15 @@ def event_list_create(request):
                     {"error": "Debe seleccionar al menos un participante"}, status=400
                 )
 
-            # Crear el evento
+            # =======================
+            # 3) Crear evento (fechas en UTC)
+            # =======================
             new_event = Event.objects.create(
                 name=data.get("eventName", ""),
                 description=data.get("description", ""),
-                start_date=start_datetime,
-                end_date=end_datetime,
-                duration=int(data.get("duration", 60)),
+                start_date=start_utc,  # <-- UTC
+                end_date=end_utc,  # <-- UTC
+                duration=duration_minutes,
                 event_type=data.get("evaluationType", "tecnica"),
                 evaluator=data.get("evaluator", ""),
                 camera_enabled=data.get("cameraEnabled", True),
@@ -526,28 +518,26 @@ def event_list_create(request):
                 status="programado",
             )
 
-            # Procesar los candidatos seleccionados
+            # =======================
+            # 4) Participantes
+            # =======================
             for candidate_data in selected_candidates:
-                if candidate_data.get("id"):
-                    # Si el candidato ya existe, actualizamos su evento
+                cid = candidate_data.get("id")
+                if cid:
                     try:
-                        participant = Participant.objects.get(
-                            id=candidate_data.get("id")
-                        )
+                        participant = Participant.objects.get(id=cid)
                         participant.event = new_event
                         participant.is_active = True
                         participant.save()
                     except Participant.DoesNotExist:
-                        # Si no existe, lo creamos
-                        participant = Participant.objects.create(
+                        Participant.objects.create(
                             name=candidate_data.get("name", ""),
                             email=candidate_data.get("email", ""),
                             event=new_event,
                             is_active=True,
                         )
                 else:
-                    # Si es un candidato nuevo
-                    participant = Participant.objects.create(
+                    Participant.objects.create(
                         name=candidate_data.get("name", ""),
                         email=candidate_data.get("email", ""),
                         event=new_event,
@@ -615,93 +605,139 @@ def event_detail(request, event_id):
         return JsonResponse({"event": event_data})
 
     elif request.method == "PUT":
-        # Actualizar un evento existente
         try:
-            # Log the received data for debugging
             print(f"Updating event {event_id}")
             data = json.loads(request.body)
             print(f"Received data: {data}")
 
-            # Convertir la fecha y hora a datetime
+            changed = False  # Para guardar solo si hubo cambios
+
+            # =======================
+            # 1) Fecha/hora → UTC
+            # =======================
             start_date_str = data.get("startDate", "")
             start_time_str = data.get("startTime", "")
+            tz_str = (data.get("timezone") or "").strip() or "America/Guayaquil"
 
-            print(f"Date: {start_date_str}, Time: {start_time_str}")
+            print(f"Date: {start_date_str}, Time: {start_time_str}, TZ: {tz_str}")
 
             if start_date_str and start_time_str:
                 try:
                     start_datetime_str = f"{start_date_str} {start_time_str}"
                     print(f"Parsing datetime: {start_datetime_str}")
 
-                    # Try different formats if needed
+                    # Parseo  de formatos comunes
                     try:
-                        start_datetime = datetime.strptime(
+                        start_naive = datetime.strptime(
                             start_datetime_str, "%Y-%m-%d %H:%M"
                         )
                     except ValueError:
-                        # Try another common format
-                        start_datetime = datetime.strptime(
+                        start_naive = datetime.strptime(
                             start_datetime_str, "%d/%m/%Y %H:%M"
                         )
 
-                    # Calcular end_date basado en start_date y duration
+                    # Zona horaria enviada por el front (IANA)
+                    try:
+                        user_tz = ZoneInfo(tz_str)
+                    except Exception:
+                        print(
+                            f"Invalid timezone '{tz_str}', falling back to America/Guayaquil"
+                        )
+                        user_tz = ZoneInfo("America/Guayaquil")
+
+                    # Aware en tz del usuario
+                    start_local = timezone.make_aware(start_naive, user_tz)
+
+                    # Duración (para end time)
                     try:
                         duration_minutes = int(float(data.get("duration", 60)))
                     except (ValueError, TypeError):
-                        duration_minutes = 60  # Default if conversion fails
+                        duration_minutes = 60
 
-                    end_datetime = start_datetime + timedelta(minutes=duration_minutes)
+                    end_local = start_local + timedelta(minutes=duration_minutes)
 
-                    print(
-                        f"Start datetime: {start_datetime}, End datetime: {end_datetime}"
-                    )
+                    # Convertir a UTC para guardar
+                    start_utc = start_local.astimezone(ZoneInfo("UTC"))
+                    end_utc = end_local.astimezone(ZoneInfo("UTC"))
 
-                    event.start_date = start_datetime
-                    event.end_date = end_datetime
+                    print(f"Start UTC: {start_utc}, End UTC: {end_utc}")
+
+                    if event.start_date != start_utc:
+                        event.start_date = start_utc
+                        changed = True
+                    if event.end_date != end_utc:
+                        event.end_date = end_utc
+                        changed = True
+
                 except Exception as date_error:
                     print(f"Date parsing error: {date_error}")
-                    # Don't update dates if there's an error
 
-            # Actualizar los campos del evento
-            event.name = data.get("eventName", event.name)
-            event.description = data.get("description", event.description)
+            # =======================
+            # 2) Otros campos
+            # =======================
+            new_name = data.get("eventName")
+            if new_name is not None and new_name != event.name:
+                event.name = new_name
+                changed = True
+
+            new_description = data.get("description")
+            if new_description is not None and new_description != event.description:
+                event.description = new_description
+                changed = True
 
             try:
                 duration_value = data.get("duration")
-                if duration_value:
-                    event.duration = int(float(duration_value))
+                if duration_value is not None:
+                    new_duration = int(float(duration_value))
+                    if new_duration != event.duration:
+                        event.duration = new_duration
+                        changed = True
             except (ValueError, TypeError):
-                # Keep existing duration if conversion fails
-                pass
+                pass  # Mantener duración existente
 
-            event.event_type = data.get("evaluationType", event.event_type)
-            event.evaluator = data.get("evaluator", event.evaluator)
+            new_event_type = data.get("evaluationType")
+            if new_event_type is not None and new_event_type != event.event_type:
+                event.event_type = new_event_type
+                changed = True
 
-            # Use explicit boolean conversion to handle different formats
-            camera_enabled = data.get("cameraEnabled")
-            if camera_enabled is not None:
-                event.camera_enabled = bool(camera_enabled)
+            new_evaluator = data.get("evaluator")
+            if new_evaluator is not None and new_evaluator != event.evaluator:
+                event.evaluator = new_evaluator
+                changed = True
 
-            mic_enabled = data.get("micEnabled")
-            if mic_enabled is not None:
-                event.mic_enabled = bool(mic_enabled)
+            # Booleanos
+            v = data.get("cameraEnabled")
+            if v is not None and v != event.camera_enabled:
+                event.camera_enabled = v
+                changed = True
 
-            screen_enabled = data.get("screenEnabled")
-            if screen_enabled is not None:
-                event.screen_enabled = bool(screen_enabled)
+            v = data.get("micEnabled")
+            if v is not None and v != event.mic_enabled:
+                event.mic_enabled = v
+                changed = True
 
-            # Save event changes
-            event.save()
+            v = data.get("screenEnabled")
+            if v is not None and v != event.screen_enabled:
+                event.screen_enabled = v
+                changed = True
 
-            # Handle candidates if provided
+            # =======================
+            # 3) Guardar solo si cambió
+            # =======================
+            if changed:
+                event.save()
+
+            # =======================
+            # 4) Candidatos
+            # =======================
             if "candidates" in data:
                 try:
                     handle_event_candidates(event, data.get("candidates", []))
                 except Exception as candidate_error:
                     print(f"Error processing candidates: {candidate_error}")
-                    # Continue even if candidate processing fails
 
-            return JsonResponse({"success": True})
+            return JsonResponse({"success": True, "updated": changed})
+
         except Exception as e:
             print(f"Error updating event: {e}")
             return JsonResponse({"error": str(e)}, status=400)
