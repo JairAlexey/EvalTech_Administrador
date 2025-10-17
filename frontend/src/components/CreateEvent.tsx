@@ -101,6 +101,9 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
         throw new Error('Debe seleccionar al menos un candidato para el evento');
       }
 
+      // Obtener timezone del navegador
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Guayaquil';
+
       // Preparar los datos del formulario
       const eventData: EventFormData = {
         eventName,
@@ -119,7 +122,8 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
           email: c.email,
           role: c.role || c.position,
           selected: c.selected
-        }))
+        })),
+        timezone
       };
 
       // Enviar los datos al servidor

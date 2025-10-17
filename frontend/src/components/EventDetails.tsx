@@ -22,6 +22,83 @@ export default function EventDetails({ onBack, onEdit, onNavigate, onLogout, eve
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  function parseEventDateTime(
+    dateStr?: string,
+    timeStr?: string,
+    targetTimeZone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
+  ) {
+    if (
+      !dateStr ||
+      !timeStr ||
+      dateStr === 'Fecha no disponible' ||
+      timeStr === '--:--'
+    ) {
+      return { localDate: '', localTime: '' };
+    }
+
+    let year, month, day;
+    // Detecta formato YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      [year, month, day] = dateStr.split('-');
+    } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) {
+      // Formato DD/MM/YYYY
+      [day, month, year] = dateStr.split('/');
+    } else {
+      return { localDate: '', localTime: '' };
+    }
+
+    let [time, period] = timeStr.split(' ');
+    if (!time) return { localDate: '', localTime: '' };
+    let [hStr, mStr] = time.split(':');
+    if (!hStr || !mStr) return { localDate: '', localTime: '' };
+
+    let h = parseInt(hStr, 10);
+    const min = parseInt(mStr, 10);
+
+    if (period) {
+      const p = period.trim().toUpperCase();
+      if (p === 'PM' && h < 12) h += 12;
+      if (p === 'AM' && h === 12) h = 0;
+    }
+
+    const utcMs = Date.UTC(
+      parseInt(year, 10),
+      parseInt(month, 10) - 1,
+      parseInt(day, 10),
+      h,
+      min,
+      0,
+      0
+    );
+    const utcDate = new Date(utcMs);
+    if (isNaN(utcDate.getTime())) return { localDate: '', localTime: '' };
+
+    const fmt = new Intl.DateTimeFormat('es-EC', {
+      timeZone: targetTimeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+
+    const parts = fmt.formatToParts(utcDate);
+    const get = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find(p => p.type === type)?.value ?? '';
+
+    const localDay = get('day');
+    const localMonth = get('month');
+    const localYear = get('year');
+    const localHour = get('hour');
+    const localMinute = get('minute');
+
+    const localDate = `${localDay}/${localMonth}/${localYear}`;
+    const localTime = `${localHour}:${localMinute}`;
+
+    return { localDate, localTime };
+  }
+
   // Cargar los datos del evento cuando el componente se monta
   useEffect(() => {
     const fetchEventDetails = async () => {
@@ -238,7 +315,9 @@ export default function EventDetails({ onBack, onEdit, onNavigate, onLogout, eve
                           <line x1="8" y1="2" x2="8" y2="6" />
                           <line x1="3" y1="10" x2="21" y2="10" />
                         </svg>
-                        <p className="text-sm font-medium">{event.date || 'No disponible'}</p>
+                        <p className="text-sm font-medium">
+                          {parseEventDateTime(event.startDate, event.startTime).localDate || 'No disponible'}
+                        </p>
                       </div>
                     </div>
 
@@ -249,7 +328,9 @@ export default function EventDetails({ onBack, onEdit, onNavigate, onLogout, eve
                           <circle cx="12" cy="12" r="10" />
                           <polyline points="12 6 12 12 16 14" />
                         </svg>
-                        <p className="text-sm font-medium">{event.time || 'No disponible'}</p>
+                        <p className="text-sm font-medium">
+                          {parseEventDateTime(event.startDate, event.startTime).localTime || 'No disponible'}
+                        </p>
                       </div>
                     </div>
 

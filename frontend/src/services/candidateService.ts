@@ -29,8 +29,8 @@ export interface Candidate {
 
 export interface CandidateDetail {
   id: string;
-  nombre: string;
-  apellidos: string;
+  first_name: string;
+  last_name: string;
   name: string;
   email: string;
   position: string;
@@ -172,10 +172,7 @@ export const candidateService = {
         throw new Error('No hay token de autenticación');
       }
       
-      // Format ID if necessary (remove any non-numeric characters)
-      const formattedId = candidateId.toString().replace(/\D/g, '');
-
-      const response = await fetch(`${API_URL}/events/api/candidates/${formattedId}`, {
+      const response = await fetch(`${API_URL}/events/api/candidates/${candidateId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -191,7 +188,8 @@ export const candidateService = {
           event: candidateData.event,
           notes: candidateData.notes,
           send_credentials: candidateData.send_credentials,
-          send_reminder: candidateData.send_reminder
+          send_reminder: candidateData.send_reminder,
+          status: candidateData.status
         })
       });
 
