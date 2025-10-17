@@ -171,8 +171,7 @@ class ProxyInstance:
                 BlockedHost.objects.filter(event=participant.event)
                 .values_list('hostname', flat=True)
             )
-            if not self.blocked_hosts: 
-                self.blocked_hosts = self.default_blocked_hosts
+            # Si no hay hosts bloqueados, deja la lista vacía
         except AssignedPort.DoesNotExist:
             logger.error(f"Assigned port not found for port {self.port}")
         except Exception as e:
