@@ -4,9 +4,10 @@ import { Activity, Settings, FileText } from 'lucide-react';
 interface LoginProps {
   onLogin: (email: string, password: string) => Promise<void>;
   error?: string | null;
+  onGoHome?: () => void;
 }
 
-export default function Login({ onLogin, error: externalError }: LoginProps) {
+export default function Login({ onLogin, error: externalError, onGoHome }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +83,7 @@ export default function Login({ onLogin, error: externalError }: LoginProps) {
 
         <div className="w-3/5 p-12 flex flex-col justify-center">
           <div className="max-w-md mx-auto w-full">
+
             <div className="mb-8">
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Bienvenido de nuevo</h2>
               <p className="text-gray-600">Acceda al panel administrativo para gestionar evaluaciones técnicas</p>
@@ -108,9 +110,6 @@ export default function Login({ onLogin, error: externalError }: LoginProps) {
                   <label htmlFor="password" className="block text-sm font-medium text-gray-700">
                     Contraseña
                   </label>
-                  <a href="#" className="text-sm text-blue-600 hover:text-blue-700">
-                    ¿Olvidó su contraseña?
-                  </a>
                 </div>
                 <input
                   type="password"
@@ -136,6 +135,16 @@ export default function Login({ onLogin, error: externalError }: LoginProps) {
               >
                 {isLoading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
               </button>
+
+              {/* Texto minimalista para volver al inicio */}
+              <div className="mt-4 text-center">
+                <span
+                  className="text-blue-600 hover:underline cursor-pointer text-sm"
+                  onClick={onGoHome}
+                >
+                  Volver al inicio
+                </span>
+              </div>
 
             </form>
           </div>
