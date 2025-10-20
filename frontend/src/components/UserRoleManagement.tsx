@@ -1,9 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Loader, Search, Check, X } from 'lucide-react';
+import { Loader, Search, Edit, Trash2 } from 'lucide-react';
 import Sidebar from './Sidebar';
 import authService, { type User as AuthUser } from '../services/authService';
+import CreateUser from './CreateUser';
+import EditUserModal from './EditUser';
+import ConfirmationModal from './ConfirmationModal';
 
 interface User extends AuthUser {
+    role: string;
     roleName?: string;
 }
 import { useAuth } from '../contexts/AuthContext';
@@ -18,8 +22,71 @@ export default function UserRoleManagement({ onNavigate, onLogout }: UserRoleMan
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
-    const [updatingUserId, setUpdatingUserId] = useState<number | null>(null);
     const { user: currentUser } = useAuth();
+    const [showCreateUser, setShowCreateUser] = useState(false);
+    const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
+    const [editingUser, setEditingUser] = useState<User | null>(null);
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [userToDelete, setUserToDelete] = useState<User | null>(null);
+
+    const ROLE_OPTIONS = [
+        { value: 'superadmin', label: 'Super Administrador' },
+        { value: 'admin', label: 'Administrador' },
+        { value: 'evaluator', label: 'Evaluador' },
+    ];
+
+    // Refrescar usuarios después de crear uno nuevo
+    const refreshUsers = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const usersData = await authService.getUsersWithRoles();
+            setUsers(usersData);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Error al cargar usuarios');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleEditUser = async (
+        userId: number,
+        data: { firstName: string; lastName: string; email: string; role: string; password?: string; }
+    ) => {
+        try {
+            // Editar datos básicos
+            const updatedUser = await authService.editUser(userId, {
+                firstName: data.firstName,
+                lastName: data.lastName,
+                email: data.email,
+                password: data.password
+            });
+            // Editar rol si cambió
+            await authService.assignRole(userId, data.role);
+
+            setUsers(users.map(u =>
+                u.id === userId
+                    ? { ...u, ...updatedUser, role: data.role, roleName: ROLE_OPTIONS.find(r => r.value === data.role)?.label }
+                    : u
+            ));
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Error al editar usuario');
+        }
+    };
+
+    // Eliminar usuario
+    const handleDeleteUser = async (userId: number) => {
+        setDeletingUserId(userId);
+        setError(null);
+        try {
+            await authService.deleteUser(userId);
+            setUsers(users.filter(u => u.id !== userId));
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Error al eliminar usuario');
+        } finally {
+            setDeletingUserId(null);
+        }
+    };
 
     // Cargar usuarios al montar el componente
     useEffect(() => {
@@ -50,29 +117,6 @@ export default function UserRoleManagement({ onNavigate, onLogout }: UserRoleMan
             (user.roleName || '').toLowerCase().includes(searchLower);
     });
 
-    const handleRoleChange = async (userId: number, role: string) => {
-        try {
-            setUpdatingUserId(userId);
-            await authService.assignRole(userId, role);
-
-            // Actualizar la lista de usuarios con el nuevo rol
-            setUsers(users.map(user => {
-                if (user.id === userId) {
-                    return {
-                        ...user,
-                        role: role,
-                        roleName: role === 'admin' ? 'Administrador' : 'Evaluador'
-                    };
-                }
-                return user;
-            }));
-
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Error al actualizar rol');
-        } finally {
-            setUpdatingUserId(null);
-        }
-    };
 
     return (
         <div className="flex h-screen bg-gray-50">
@@ -85,8 +129,21 @@ export default function UserRoleManagement({ onNavigate, onLogout }: UserRoleMan
                             <h1 className="text-2xl font-bold text-gray-900">Gestión de Roles</h1>
                             <p className="text-gray-600 mt-1">Asigne roles a los usuarios del sistema</p>
                         </div>
+                        <button
+                            className="bg-blue-600 text-white px-4 py-2 rounded font-medium hover:bg-blue-700"
+                            onClick={() => setShowCreateUser(true)}
+                        >
+                            + Crear usuario
+                        </button>
                     </div>
                 </div>
+
+                {showCreateUser && (
+                    <CreateUser
+                        onClose={() => setShowCreateUser(false)}
+                        onUserCreated={refreshUsers}
+                    />
+                )}
 
                 <div className="p-8">
                     <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
@@ -181,67 +238,50 @@ export default function UserRoleManagement({ onNavigate, onLogout }: UserRoleMan
                                                         </span>
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                        {updatingUserId === user.id ? (
-                                                            <span className="text-gray-500">
-                                                                <Loader className="w-4 h-4 animate-spin inline mr-2" />
-                                                                Actualizando...
-                                                            </span>
-                                                        ) : (
-                                                            <div className="flex space-x-2">
-                                                                <button
-                                                                    onClick={() => handleRoleChange(user.id, 'superadmin')}
-                                                                    disabled={user.role === 'superadmin'}
-                                                                    className={`px-2 py-1 rounded text-xs font-medium ${user.role === 'superadmin'
-                                                                        ? 'bg-red-100 text-red-800 cursor-default'
-                                                                        : 'bg-gray-100 text-gray-700 hover:bg-red-100 hover:text-red-800'
-                                                                        }`}
-                                                                >
-                                                                    {user.role === 'superadmin' ? (
-                                                                        <Check className="w-3 h-3 inline mr-1" />
-                                                                    ) : null}
-                                                                    Super Admin
-                                                                </button>
-
-                                                                <button
-                                                                    onClick={() => handleRoleChange(user.id, 'admin')}
-                                                                    disabled={user.role === 'admin'}
-                                                                    className={`px-2 py-1 rounded text-xs font-medium ${user.role === 'admin'
-                                                                        ? 'bg-purple-100 text-purple-800 cursor-default'
-                                                                        : 'bg-gray-100 text-gray-700 hover:bg-purple-100 hover:text-purple-800'
-                                                                        }`}
-                                                                >
-                                                                    {user.role === 'admin' ? (
-                                                                        <Check className="w-3 h-3 inline mr-1" />
-                                                                    ) : null}
-                                                                    Administrador
-                                                                </button>
-
-                                                                <button
-                                                                    onClick={() => handleRoleChange(user.id, 'evaluator')}
-                                                                    disabled={user.role === 'evaluator'}
-                                                                    className={`px-2 py-1 rounded text-xs font-medium ${user.role === 'evaluator'
-                                                                        ? 'bg-green-100 text-green-800 cursor-default'
-                                                                        : 'bg-gray-100 text-gray-700 hover:bg-green-100 hover:text-green-800'
-                                                                        }`}
-                                                                >
-                                                                    {user.role === 'evaluator' ? (
-                                                                        <Check className="w-3 h-3 inline mr-1" />
-                                                                    ) : null}
-                                                                    Evaluador
-                                                                </button>
-
-                                                                {user.role && (
+                                                        <div className="flex items-center gap-2">
+                                                            {/* Solo mostrar botones si NO es superadmin */}
+                                                            {user.role !== 'superadmin' && (
+                                                                <>
+                                                                    {/* Botón Editar */}
                                                                     <button
-                                                                        onClick={() => handleRoleChange(user.id, '')}
-                                                                        className="px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium hover:bg-red-100"
+                                                                        onClick={(e) => {
+                                                                            e.preventDefault();
+                                                                            e.stopPropagation();
+                                                                            setEditingUser(user);
+                                                                        }}
+                                                                        className="p-1.5 text-gray-600 hover:bg-gray-100 rounded transition"
                                                                     >
-                                                                        <X className="w-3 h-3 inline mr-1" />
-                                                                        Quitar rol
+                                                                        <Edit className="w-4 h-4" />
                                                                     </button>
-                                                                )}
-                                                            </div>
-                                                        )}
+
+                                                                    {/* Botón Borrar */}
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.preventDefault();
+                                                                            e.stopPropagation();
+                                                                            setUserToDelete(user);
+                                                                            setShowDeleteModal(true);
+                                                                        }}
+                                                                        disabled={deletingUserId === user.id}
+                                                                        className="p-1.5 text-red-600 hover:bg-red-50 rounded transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                    >
+                                                                        {deletingUserId === user.id ? (
+                                                                            <Loader className="w-4 h-4 animate-spin" />
+                                                                        ) : (
+                                                                            <Trash2 className="w-4 h-4" />
+                                                                        )}
+                                                                    </button>
+                                                                </>
+                                                            )}
+                                                        </div>
                                                     </td>
+                                                    {editingUser && (
+                                                        <EditUserModal
+                                                            user={editingUser}
+                                                            onClose={() => setEditingUser(null)}
+                                                            onSave={handleEditUser}
+                                                        />
+                                                    )}
                                                 </tr>
                                             ))
                                         )}
@@ -252,6 +292,25 @@ export default function UserRoleManagement({ onNavigate, onLogout }: UserRoleMan
                     </div>
                 </div>
             </div>
+            <ConfirmationModal
+                isOpen={showDeleteModal}
+                title="Eliminar usuario"
+                message="¿Estás seguro de que deseas eliminar este usuario? Esta acción no se puede deshacer."
+                confirmButtonText="Eliminar"
+                cancelButtonText="Cancelar"
+                onConfirm={async () => {
+                    if (userToDelete) {
+                        await handleDeleteUser(userToDelete.id);
+                        setShowDeleteModal(false);
+                        setUserToDelete(null);
+                    }
+                }}
+                onCancel={() => {
+                    setShowDeleteModal(false);
+                    setUserToDelete(null);
+                }}
+                isDestructive={true}
+            />
         </div>
     );
 }
