@@ -47,7 +47,7 @@ def get_user_data(user):
         user_role = UserRole.objects.get(user=user)
         role = user_role.role
     except UserRole.DoesNotExist:
-        role = None
+        role = "sin_rol"
 
     return {
         "id": user.id,
@@ -271,7 +271,7 @@ def role_management_view(request):
                 user_data["role"] = user_role.role
                 user_data["roleName"] = user_role.get_role_display()
             except UserRole.DoesNotExist:
-                user_data["role"] = None
+                user_data["role"] = "sin_rol"
                 user_data["roleName"] = "Sin rol asignado"
 
             user_list.append(user_data)
@@ -316,3 +316,162 @@ def role_management_view(request):
             return JsonResponse({"error": str(e)}, status=500)
     else:
         return JsonResponse({"error": "Método no permitido"}, status=405)
+
+
+@csrf_exempt
+@require_POST
+def create_user_view(request):
+    """Vista para crear un nuevo usuario con rol asignado (solo superadmin)"""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JsonResponse(
+            {"error": "Encabezado de autorización inválido"}, status=401
+        )
+
+    token = auth_header.split(" ")[1]
+    payload = verify_token(token)
+    if not payload:
+        return JsonResponse({"error": "Token inválido o expirado"}, status=401)
+
+    # Verificar que el usuario sea superadmin
+    try:
+        admin_user = User.objects.get(id=payload["user_id"])
+        admin_role = UserRole.objects.get(user=admin_user)
+        if admin_role.role != "superadmin":
+            return JsonResponse(
+                {"error": "No tienes permisos para crear usuarios"}, status=403
+            )
+    except (User.DoesNotExist, UserRole.DoesNotExist):
+        return JsonResponse({"error": "No tienes permisos"}, status=403)
+
+    try:
+        data = json.loads(request.body)
+        email = data.get("email")
+        password = data.get("password")
+        first_name = data.get("firstName", "")
+        last_name = data.get("lastName", "")
+        role = data.get("role")
+
+        if not all([email, password, role]):
+            return JsonResponse({"error": "Faltan campos requeridos"}, status=400)
+
+        if role not in ["admin", "evaluator"]:
+            return JsonResponse({"error": "Rol inválido"}, status=400)
+
+        # Verificar si ya existe el usuario
+        if User.objects.filter(email=email).exists():
+            return JsonResponse({"error": "El email ya está registrado"}, status=400)
+
+        # Crear usuario
+        user = User.objects.create_user(
+            username=email,
+            email=email,
+            password=password,
+            first_name=first_name,
+            last_name=last_name,
+        )
+
+        # Asignar rol inmediatamente
+        UserRole.objects.create(user=user, role=role)
+
+        return JsonResponse({"success": True, "user": get_user_data(user)}, status=201)
+
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Formato JSON inválido"}, status=400)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+def delete_user_view(request, user_id):
+    """Endpoint para eliminar un usuario (solo superadmin)"""
+    if request.method != "DELETE":
+        return JsonResponse({"error": "Método no permitido"}, status=405)
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JsonResponse(
+            {"error": "Encabezado de autorización inválido"}, status=401
+        )
+
+    print("hola")
+    token = auth_header.split(" ")[1]
+    payload = verify_token(token)
+    if not payload:
+        return JsonResponse({"error": "Token inválido o expirado"}, status=401)
+
+    # Verificar permisos de superadmin
+    try:
+        admin_user = User.objects.get(id=payload["user_id"])
+        admin_role = UserRole.objects.get(user=admin_user)
+        if admin_role.role != "superadmin":
+            return JsonResponse(
+                {"error": "No tienes permisos para eliminar usuarios"}, status=403
+            )
+    except (User.DoesNotExist, UserRole.DoesNotExist):
+        return JsonResponse({"error": "No tienes permisos"}, status=403)
+
+    # No permitir que el superadmin se elimine a sí mismo
+    if admin_user.id == user_id:
+        return JsonResponse({"error": "No puedes eliminarte a ti mismo"}, status=400)
+
+    try:
+        user = User.objects.get(id=user_id)
+        user.delete()
+        return JsonResponse(
+            {"success": True, "message": "Usuario eliminado correctamente"}
+        )
+    except User.DoesNotExist:
+        return JsonResponse({"error": "Usuario no encontrado"}, status=404)
+
+
+@csrf_exempt
+@require_POST
+def edit_user_view(request, user_id):
+    """Endpoint para editar datos de usuario (solo superadmin)"""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JsonResponse(
+            {"error": "Encabezado de autorización inválido"}, status=401
+        )
+    token = auth_header.split(" ")[1]
+    payload = verify_token(token)
+    if not payload:
+        return JsonResponse({"error": "Token inválido o expirado"}, status=401)
+
+    # Verificar permisos de superadmin
+    try:
+        admin_user = User.objects.get(id=payload["user_id"])
+        admin_role = UserRole.objects.get(user=admin_user)
+        if admin_role.role != "superadmin":
+            return JsonResponse(
+                {"error": "No tienes permisos para editar usuarios"}, status=403
+            )
+    except (User.DoesNotExist, UserRole.DoesNotExist):
+        return JsonResponse({"error": "No tienes permisos"}, status=403)
+
+    try:
+        user = User.objects.get(id=user_id)
+        # No permitir editar a un superadmin
+        try:
+            user_role = UserRole.objects.get(user=user)
+            if user_role.role == "superadmin":
+                return JsonResponse(
+                    {"error": "No puedes editar un usuario superadmin"}, status=400
+                )
+        except UserRole.DoesNotExist:
+            pass
+        data = json.loads(request.body)
+        user.first_name = data.get("firstName", user.first_name)
+        user.last_name = data.get("lastName", user.last_name)
+        user.email = data.get("email", user.email)
+        password = data.get("password")
+        print(password)
+        if password:
+            user.set_password(password)
+        user.save()
+        return JsonResponse({"success": True, "user": get_user_data(user)})
+    except User.DoesNotExist:
+        return JsonResponse({"error": "Usuario no encontrado"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)

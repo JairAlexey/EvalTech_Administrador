@@ -13,7 +13,7 @@ export interface User {
   firstName: string;
   lastName: string;
   isStaff: boolean;
-  role: string | null; // 'admin', 'evaluator', or null
+  role: string;
 }
 
 export interface AuthResponse {
@@ -61,42 +61,84 @@ export const authService = {
   },
 
   /**
-   * Registra un nuevo usuario
-   * @param userData - Datos del usuario a registrar
+   * Crea un nuevo usuario con rol asignado (solo para superadmin)
+   * @param userData - Datos del usuario a crear
    * @returns Promesa con la respuesta de la API
    */
-  async register(userData: { 
+  async createUser(userData: { 
     email: string; 
     password: string; 
-    firstName?: string; 
-    lastName?: string 
+    firstName: string; 
+    lastName: string;
+    role: string;
   }): Promise<AuthResponse> {
     try {
-      const response = await fetch(`${API_URL}/auth/register/`, {
+      const response = await fetch(`${API_URL}/auth/create-user/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.getToken()}`
         },
-        credentials: 'include',
         body: JSON.stringify(userData),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Error al registrar usuario');
+        throw new Error(errorData.error || 'Error al crear usuario');
       }
 
-      const data = await response.json();
-      
-      // Guardar el token y la información del usuario en localStorage
-      localStorage.setItem(TOKEN_KEY, data.token);
-      localStorage.setItem(USER_INFO_KEY, JSON.stringify(data.user));
-      
-      return data;
+      return await response.json();
     } catch (error) {
-      console.error('Error en register:', error);
+      console.error('Error al crear usuario:', error);
       throw error;
     }
+  },
+
+  async editUser(userId: number, userData: { firstName?: string; lastName?: string; email?: string; password?: string; }): Promise<User> {
+    const token = this.getToken();
+
+    const dataToSend = {
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+        email: userData.email,
+        ...(userData.password ? { password: userData.password } : {})
+    };
+
+    const response = await fetch(`${API_URL}/auth/edit-user/${userId}/`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(dataToSend),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Error al editar usuario');
+    }
+    const data = await response.json();
+    return data.user;
+  },
+
+  // Añade esta nueva función al objeto authService
+  async deleteUser(userId: number): Promise<void> {
+      const token = this.getToken();
+      if (!token) {
+          throw new Error('No hay token de autenticación');
+      }
+
+      const response = await fetch(`${API_URL}/auth/delete-user/${userId}/`, {
+          method: 'DELETE',
+          headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+          }
+      });
+
+      if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Error al eliminar usuario');
+      }
   },
 
   /**
