@@ -180,7 +180,7 @@ function App() {
 
     const handleLogout = async () => {
         await logout();
-        setCurrentPage('home');
+        setCurrentPage('login');
     };
 
     // Auth Handlers
@@ -256,6 +256,7 @@ function App() {
                     <Login
                         onLogin={handleLogin}
                         error={loginError}
+                        onGoHome={() => setCurrentPage('home')}
                     />
                 );
 
