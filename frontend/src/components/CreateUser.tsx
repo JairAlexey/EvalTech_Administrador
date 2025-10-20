@@ -47,7 +47,6 @@ export default function CreateUser({ onClose, onUserCreated }: CreateUserProps) 
                         value={form.firstName}
                         onChange={handleChange}
                         className="w-full border px-3 py-2 rounded"
-                        required
                     />
                     <input
                         name="lastName"
@@ -55,7 +54,6 @@ export default function CreateUser({ onClose, onUserCreated }: CreateUserProps) 
                         value={form.lastName}
                         onChange={handleChange}
                         className="w-full border px-3 py-2 rounded"
-                        required
                     />
                     <input
                         name="email"
@@ -64,7 +62,6 @@ export default function CreateUser({ onClose, onUserCreated }: CreateUserProps) 
                         value={form.email}
                         onChange={handleChange}
                         className="w-full border px-3 py-2 rounded"
-                        required
                     />
                     <input
                         name="password"
@@ -73,7 +70,6 @@ export default function CreateUser({ onClose, onUserCreated }: CreateUserProps) 
                         value={form.password}
                         onChange={handleChange}
                         className="w-full border px-3 py-2 rounded"
-                        required
                     />
                     <select
                         name="role"

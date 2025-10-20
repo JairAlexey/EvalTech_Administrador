@@ -53,25 +53,19 @@ export default function UserRoleManagement({ onNavigate, onLogout }: UserRoleMan
         userId: number,
         data: { firstName: string; lastName: string; email: string; role: string; password?: string; }
     ) => {
-        try {
-            // Editar datos básicos
-            const updatedUser = await authService.editUser(userId, {
-                firstName: data.firstName,
-                lastName: data.lastName,
-                email: data.email,
-                password: data.password
-            });
-            // Editar rol si cambió
-            await authService.assignRole(userId, data.role);
+        const updatedUser = await authService.editUser(userId, {
+            firstName: data.firstName,
+            lastName: data.lastName,
+            email: data.email,
+            password: data.password,
+            role: data.role,
+        });
 
-            setUsers(users.map(u =>
-                u.id === userId
-                    ? { ...u, ...updatedUser, role: data.role, roleName: ROLE_OPTIONS.find(r => r.value === data.role)?.label }
-                    : u
-            ));
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Error al editar usuario');
-        }
+        setUsers(users.map(u =>
+            u.id === userId
+                ? { ...u, ...updatedUser, role: data.role, roleName: ROLE_OPTIONS.find(r => r.value === data.role)?.label }
+                : u
+        ));
     };
 
     // Eliminar usuario

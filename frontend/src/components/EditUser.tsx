@@ -32,10 +32,17 @@ export default function EditUserModal({ user, onClose, onSave }: EditUserModalPr
         setError(null);
         try {
             await onSave(user.id, form);
+            setLoading(false);
             onClose();
         } catch (err: any) {
-            setError(err.message || 'Error al editar usuario');
-        } finally {
+            // Mostrar el mensaje del backend si existe
+            if (err?.response?.data?.error) {
+                setError(err.response.data.error);
+            } else if (err?.message) {
+                setError(err.message);
+            } else {
+                setError('Error al editar usuario');
+            }
             setLoading(false);
         }
     };
@@ -51,7 +58,6 @@ export default function EditUserModal({ user, onClose, onSave }: EditUserModalPr
                         value={form.firstName}
                         onChange={handleChange}
                         className="w-full border px-3 py-2 rounded"
-                        required
                     />
                     <input
                         name="lastName"
@@ -59,7 +65,6 @@ export default function EditUserModal({ user, onClose, onSave }: EditUserModalPr
                         value={form.lastName}
                         onChange={handleChange}
                         className="w-full border px-3 py-2 rounded"
-                        required
                     />
                     <input
                         name="email"
@@ -68,7 +73,6 @@ export default function EditUserModal({ user, onClose, onSave }: EditUserModalPr
                         value={form.email}
                         onChange={handleChange}
                         className="w-full border px-3 py-2 rounded"
-                        required
                     />
                     <input
                         name="password"
