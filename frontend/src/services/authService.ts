@@ -94,14 +94,16 @@ export const authService = {
     }
   },
 
-  async editUser(userId: number, userData: { firstName?: string; lastName?: string; email?: string; password?: string; }): Promise<User> {
+  async editUser(userId: number, userData: { firstName?: string; lastName?: string; email?: string; password?: string; role?: string;}): Promise<User> {
     const token = this.getToken();
 
     const dataToSend = {
         firstName: userData.firstName,
         lastName: userData.lastName,
         email: userData.email,
-        ...(userData.password ? { password: userData.password } : {})
+        ...(userData.password ? { password: userData.password } : {}),
+        role: userData.role
+        
     };
 
     const response = await fetch(`${API_URL}/auth/edit-user/${userId}/`, {
@@ -302,6 +304,8 @@ export const authService = {
    * @param role Rol a asignar ('admin' o 'evaluator')
    * @returns Promesa con confirmación
    */
+
+  // CAMIBARLOO
   async assignRole(userId: number, role: string): Promise<any> {
     try {
       const token = this.getToken();

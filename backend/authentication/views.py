@@ -352,9 +352,17 @@ def create_user_view(request):
         last_name = data.get("lastName", "")
         role = data.get("role")
 
-        if not all([email, password, role]):
+        # Validar que hay valores en campos
+        if not all([first_name, last_name, email, password, role]):
             return JsonResponse({"error": "Faltan campos requeridos"}, status=400)
 
+        # Validación de longitud mínima de contraseña
+        if len(password) < 4:
+            return JsonResponse(
+                {"error": "La contraseña debe tener al menos 4 caracteres"}, status=400
+            )
+
+        # Verificar rol asignado
         if role not in ["admin", "evaluator"]:
             return JsonResponse({"error": "Rol inválido"}, status=400)
 
@@ -394,7 +402,6 @@ def delete_user_view(request, user_id):
             {"error": "Encabezado de autorización inválido"}, status=401
         )
 
-    print("hola")
     token = auth_header.split(" ")[1]
     payload = verify_token(token)
     if not payload:
@@ -452,6 +459,7 @@ def edit_user_view(request, user_id):
 
     try:
         user = User.objects.get(id=user_id)
+
         # No permitir editar a un superadmin
         try:
             user_role = UserRole.objects.get(user=user)
@@ -461,15 +469,53 @@ def edit_user_view(request, user_id):
                 )
         except UserRole.DoesNotExist:
             pass
+
+        # Datos enviados
         data = json.loads(request.body)
-        user.first_name = data.get("firstName", user.first_name)
-        user.last_name = data.get("lastName", user.last_name)
-        user.email = data.get("email", user.email)
+        first_name = data.get("firstName")
+        last_name = data.get("lastName")
+        email = data.get("email")
         password = data.get("password")
-        print(password)
+        role = data.get("role")
+
+        # Validar que hay valores en campos
+        if not all([first_name, last_name, email, role]):
+            return JsonResponse({"error": "Faltan campos requeridos"}, status=400)
+
+        # Validar caracteres en contrasena
+        if password and len(password) < 4:
+            return JsonResponse(
+                {"error": "La contraseña debe tener al menos 4 caracteres"}, status=400
+            )
+
+        # Verificar rol asignado
+        if role not in ["admin", "evaluator"]:
+            return JsonResponse({"error": "Rol inválido"}, status=400)
+
+        # Verificar si ya existe el usuario con ese email (y no es el mismo que se está editando)
+        if User.objects.filter(email=email).exclude(id=user_id).exists():
+            return JsonResponse({"error": "El email ya está registrado"}, status=400)
+
+        # Actualizar solo si el valor cambia
+        if user.first_name != first_name:
+            user.first_name = first_name
+        if user.last_name != last_name:
+            user.last_name = last_name
+        if user.email != email:
+            user.email = email
         if password:
             user.set_password(password)
         user.save()
+
+        # Actualizar el rol si corresponde
+        try:
+            user_role = UserRole.objects.get(user=user)
+            if user_role.role != role:
+                user_role.role = role
+                user_role.save()
+        except UserRole.DoesNotExist:
+            UserRole.objects.create(user=user, role=role)
+
         return JsonResponse({"success": True, "user": get_user_data(user)})
     except User.DoesNotExist:
         return JsonResponse({"error": "Usuario no encontrado"}, status=404)

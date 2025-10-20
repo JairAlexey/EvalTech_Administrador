@@ -11,7 +11,9 @@ def create_superadmin(apps, schema_editor):
         defaults={
             "is_superuser": True,
             "is_staff": True,
-            "email": "admin@example.com",
+            "first_name": "Super",
+            "last_name": "Admin",
+            "email": "superadmin@iqlatam.com",
             "password": make_password("admin123"),
         },
     )

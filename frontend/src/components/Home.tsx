@@ -27,25 +27,25 @@ export default function Home({ onLogin }: HomeProps) {
             </div>
             <div className="hidden sm:ml-6 sm:flex sm:items-center">
               <div className="flex space-x-4">
-                <button 
+                <button
                   className={`px-3 py-2 text-sm font-medium ${activeSection === 'hero' ? 'text-blue-600' : 'text-gray-700 hover:text-blue-600'}`}
                   onClick={() => handleNavigateToSection('hero')}
                 >
                   Inicio
                 </button>
-                <button 
+                <button
                   className={`px-3 py-2 text-sm font-medium ${activeSection === 'features' ? 'text-blue-600' : 'text-gray-700 hover:text-blue-600'}`}
                   onClick={() => handleNavigateToSection('features')}
                 >
                   Funciones
                 </button>
-                <button 
+                <button
                   className={`px-3 py-2 text-sm font-medium ${activeSection === 'contact' ? 'text-blue-600' : 'text-gray-700 hover:text-blue-600'}`}
                   onClick={() => handleNavigateToSection('contact')}
                 >
                   Contacto
                 </button>
-                <button 
+                <button
                   className={`px-3 py-2 text-sm font-medium ${activeSection === 'download' ? 'text-blue-600' : 'text-gray-700 hover:text-blue-600'}`}
                   onClick={() => handleNavigateToSection('download')}
                 >
@@ -87,7 +87,7 @@ export default function Home({ onLogin }: HomeProps) {
               <span className="block text-blue-600">evaluación técnica</span>
             </h1>
             <p className="mt-3 text-base text-gray-600 sm:mt-5 sm:text-lg md:mt-5 md:text-xl">
-              Plataforma integral para gestionar evaluaciones técnicas, candidatos y eventos de reclutamiento. 
+              Plataforma integral para gestionar evaluaciones técnicas, candidatos y eventos de reclutamiento.
               Optimiza tu proceso de selección con EvalTech.
             </p>
             <div className="mt-8 sm:mt-10 flex justify-center">
@@ -291,7 +291,7 @@ export default function Home({ onLogin }: HomeProps) {
               <div className="flex justify-center space-x-4 mb-6">
                 <button className="inline-flex items-center justify-center px-8 py-4 border border-transparent text-lg font-medium rounded-md text-blue-700 bg-white hover:bg-blue-50">
                   <svg className="h-6 w-6 mr-3" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/>
+                    <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801" />
                   </svg>
                   Descargar para Windows
                 </button>
@@ -339,95 +339,9 @@ export default function Home({ onLogin }: HomeProps) {
       {/* Footer */}
       <footer className="bg-gray-800 py-12">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-            <div>
-              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Sobre nosotros</h3>
-              <ul className="mt-4 space-y-4">
-                <li>
-                  <a href="#" className="text-base text-gray-300 hover:text-white">
-                    Nuestra historia
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="text-base text-gray-300 hover:text-white">
-                    Equipo
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="text-base text-gray-300 hover:text-white">
-                    Carreras
-                  </a>
-                </li>
-              </ul>
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Recursos</h3>
-              <ul className="mt-4 space-y-4">
-                <li>
-                  <a href="#" className="text-base text-gray-300 hover:text-white">
-                    Documentación
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="text-base text-gray-300 hover:text-white">
-                    Guías
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="text-base text-gray-300 hover:text-white">
-                    API
-                  </a>
-                </li>
-              </ul>
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Legal</h3>
-              <ul className="mt-4 space-y-4">
-                <li>
-                  <a href="#" className="text-base text-gray-300 hover:text-white">
-                    Política de privacidad
-                  </a>
-                </li>
-                <li>
-                  <a href="#" className="text-base text-gray-300 hover:text-white">
-                    Términos de uso
-                  </a>
-                </li>
-              </ul>
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Suscríbete</h3>
-              <p className="mt-4 text-base text-gray-300">
-                Recibe las últimas noticias y actualizaciones
-              </p>
-              <form className="mt-4 sm:flex sm:max-w-md">
-                <label htmlFor="email-address" className="sr-only">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  id="email-address"
-                  autoComplete="email"
-                  required
-                  className="appearance-none min-w-0 w-full bg-white border border-transparent rounded-md py-2 px-4 text-base text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white focus:border-white focus:placeholder-gray-400"
-                  placeholder="Tu email"
-                />
-                <div className="mt-3 rounded-md sm:mt-0 sm:ml-3 sm:flex-shrink-0">
-                  <button
-                    type="submit"
-                    className="w-full bg-blue-600 border border-transparent rounded-md py-2 px-4 flex items-center justify-center text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500"
-                  >
-                    Suscribirse
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-          <div className="mt-12 border-t border-gray-700 pt-8">
-            <p className="text-base text-gray-400 text-center">
-              &copy; 2025 EvalTech. Todos los derechos reservados.
-            </p>
-          </div>
+          <p className="text-base text-gray-400 text-center">
+            &copy; 2025 EvalTech. Todos los derechos reservados.
+          </p>
         </div>
       </footer>
     </div>
