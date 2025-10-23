@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import Login from './components/Login';
-import Register from './components/Register';
 import EventsList from './components/EventsList';
 import CreateEvent from './components/CreateEvent';
 import EventDetails from './components/EventDetails';
@@ -17,13 +16,14 @@ import WaitingForRole from './components/WaitingForRole';
 import { useAuth } from './contexts/AuthContext';
 import CreateCandidate from './components/CreateCandidate';
 
-type Page = 'home' | 'login' | 'register' | 'dashboard' | 'eventos' | 'create-event' | 'event-details' | 'edit-event' | 'candidatos' | 'candidate-details' | 'edit-candidate' | 'create-candidate' | 'evaluaciones' | 'evaluation-details' | 'estadisticas' | 'exportar' | 'ajustes' | 'cuenta' | 'roles';
+type Page = 'home' | 'login' | 'dashboard' | 'eventos' | 'create-event' | 'event-details' | 'edit-event' | 'candidatos' | 'candidate-details' | 'edit-candidate' | 'create-candidate' | 'evaluaciones' | 'evaluation-details' | 'estadisticas' | 'exportar' | 'ajustes' | 'cuenta' | 'roles';
 
 function App() {
     const [currentPage, setCurrentPage] = useState<Page>('home');
     const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
     const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
     const [selectedParticipantId, setSelectedParticipantId] = useState<string | null>(null);
+    const [loginError, setLoginError] = useState<string | null>(null);
 
     const { isAuthenticated, isLoading, logout, user, hasAnyRole, login } = useAuth();
     const isSuperAdmin = user?.role === 'superadmin';
@@ -77,7 +77,7 @@ function App() {
         const superAdminPages = [...adminPages, 'roles'];
 
         if (!isAuthenticated) {
-            return ['home', 'login', 'register'].includes(page);
+            return ['home', 'login'].includes(page);
         }
 
         if (!hasAnyRole()) {
@@ -178,13 +178,9 @@ function App() {
         setCurrentPage('login');
     };
 
-    const handleNavigateToRegister = () => {
-        setCurrentPage('register');
-    };
-
     const handleLogout = async () => {
         await logout();
-        setCurrentPage('home');
+        setCurrentPage('login');
     };
 
     // Auth Handlers
@@ -201,8 +197,7 @@ function App() {
                 // The renderContent function will show WaitingForRole component
             }
         } catch (error) {
-            console.error('Login error:', error);
-            // Let the Login component handle the error
+            setLoginError(error instanceof Error ? error.message : 'Error al iniciar sesión');
         }
     };
 
@@ -227,8 +222,8 @@ function App() {
             );
         }
 
-        // Non-authenticated users can only see home, login, register
-        if (!isAuthenticated && !['home', 'login', 'register'].includes(currentPage)) {
+        // Non-authenticated users can only see home, login
+        if (!isAuthenticated && !['home', 'login'].includes(currentPage)) {
             return <Home onLogin={handleNavigateToLogin} />;
         }
 
@@ -260,15 +255,8 @@ function App() {
                 return (
                     <Login
                         onLogin={handleLogin}
-                        onRegister={handleNavigateToRegister}
-                    />
-                );
-
-            case 'register':
-                return (
-                    <Register
-                        onRegister={() => setCurrentPage('dashboard')}
-                        onBackToLogin={handleNavigateToLogin}
+                        error={loginError}
+                        onGoHome={() => setCurrentPage('home')}
                     />
                 );
 

@@ -1,17 +1,21 @@
-import { useState } from 'react';
-import { Activity, Settings, FileText, Shield } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Activity, Settings, FileText } from 'lucide-react';
 
 interface LoginProps {
   onLogin: (email: string, password: string) => Promise<void>;
-  onRegister: () => void;
+  error?: string | null;
+  onGoHome?: () => void;
 }
 
-export default function Login({ onLogin, onRegister }: LoginProps) {
+export default function Login({ onLogin, error: externalError, onGoHome }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    setError(externalError || null);
+  }, [externalError]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,7 +24,6 @@ export default function Login({ onLogin, onRegister }: LoginProps) {
 
     try {
       await onLogin(email, password);
-      // Don't navigate here - let the App component decide based on user role
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Error al iniciar sesión');
     } finally {
@@ -80,6 +83,7 @@ export default function Login({ onLogin, onRegister }: LoginProps) {
 
         <div className="w-3/5 p-12 flex flex-col justify-center">
           <div className="max-w-md mx-auto w-full">
+
             <div className="mb-8">
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Bienvenido de nuevo</h2>
               <p className="text-gray-600">Acceda al panel administrativo para gestionar evaluaciones técnicas</p>
@@ -106,9 +110,6 @@ export default function Login({ onLogin, onRegister }: LoginProps) {
                   <label htmlFor="password" className="block text-sm font-medium text-gray-700">
                     Contraseña
                   </label>
-                  <a href="#" className="text-sm text-blue-600 hover:text-blue-700">
-                    ¿Olvidó su contraseña?
-                  </a>
                 </div>
                 <input
                   type="password"
@@ -119,19 +120,6 @@ export default function Login({ onLogin, onRegister }: LoginProps) {
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
                   required
                 />
-              </div>
-
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="remember"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                />
-                <label htmlFor="remember" className="ml-2 text-sm text-gray-700">
-                  Mantener sesión iniciada
-                </label>
               </div>
 
               {error && (
@@ -148,31 +136,16 @@ export default function Login({ onLogin, onRegister }: LoginProps) {
                 {isLoading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
               </button>
 
-              <div className="flex items-center justify-center mt-6 mb-4">
-                <p className="text-sm text-gray-600">
-                  ¿No tiene una cuenta?{' '}
-                  <button
-                    type="button"
-                    onClick={onRegister}
-                    className="text-blue-600 hover:text-blue-700 font-medium focus:outline-none"
-                  >
-                    Registrarse
-                  </button>
-                </p>
+              {/* Texto minimalista para volver al inicio */}
+              <div className="mt-4 text-center">
+                <span
+                  className="text-blue-600 hover:underline cursor-pointer text-sm"
+                  onClick={onGoHome}
+                >
+                  Volver al inicio
+                </span>
               </div>
 
-              <div className="flex items-center gap-3 p-4 bg-green-50 rounded-lg border border-green-200">
-                <div className="flex-shrink-0">
-                  <Shield className="w-5 h-5 text-green-600" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-900">Acceso seguro</p>
-                  <p className="text-xs text-gray-600">Autenticación de doble factor disponible</p>
-                </div>
-                <a href="#" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-                  Activar
-                </a>
-              </div>
             </form>
           </div>
         </div>

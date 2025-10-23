@@ -2,7 +2,7 @@
 
 Este proyecto forma parte de un sistema de monitoreo virtual con detección automatizada de comportamientos en procesos de evaluación técnica.
 
-El **Administrador** permite gestionar usuarios, registros, logs, reportes y configuraciones del sistema de monitoreo remoto.
+El **Administrador** permite gestionar usuarios, logs, reportes y configuraciones del sistema de monitoreo remoto.
 
 ## 🚀 Tecnologías principales
 
@@ -18,7 +18,7 @@ El **Administrador** permite gestionar usuarios, registros, logs, reportes y con
 ```
 AdministradorAplicacionDeMonitoreo/
 ├── backend/    # Aplicación Django (panel de administración)
-├── frontend/   # Aplicación Electron/React (interfaz de escritorio) 
+├── frontend/   # Aplicación Electron/React (interfaz de escritorio)
 ├── proxy/      # Servidor Python intermedio (recolector de datos)
 ├── docs/       # Documentación técnica y diagramas
 ├── .github/    # Workflows y guías de contribución

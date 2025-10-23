@@ -34,6 +34,9 @@ class Event(models.Model):
     )
     code = models.CharField(max_length=20, blank=True, null=True, unique=True)
 
+    class Meta:
+        db_table = "eventos"
+
     def save(self, *args, **kwargs):
         # Generar un código único para el evento si no existe
         if not self.code and self.id:
@@ -117,6 +120,8 @@ class Participant(models.Model):
             )
         ]
 
+        db_table = "participantes"
+
     def save(self, *args, **kwargs):
         # Actualizar el nombre completo
         if not self.name:
@@ -140,6 +145,9 @@ class BlockedHost(models.Model):
         Event, on_delete=models.CASCADE, related_name="blocked_hosts"
     )
     hostname = models.CharField(max_length=255)
+
+    class Meta:
+        db_table = "paginas_bloqueadas"
 
     def __str__(self):
         return f"{self.hostname} ({self.event.name})"
