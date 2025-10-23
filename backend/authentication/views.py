@@ -1,18 +1,15 @@
 import json
-from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth.models import User
+from django.contrib.auth.hashers import check_password, make_password
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
-from django.middleware.csrf import get_token
-from django.contrib.auth.decorators import login_required
 import jwt
 import datetime
-import os
 from django.conf import settings
-from .models import UserRole
+from .models import UserRole, CustomUser
+import hashlib
 
-# Clave secreta para JWT - en producción debe estar en variables de entorno
+# Clave secreta para JWT
 JWT_SECRET = getattr(settings, "SECRET_KEY", "django-insecure-token")
 JWT_ALGORITHM = "HS256"
 JWT_EXP_DELTA_SECONDS = 60 * 60 * 24  # 24 horas
@@ -22,7 +19,7 @@ def generate_token(user):
     """Genera un token JWT para el usuario"""
     payload = {
         "user_id": user.id,
-        "username": user.username,
+        "email": user.email,  # Cambiar de username a email
         "exp": datetime.datetime.utcnow()
         + datetime.timedelta(seconds=JWT_EXP_DELTA_SECONDS),
     }
@@ -51,11 +48,9 @@ def get_user_data(user):
 
     return {
         "id": user.id,
-        "username": user.username,
         "email": user.email,
         "firstName": user.first_name,
         "lastName": user.last_name,
-        "isStaff": user.is_staff,
         "role": role,
     }
 
@@ -63,100 +58,30 @@ def get_user_data(user):
 @csrf_exempt
 @require_POST
 def login_view(request):
-    """Vista para autenticar un usuario y devolver un token JWT"""
     try:
         data = json.loads(request.body)
-        username = data.get(
-            "email"
-        )  # El frontend envía 'email' pero usaremos como username
+        email = data.get("email")
         password = data.get("password")
+        if not email or not password:
+            return JsonResponse({"error": "Email y contraseña requeridos"}, status=400)
 
-        if not username or not password:
-            return JsonResponse(
-                {"error": "Se requieren email y contraseña"}, status=400
-            )
-
-        # Intentamos autenticar con el email como username
-        user = authenticate(username=username, password=password)
-
-        # Si no funciona, intentamos buscar por email (asumiendo que el username podría ser diferente al email)
-        if not user:
-            try:
-                user_obj = User.objects.get(email=username)
-                user = authenticate(username=user_obj.username, password=password)
-            except User.DoesNotExist:
-                pass
-
+        user = CustomUser.objects.filter(email=email).first()
         if not user:
             return JsonResponse({"error": "Credenciales inválidas"}, status=401)
 
-        # Generar token JWT
+        # Primero intenta con los hashers de Django
+        if not user.check_password(password):
+            # Fallback: por si tienes SHA-256 plano desde la migración 0002
+            if user.password == hashlib.sha256(password.encode("utf-8")).hexdigest():
+                user.set_password(password)
+                user.save(update_fields=["password"])
+            else:
+                return JsonResponse({"error": "Credenciales inválidas"}, status=401)
+
         token = generate_token(user)
-
-        # Login del usuario en la sesión de Django (opcional si solo usas JWT)
-        login(request, user)
-
         return JsonResponse({"token": token, "user": get_user_data(user)})
     except json.JSONDecodeError:
-        return JsonResponse({"error": "Formato JSON inválido"}, status=400)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
-
-
-@csrf_exempt
-def logout_view(request):
-    """Vista para cerrar sesión"""
-    logout(request)
-    return JsonResponse({"message": "Sesión cerrada correctamente"})
-
-
-@csrf_exempt
-@require_POST
-def register_view(request):
-    """Vista para registrar un nuevo usuario"""
-    try:
-        data = json.loads(request.body)
-        username = data.get("email")  # Usamos el email como username
-        email = data.get("email")
-        password = data.get("password")
-        first_name = data.get("firstName", "")
-        last_name = data.get("lastName", "")
-
-        if not username or not email or not password:
-            return JsonResponse(
-                {"error": "Se requieren email y contraseña"}, status=400
-            )
-
-        # Verificar si ya existe un usuario con ese email o username
-        if User.objects.filter(username=username).exists():
-            return JsonResponse(
-                {"error": "El nombre de usuario ya está en uso"}, status=400
-            )
-
-        if User.objects.filter(email=email).exists():
-            return JsonResponse({"error": "El email ya está registrado"}, status=400)
-
-        # Crear el usuario
-        user = User.objects.create_user(
-            username=username,
-            email=email,
-            password=password,
-            first_name=first_name,
-            last_name=last_name,
-        )
-
-        # El nuevo usuario no tiene rol asignado inicialmente
-        # No creamos un UserRole aquí, lo asignará un administrador
-
-        # Generar token JWT
-        token = generate_token(user)
-
-        # Login del usuario recién creado
-        login(request, user)
-
-        return JsonResponse({"token": token, "user": get_user_data(user)}, status=201)
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "Formato JSON inválido"}, status=400)
+        return JsonResponse({"error": "JSON inválido"}, status=400)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
@@ -180,9 +105,9 @@ def verify_token_view(request):
 
         # Si el token es válido, buscamos el usuario
         try:
-            user = User.objects.get(id=payload["user_id"])
+            user = CustomUser.objects.get(id=payload["user_id"])
             return JsonResponse({"valid": True, "user": get_user_data(user)})
-        except User.DoesNotExist:
+        except CustomUser.DoesNotExist:
             return JsonResponse(
                 {"valid": False, "error": "Usuario no encontrado"}, status=401
             )
@@ -213,9 +138,9 @@ def user_info_view(request):
 
     # Obtener el usuario
     try:
-        user = User.objects.get(id=payload["user_id"])
+        user = CustomUser.objects.get(id=payload["user_id"])
         return JsonResponse(get_user_data(user))
-    except User.DoesNotExist:
+    except CustomUser.DoesNotExist:
         return JsonResponse({"error": "Usuario no encontrado"}, status=404)
 
 
@@ -237,7 +162,7 @@ def role_management_view(request):
 
     # Verificar que el usuario sea superadmin (solo superadmin puede gestionar roles)
     try:
-        admin_user = User.objects.get(id=payload["user_id"])
+        admin_user = CustomUser.objects.get(id=payload["user_id"])
         try:
             admin_role = UserRole.objects.get(user=admin_user)
             if admin_role.role != "superadmin":
@@ -247,23 +172,21 @@ def role_management_view(request):
         except UserRole.DoesNotExist:
             return JsonResponse({"error": "No tienes un rol asignado"}, status=403)
 
-    except User.DoesNotExist:
+    except CustomUser.DoesNotExist:
         return JsonResponse({"error": "Usuario no encontrado"}, status=404)
 
     # Ahora procesamos la solicitud
     if request.method == "GET":
         # Obtener la lista de usuarios con sus roles
-        users = User.objects.all()
+        users = CustomUser.objects.all()
         user_list = []
 
         for user in users:
             user_data = {
                 "id": user.id,
-                "username": user.username,
                 "email": user.email,
                 "firstName": user.first_name,
                 "lastName": user.last_name,
-                "isStaff": user.is_staff,
             }
 
             try:
@@ -278,42 +201,6 @@ def role_management_view(request):
 
         return JsonResponse({"users": user_list})
 
-    elif request.method == "POST":
-        try:
-            data = json.loads(request.body)
-            user_id = data.get("userId")
-            role = data.get("role")
-
-            if not user_id or not role:
-                return JsonResponse(
-                    {"error": "Se requiere ID de usuario y rol"}, status=400
-                )
-
-            if role not in ["superadmin", "admin", "evaluator"]:
-                return JsonResponse({"error": "Rol inválido"}, status=400)
-
-            try:
-                target_user = User.objects.get(id=user_id)
-            except User.DoesNotExist:
-                return JsonResponse({"error": "Usuario no encontrado"}, status=404)
-
-            # Actualizar o crear el rol del usuario
-            user_role, created = UserRole.objects.update_or_create(
-                user=target_user, defaults={"role": role}
-            )
-
-            return JsonResponse(
-                {
-                    "success": True,
-                    "message": f"Rol actualizado a {user_role.get_role_display()}",
-                    "user": get_user_data(target_user),
-                }
-            )
-
-        except json.JSONDecodeError:
-            return JsonResponse({"error": "Formato JSON inválido"}, status=400)
-        except Exception as e:
-            return JsonResponse({"error": str(e)}, status=500)
     else:
         return JsonResponse({"error": "Método no permitido"}, status=405)
 
@@ -335,13 +222,13 @@ def create_user_view(request):
 
     # Verificar que el usuario sea superadmin
     try:
-        admin_user = User.objects.get(id=payload["user_id"])
+        admin_user = CustomUser.objects.get(id=payload["user_id"])
         admin_role = UserRole.objects.get(user=admin_user)
         if admin_role.role != "superadmin":
             return JsonResponse(
                 {"error": "No tienes permisos para crear usuarios"}, status=403
             )
-    except (User.DoesNotExist, UserRole.DoesNotExist):
+    except (CustomUser.DoesNotExist, UserRole.DoesNotExist):
         return JsonResponse({"error": "No tienes permisos"}, status=403)
 
     try:
@@ -367,19 +254,18 @@ def create_user_view(request):
             return JsonResponse({"error": "Rol inválido"}, status=400)
 
         # Verificar si ya existe el usuario
-        if User.objects.filter(email=email).exists():
+        if CustomUser.objects.filter(email=email).exists():
             return JsonResponse({"error": "El email ya está registrado"}, status=400)
 
         # Crear usuario
-        user = User.objects.create_user(
-            username=email,
+        user = CustomUser.objects.create(
             email=email,
-            password=password,
+            password=make_password(password),
             first_name=first_name,
             last_name=last_name,
         )
 
-        # Asignar rol inmediatamente
+        # Asignar rol
         UserRole.objects.create(user=user, role=role)
 
         return JsonResponse({"success": True, "user": get_user_data(user)}, status=201)
@@ -409,13 +295,13 @@ def delete_user_view(request, user_id):
 
     # Verificar permisos de superadmin
     try:
-        admin_user = User.objects.get(id=payload["user_id"])
+        admin_user = CustomUser.objects.get(id=payload["user_id"])
         admin_role = UserRole.objects.get(user=admin_user)
         if admin_role.role != "superadmin":
             return JsonResponse(
                 {"error": "No tienes permisos para eliminar usuarios"}, status=403
             )
-    except (User.DoesNotExist, UserRole.DoesNotExist):
+    except (CustomUser.DoesNotExist, UserRole.DoesNotExist):
         return JsonResponse({"error": "No tienes permisos"}, status=403)
 
     # No permitir que el superadmin se elimine a sí mismo
@@ -423,12 +309,12 @@ def delete_user_view(request, user_id):
         return JsonResponse({"error": "No puedes eliminarte a ti mismo"}, status=400)
 
     try:
-        user = User.objects.get(id=user_id)
+        user = CustomUser.objects.get(id=user_id)
         user.delete()
         return JsonResponse(
             {"success": True, "message": "Usuario eliminado correctamente"}
         )
-    except User.DoesNotExist:
+    except CustomUser.DoesNotExist:
         return JsonResponse({"error": "Usuario no encontrado"}, status=404)
 
 
@@ -448,17 +334,17 @@ def edit_user_view(request, user_id):
 
     # Verificar permisos de superadmin
     try:
-        admin_user = User.objects.get(id=payload["user_id"])
+        admin_user = CustomUser.objects.get(id=payload["user_id"])
         admin_role = UserRole.objects.get(user=admin_user)
         if admin_role.role != "superadmin":
             return JsonResponse(
                 {"error": "No tienes permisos para editar usuarios"}, status=403
             )
-    except (User.DoesNotExist, UserRole.DoesNotExist):
+    except (CustomUser.DoesNotExist, UserRole.DoesNotExist):
         return JsonResponse({"error": "No tienes permisos"}, status=403)
 
     try:
-        user = User.objects.get(id=user_id)
+        user = CustomUser.objects.get(id=user_id)
 
         # No permitir editar a un superadmin
         try:
@@ -493,7 +379,7 @@ def edit_user_view(request, user_id):
             return JsonResponse({"error": "Rol inválido"}, status=400)
 
         # Verificar si ya existe el usuario con ese email (y no es el mismo que se está editando)
-        if User.objects.filter(email=email).exclude(id=user_id).exists():
+        if CustomUser.objects.filter(email=email).exclude(id=user_id).exists():
             return JsonResponse({"error": "El email ya está registrado"}, status=400)
 
         # Actualizar solo si el valor cambia
@@ -517,7 +403,7 @@ def edit_user_view(request, user_id):
             UserRole.objects.create(user=user, role=role)
 
         return JsonResponse({"success": True, "user": get_user_data(user)})
-    except User.DoesNotExist:
+    except CustomUser.DoesNotExist:
         return JsonResponse({"error": "Usuario no encontrado"}, status=404)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
