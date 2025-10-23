@@ -148,20 +148,11 @@ export const authService = {
    */
   logout(): void {
     try {
-      // Llamar al endpoint de logout en el servidor
-      fetch(`${API_URL}/auth/logout/`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.getToken()}`,
-        },
-        credentials: 'include',
-      });
-    } catch (error) {
-      console.error('Error en logout:', error);
-    } finally {
       // Eliminar los datos de autenticación del localStorage
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(USER_INFO_KEY);
+    } catch (error) {
+      console.error('Error en logout:', error);
     }
   },
 
@@ -298,41 +289,6 @@ export const authService = {
     }
   },
 
-  /**
-   * Asigna un rol a un usuario (solo para administradores)
-   * @param userId ID del usuario
-   * @param role Rol a asignar ('admin' o 'evaluator')
-   * @returns Promesa con confirmación
-   */
-
-  // CAMIBARLOO
-  async assignRole(userId: number, role: string): Promise<any> {
-    try {
-      const token = this.getToken();
-      if (!token) {
-        throw new Error('No hay token de autenticación');
-      }
-
-      const response = await fetch(`${API_URL}/auth/roles/`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ userId, role })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Error al asignar rol');
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error('Error al asignar rol:', error);
-      throw error;
-    }
-  }
 };
 
 export default authService;

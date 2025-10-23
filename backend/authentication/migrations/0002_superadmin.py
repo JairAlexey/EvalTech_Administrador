@@ -1,23 +1,22 @@
 from django.db import migrations
 from django.contrib.auth.hashers import make_password
+import os
 
 
 def create_superadmin(apps, schema_editor):
-    User = apps.get_model("auth", "User")
+    CustomUser = apps.get_model("authentication", "CustomUser")
     UserRole = apps.get_model("authentication", "UserRole")
-    # Crea el usuario si no existe
-    user, created = User.objects.get_or_create(
-        username="admin",
+
+    default_pwd = os.environ.get("SUPERADMIN_PASSWORD", "admin123")
+
+    user, created = CustomUser.objects.get_or_create(
+        email="superadmin@iqlatam.com",
         defaults={
-            "is_superuser": True,
-            "is_staff": True,
             "first_name": "Super",
             "last_name": "Admin",
-            "email": "superadmin@iqlatam.com",
-            "password": make_password("admin123"),
+            "password": make_password(default_pwd),
         },
     )
-    # Crea el rol
     UserRole.objects.get_or_create(user=user, defaults={"role": "superadmin"})
 
 
