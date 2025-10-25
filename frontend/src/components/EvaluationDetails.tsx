@@ -4,18 +4,18 @@ import Sidebar from './Sidebar';
 
 interface EvaluationDetailsProps {
   onBack?: () => void;
-  candidateId?: string;
+  participantId?: string;
   eventId?: string;
   onNavigate?: (page: string) => void;
 }
 
 export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDetailsProps) {
   const [activeTab, setActiveTab] = useState<string>('resumen');
-  
+
   // Datos simulados para la evaluación
   const evaluationData = {
     id: '2023-A-1458',
-    candidate: 'Juan Pérez',
+    participant: 'Juan Pérez',
     date: '15/05/2023 14:32',
     duration: '58 min',
     riskLevel: 'Alto',
@@ -67,8 +67,8 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
   // Función para renderizar indicadores de riesgo
   const renderRiskBar = (value: number, category: string) => {
     let bgColor = '';
-    
-    switch(category) {
+
+    switch (category) {
       case 'Alto':
         bgColor = 'bg-red-500';
         break;
@@ -81,7 +81,7 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
       default:
         bgColor = 'bg-gray-500';
     }
-    
+
     return (
       <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
         <div className={`${bgColor} h-2.5 rounded-full`} style={{ width: `${value}%` }}></div>
@@ -92,7 +92,7 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
   // Función para renderizar gráfico de actividad
   const renderActivityChart = () => {
     const maxValue = Math.max(...evaluationData.activityData.map(d => d.value));
-    
+
     // Organizar los datos para las barras por intervalos de 15 minutos
     const timeIntervals = [
       { label: '14:30-14:45', data: evaluationData.activityData.slice(0, 3) },
@@ -100,24 +100,24 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
       { label: '15:00-15:15', data: evaluationData.activityData.slice(7, 10) },
       { label: '15:15-15:30', data: evaluationData.activityData.slice(10) }
     ];
-    
+
     // Calcular el promedio de actividad por intervalo
     const intervalAverages = timeIntervals.map(interval => {
       const sum = interval.data.reduce((acc, point) => acc + point.value, 0);
       return {
         label: interval.label,
         average: Math.round(sum / interval.data.length),
-        hasAlert: interval.data.some(point => 
+        hasAlert: interval.data.some(point =>
           evaluationData.evidences.some(e => e.time === point.time)
         ),
-        alertTypes: interval.data.flatMap(point => 
+        alertTypes: interval.data.flatMap(point =>
           evaluationData.evidences
             .filter(e => e.time === point.time)
             .map(e => e.type)
         )
       };
     });
-    
+
     return (
       <div className="mt-6">
         <div className="bg-white rounded-lg border border-gray-200 p-5">
@@ -135,12 +135,12 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
               </div>
             </div>
           </div>
-          
+
           {/* Gráfico de barras */}
           <div className="flex items-end h-60 gap-1 mt-2 relative">
             {/* Líneas horizontales de referencia */}
             {[0, 25, 50, 75, 100].map((level) => (
-              <div 
+              <div
                 key={level}
                 className="absolute w-full h-px bg-gray-100"
                 style={{ bottom: `${(level / 100) * 80}%` }}
@@ -150,12 +150,12 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
                 </span>
               </div>
             ))}
-            
+
             {/* Barras de actividad */}
             {intervalAverages.map((interval, idx) => {
               // Determinar colores basados en nivel de actividad y alertas
               let barColorClass = "bg-gradient-to-t from-blue-500 to-indigo-600";
-              
+
               if (interval.average > 70) {
                 barColorClass = "bg-gradient-to-t from-red-500 to-orange-400";
               } else if (interval.average > 40) {
@@ -163,16 +163,16 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
               } else {
                 barColorClass = "bg-gradient-to-t from-green-500 to-emerald-400";
               }
-              
+
               // Calcular altura relativa
               const heightPercentage = (interval.average / maxValue) * 80;
-              
+
               return (
                 <div key={idx} className="flex-1 flex flex-col items-center">
                   <div className="relative w-full flex justify-center group">
                     {/* Barra principal */}
                     <div className="w-11/12 relative">
-                      <div 
+                      <div
                         className={`w-full rounded-t-md ${barColorClass}`}
                         style={{ height: `${heightPercentage}%` }}
                       >
@@ -181,7 +181,7 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
                           {interval.average}% de actividad
                         </div>
                       </div>
-                      
+
                       {/* Indicador de alertas */}
                       {interval.hasAlert && (
                         <div className="absolute -top-3 right-0 w-4 h-4 bg-red-500 rounded-full border-2 border-white flex items-center justify-center">
@@ -190,7 +190,7 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
                       )}
                     </div>
                   </div>
-                  
+
                   {/* Etiqueta del período */}
                   <div className="mt-3 text-xs text-gray-500 font-medium">
                     {interval.label}
@@ -200,14 +200,14 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
             })}
           </div>
         </div>
-        
+
         {/* Leyenda de eventos con timeline */}
         <div className="mt-5 bg-white rounded-lg border border-gray-200 p-4">
           <h4 className="text-sm font-medium text-gray-700 mb-3">Línea de tiempo de alertas</h4>
           <div className="relative pl-5">
             {/* Línea vertical */}
             <div className="absolute left-2 top-0 bottom-0 w-0.5 bg-gray-200"></div>
-            
+
             {/* Eventos */}
             <div className="space-y-3">
               {evaluationData.evidences.map((evidence, index) => {
@@ -215,14 +215,12 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
                 return (
                   <div key={index} className="relative flex items-center">
                     {/* Punto en la línea temporal */}
-                    <div className={`absolute -left-3 w-3 h-3 rounded-full border-2 border-white ${
-                      isVideo ? 'bg-red-500' : 'bg-blue-500'
-                    }`}></div>
-                    
+                    <div className={`absolute -left-3 w-3 h-3 rounded-full border-2 border-white ${isVideo ? 'bg-red-500' : 'bg-blue-500'
+                      }`}></div>
+
                     {/* Contenido del evento */}
-                    <div className={`ml-3 px-3 py-2 rounded-md ${
-                      isVideo ? 'bg-red-50 text-red-900' : 'bg-blue-50 text-blue-900'
-                    } text-xs flex items-center`}>
+                    <div className={`ml-3 px-3 py-2 rounded-md ${isVideo ? 'bg-red-50 text-red-900' : 'bg-blue-50 text-blue-900'
+                      } text-xs flex items-center`}>
                       <span className="font-medium">{evidence.time}</span>
                       <span className="mx-1.5">•</span>
                       <span>{isVideo ? 'Alerta de video' : 'Conversación detectada'}</span>
@@ -239,7 +237,7 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
 
   // Función para obtener clase de color para nivel de riesgo
   const getRiskBadgeClass = (risk: string) => {
-    switch(risk.toLowerCase()) {
+    switch (risk.toLowerCase()) {
       case 'alto':
         return 'bg-red-100 text-red-800';
       case 'medio':
@@ -287,9 +285,9 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
             <div className="flex items-center justify-between">
               <div className="flex flex-col">
                 <div className="flex items-center">
-                  <h2 className="text-xl font-bold text-gray-900 mr-3">{evaluationData.candidate}</h2>
+                  <h2 className="text-xl font-bold text-gray-900 mr-3">{evaluationData.participant}</h2>
                   <div className="inline-flex items-center">
-                    <span className="text-gray-600 mr-2">ID:</span> 
+                    <span className="text-gray-600 mr-2">ID:</span>
                     <span className="font-medium">{evaluationData.id}</span>
                   </div>
                   <span className={`ml-3 px-3 py-1 rounded-full text-xs font-medium ${evaluationData.riskLevel === 'Alto' ? 'bg-red-100 text-red-800' : ''}`}>
@@ -317,41 +315,37 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
             <nav className="flex space-x-8">
               <button
                 onClick={() => setActiveTab('resumen')}
-                className={`py-3 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'resumen'
+                className={`py-3 px-1 border-b-2 font-medium text-sm ${activeTab === 'resumen'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
+                  }`}
               >
                 Resumen
               </button>
               <button
                 onClick={() => setActiveTab('evidencias')}
-                className={`py-3 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'evidencias'
+                className={`py-3 px-1 border-b-2 font-medium text-sm ${activeTab === 'evidencias'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
+                  }`}
               >
                 Evidencias
               </button>
               <button
                 onClick={() => setActiveTab('linea-tiempo')}
-                className={`py-3 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'linea-tiempo'
+                className={`py-3 px-1 border-b-2 font-medium text-sm ${activeTab === 'linea-tiempo'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
+                  }`}
               >
                 Línea de tiempo
               </button>
               <button
                 onClick={() => setActiveTab('detalles')}
-                className={`py-3 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'detalles'
+                className={`py-3 px-1 border-b-2 font-medium text-sm ${activeTab === 'detalles'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
+                  }`}
               >
                 Detalles
               </button>
@@ -525,7 +519,7 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
                   Ver todas (12)
                 </a>
               </div>
-              
+
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 {evaluationData.evidences.map((evidence, index) => (
                   <div key={index} className="border border-gray-200 rounded-lg overflow-hidden">
@@ -550,7 +544,7 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
               </div>
             </div>
           )}
-          
+
           {/* Línea de tiempo */}
           {activeTab === 'linea-tiempo' && (
             <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
@@ -558,29 +552,27 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
               <div className="relative">
                 {/* Línea vertical */}
                 <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200"></div>
-                
+
                 <div className="space-y-8 relative ml-12">
                   {evaluationData.detectedAlerts.map((alert, index) => (
                     <div key={index} className="relative">
                       {/* Punto en la línea */}
                       <div className="absolute -left-12 mt-1.5">
-                        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                          alert.risk === 'Alto' 
-                            ? 'bg-red-100' 
-                            : alert.risk === 'Medio' 
-                            ? 'bg-orange-100' 
-                            : 'bg-green-100'
-                        }`}>
-                          <div className={`w-2.5 h-2.5 rounded-full ${
-                            alert.risk === 'Alto' 
-                              ? 'bg-red-600' 
-                              : alert.risk === 'Medio' 
-                              ? 'bg-orange-500' 
-                              : 'bg-green-500'
-                          }`}></div>
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${alert.risk === 'Alto'
+                            ? 'bg-red-100'
+                            : alert.risk === 'Medio'
+                              ? 'bg-orange-100'
+                              : 'bg-green-100'
+                          }`}>
+                          <div className={`w-2.5 h-2.5 rounded-full ${alert.risk === 'Alto'
+                              ? 'bg-red-600'
+                              : alert.risk === 'Medio'
+                                ? 'bg-orange-500'
+                                : 'bg-green-500'
+                            }`}></div>
                         </div>
                       </div>
-                      
+
                       <div className="mb-1 flex items-center">
                         <span className="text-sm font-medium text-gray-900">{alert.time}</span>
                         <span className={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${getRiskBadgeClass(alert.risk)}`}>
@@ -605,7 +597,7 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
                           <span className="font-medium">{alert.type}</span>
                         </div>
                         <p className="text-gray-700">{alert.description}</p>
-                        
+
                         {alert.type === 'Audio' && (
                           <div className="mt-3 p-3 bg-white rounded border border-gray-200">
                             <div className="flex items-center">
@@ -623,7 +615,7 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
                             </div>
                           </div>
                         )}
-                        
+
                         {alert.type === 'Video' && (
                           <div className="mt-3 aspect-video bg-gray-100 flex items-center justify-center rounded border border-gray-200">
                             <svg className="w-12 h-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -631,7 +623,7 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
                             </svg>
                           </div>
                         )}
-                        
+
                         {alert.type === 'Pantalla' && (
                           <div className="mt-3 aspect-video bg-gray-100 flex items-center justify-center rounded border border-gray-200">
                             <svg className="w-12 h-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -646,17 +638,17 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
               </div>
             </div>
           )}
-          
+
           {/* Detalles */}
           {activeTab === 'detalles' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Información del candidato</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Información del participante</h3>
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Nombre completo</label>
-                      <p className="text-sm text-gray-900">{evaluationData.candidate}</p>
+                      <p className="text-sm text-gray-900">{evaluationData.participant}</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">ID</label>
@@ -672,7 +664,7 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
                     </div>
                   </div>
                 </div>
-                
+
                 <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-4">Información de la evaluación</h3>
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -805,7 +797,7 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="mt-8 p-4 bg-gray-50 rounded-lg border border-gray-200">
                   <h4 className="font-medium text-gray-900">Notas del sistema</h4>
                   <ul className="mt-2 space-y-2 text-sm text-gray-600">

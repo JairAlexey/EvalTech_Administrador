@@ -2,13 +2,13 @@ import { useState, useEffect } from 'react';
 import { ArrowLeft, Search, Info } from 'lucide-react';
 import Sidebar from './Sidebar';
 import eventService, { type EventFormData } from '../services/eventService';
-import candidateService from '../services/candidateService';
+import participantService from '../services/participantService';
+import evaluatorService from '../services/evaluatorService';
+import BlockedPagesModal from './BlockedPagesModal';
 
-interface Candidate {
+interface Participant {
   id: string;
   name: string;
-  role?: string;
-  position?: string;
   email: string;
   initials: string;
   color: string;
@@ -26,63 +26,78 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
   const [description, setDescription] = useState('');
   const [startDate, setStartDate] = useState('');
   const [startTime, setStartTime] = useState('');
-  const [duration, setDuration] = useState('60');
-  const [evaluationType, setEvaluationType] = useState('');
+  const [closeTime, setCloseTime] = useState('');
   const [evaluator, setEvaluator] = useState('');
-  const [cameraEnabled, setCameraEnabled] = useState(true);
-  const [micEnabled, setMicEnabled] = useState(true);
-  const [screenEnabled, setScreenEnabled] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [isLoadingCandidates, setIsLoadingCandidates] = useState(true);
+  const [isLoadingParticipants, setIsLoadingParticipants] = useState(true);
+  const [isLoadingEvaluators, setIsLoadingEvaluators] = useState(true);
+  const [showBlockedPagesModal, setShowBlockedPagesModal] = useState(false);
+  const [selectedBlockedWebsites, setSelectedBlockedWebsites] = useState<string[]>([]);
 
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [evaluators, setEvaluators] = useState<{ id: string; name: string }[]>([]);
 
-  // Cargar los candidatos al montar el componente
+  // Cargar los participantes al montar el componente
   useEffect(() => {
-    const fetchCandidates = async () => {
-      setIsLoadingCandidates(true);
+    const fetchParticipants = async () => {
+      setIsLoadingParticipants(true);
       try {
-        const candidatesData = await candidateService.getCandidates();
+        const participantsData = await participantService.getParticipants();
         // Transformar los datos al formato que necesitamos
-        const formattedCandidates: Candidate[] = candidatesData.map(candidate => ({
-          id: candidate.id,
-          name: candidate.name,
-          position: candidate.position,
-          email: candidate.email,
-          initials: candidate.initials,
-          color: candidate.color,
+        const formattedParticipants: Participant[] = participantsData.map(participant => ({
+          id: participant.id,
+          name: participant.name,
+          email: participant.email,
+          initials: participant.initials,
+          color: participant.color,
           selected: false
         }));
-        setCandidates(formattedCandidates);
+        setParticipants(formattedParticipants);
       } catch (error) {
-        console.error('Error al cargar los candidatos:', error);
+        console.error('Error al cargar los participantes:', error);
       } finally {
-        setIsLoadingCandidates(false);
+        setIsLoadingParticipants(false);
       }
     };
 
-    fetchCandidates();
+    fetchParticipants();
   }, []);
 
-  // Filtrar candidatos según el término de búsqueda
-  const filteredCandidates = candidates.filter(candidate =>
-    candidate.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    candidate.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (candidate.position && candidate.position.toLowerCase().includes(searchTerm.toLowerCase()))
+  // Cargar los evaluadores al montar el componente
+  useEffect(() => {
+    const fetchEvaluators = async () => {
+      setIsLoadingEvaluators(true);
+      try {
+        const evaluatorsData = await evaluatorService.getEvaluators();
+        setEvaluators(evaluatorsData);
+      } catch (error) {
+        console.error('Error al cargar los evaluadores:', error);
+      } finally {
+        setIsLoadingEvaluators(false);
+      }
+    };
+
+    fetchEvaluators();
+  }, []);
+
+  // Filtrar participantes según el término de búsqueda
+  const filteredParticipants = participants.filter(participant =>
+    participant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    participant.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const selectedCount = candidates.filter(c => c.selected).length;
+  const selectedCount = participants.filter(c => c.selected).length;
 
-  const toggleCandidate = (id: string) => {
-    setCandidates(candidates.map(c =>
+  const toggleParticipant = (id: string) => {
+    setParticipants(participants.map(c =>
       c.id === id ? { ...c, selected: !c.selected } : c
     ));
   };
 
   const clearSelection = () => {
-    setCandidates(candidates.map(c => ({ ...c, selected: false })));
+    setParticipants(participants.map(c => ({ ...c, selected: false })));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -91,16 +106,6 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
     setErrorMessage('');
 
     try {
-      // Validar campos obligatorios
-      if (!eventName || !startDate || !startTime || !duration || !evaluationType || !evaluator) {
-        throw new Error('Por favor complete todos los campos obligatorios');
-      }
-
-      // Validar que al menos un candidato esté seleccionado
-      if (selectedCount === 0) {
-        throw new Error('Debe seleccionar al menos un candidato para el evento');
-      }
-
       // Obtener timezone del navegador
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Guayaquil';
 
@@ -109,21 +114,19 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
         eventName,
         description,
         startDate,
-        startTime,
-        duration,
-        evaluationType,
         evaluator,
-        cameraEnabled,
-        micEnabled,
-        screenEnabled,
-        candidates: candidates.map(c => ({
+        participants: participants.map(c => ({
           id: c.id,
           name: c.name,
           email: c.email,
-          role: c.role || c.position,
-          selected: c.selected
+          selected: c.selected,
+          initials: c.initials,
+          color: c.color
         })),
-        timezone
+        timezone,
+        startTime,
+        closeTime,
+        blockedWebsites: selectedBlockedWebsites, // Agregar websites bloqueados
       };
 
       // Enviar los datos al servidor
@@ -131,7 +134,7 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
 
       // Si todo sale bien, notificar y redirigir
       if (onEventCreated) {
-        onEventCreated(result.id); // Cambiado de result.eventId a result.id
+        onEventCreated(result.id);
       } else if (onBack) {
         onBack();
       }
@@ -141,6 +144,10 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleBlockedWebsitesChange = (selectedIds: string[]) => {
+    setSelectedBlockedWebsites(selectedIds);
   };
 
   return (
@@ -186,7 +193,7 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
 
                 <div>
                   <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
-                    Descripción
+                    Descripción <span className="text-red-500">*</span>
                   </label>
                   <textarea
                     id="description"
@@ -198,7 +205,7 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-2">
                       Fecha de inicio <span className="text-red-500">*</span>
@@ -208,6 +215,7 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
                       id="startDate"
                       value={startDate}
                       onChange={(e) => setStartDate(e.target.value)}
+                      min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
                     />
                   </div>
@@ -224,39 +232,20 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
                     />
                   </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="duration" className="block text-sm font-medium text-gray-700 mb-2">
-                      Duración (minutos) <span className="text-red-500">*</span>
+                    <label htmlFor="closeTime" className="block text-sm font-medium text-gray-700 mb-2">
+                      Hora cierre <span className="text-red-500">*</span>
                     </label>
                     <input
-                      type="number"
-                      id="duration"
-                      value={duration}
-                      onChange={(e) => setDuration(e.target.value)}
+                      type="time"
+                      id="closeTime"
+                      value={closeTime}
+                      onChange={(e) => setCloseTime(e.target.value)}
+                      placeholder="--:--"
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
                     />
                   </div>
-                  <div>
-                    <label htmlFor="evaluationType" className="block text-sm font-medium text-gray-700 mb-2">
-                      Tipo de evaluación <span className="text-red-500">*</span>
-                    </label>
-                    <select
-                      id="evaluationType"
-                      value={evaluationType}
-                      onChange={(e) => setEvaluationType(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm bg-white"
-                    >
-                      <option value="">Seleccionar...</option>
-                      <option value="tecnica">Evaluación Técnica</option>
-                      <option value="practica">Evaluación Práctica</option>
-                      <option value="teorica">Evaluación Teórica</option>
-                    </select>
-                  </div>
                 </div>
-
                 <div>
                   <label htmlFor="evaluator" className="block text-sm font-medium text-gray-700 mb-2">
                     Evaluador asignado <span className="text-red-500">*</span>
@@ -268,52 +257,36 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm bg-white"
                   >
                     <option value="">Seleccionar evaluador...</option>
-                    <option value="evaluador1">Carlos Martínez</option>
-                    <option value="evaluador2">Ana Silva</option>
-                    <option value="evaluador3">Roberto Gómez</option>
+                    {isLoadingEvaluators ? (
+                      <option disabled>Cargando evaluadores...</option>
+                    ) : (
+                      evaluators.map(ev => (
+                        <option key={ev.id} value={ev.id}>{ev.name}</option>
+                      ))
+                    )}
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-3">
-                    Configuración de monitoreo
-                  </label>
-                  <div className="space-y-2">
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={cameraEnabled}
-                        onChange={(e) => setCameraEnabled(e.target.checked)}
-                        className="w-4 h-4 text-pink-600 border-gray-300 rounded focus:ring-pink-500"
-                      />
-                      <span className="ml-2 text-sm text-gray-700">Habilitar monitoreo de cámara</span>
-                    </label>
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={micEnabled}
-                        onChange={(e) => setMicEnabled(e.target.checked)}
-                        className="w-4 h-4 text-pink-600 border-gray-300 rounded focus:ring-pink-500"
-                      />
-                      <span className="ml-2 text-sm text-gray-700">Habilitar monitoreo de micrófono</span>
-                    </label>
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={screenEnabled}
-                        onChange={(e) => setScreenEnabled(e.target.checked)}
-                        className="w-4 h-4 text-pink-600 border-gray-300 rounded focus:ring-pink-500"
-                      />
-                      <span className="ml-2 text-sm text-gray-700">Habilitar monitoreo de pantalla</span>
-                    </label>
+                {/* Botón para páginas bloqueadas */}
+                <div className="pt-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-medium text-gray-700">Páginas bloqueadas</label>
+                    <span className="text-xs text-gray-500">{selectedBlockedWebsites.length} seleccionado(s)</span>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowBlockedPagesModal(true)}
+                    className="w-full px-4 py-2 text-sm text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition font-medium"
+                  >
+                    Configurar sitios bloqueados
+                  </button>
                 </div>
               </div>
             </div>
 
             <div className="bg-white rounded-lg border border-gray-200 p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">Asignación de Candidatos</h2>
+                <h2 className="text-lg font-semibold text-gray-900">Asignación de Participantes</h2>
               </div>
 
               <div className="relative mb-4">
@@ -322,66 +295,61 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Buscar candidato..."
+                  placeholder="Buscar participante..."
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
                 />
               </div>
 
               <div className="mb-4 flex items-center justify-between">
-                <p className="text-sm text-gray-600">Candidatos disponibles</p>
-                <span className="text-sm font-medium text-blue-600">{filteredCandidates.length} disponibles</span>
+                <p className="text-sm text-gray-600">Participantes disponibles</p>
+                <span className="text-sm font-medium text-blue-600">{filteredParticipants.length} disponibles</span>
               </div>
 
-              {isLoadingCandidates ? (
+              {isLoadingParticipants ? (
                 <div className="text-center py-8">
-                  <p className="text-gray-500">Cargando candidatos...</p>
+                  <p className="text-gray-500">Cargando participantes...</p>
                 </div>
-              ) : filteredCandidates.length === 0 ? (
+              ) : filteredParticipants.length === 0 ? (
                 <div className="text-center py-8 border border-dashed border-gray-300 rounded-lg">
-                  <p className="text-gray-500">No se encontraron candidatos{searchTerm ? ` para "${searchTerm}"` : ''}</p>
+                  <p className="text-gray-500">No se encontraron participantes{searchTerm ? ` para "${searchTerm}"` : ''}</p>
                 </div>
               ) : (
                 <div className="space-y-2 mb-6 max-h-64 overflow-y-auto">
-                  {filteredCandidates.map((candidate) => (
+                  {filteredParticipants.map((participant) => (
                     <div
-                      key={candidate.id}
-                      onClick={() => toggleCandidate(candidate.id)}
-                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition ${candidate.selected
+                      key={participant.id}
+                      onClick={() => toggleParticipant(participant.id)}
+                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition ${participant.selected
                         ? 'border-blue-500 bg-blue-50'
                         : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                         }`}
                     >
-                      <div className={`w-10 h-10 rounded-full ${candidate.color} flex items-center justify-center text-white font-semibold text-sm flex-shrink-0`}>
-                        {candidate.initials}
+                      <div className={`w-10 h-10 rounded-full ${participant.color} flex items-center justify-center text-white font-semibold text-sm flex-shrink-0`}>
+                        {participant.initials}
                       </div>
                       <div className="flex-1">
-                        <p className="font-medium text-gray-900 text-sm">{candidate.name}</p>
-                        <p className="text-xs text-gray-600">{candidate.position || candidate.role || 'Sin puesto'}</p>
+                        <p className="font-medium text-gray-900 text-sm">{participant.name}</p>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
 
-              <div className={`${selectedCount === 0 ? "bg-red-50 border-red-200" : "bg-blue-50 border-blue-200"} border rounded-lg p-4 mb-4`}>
+              <div className={`bg-blue-50 border-blue-200 border rounded-lg p-4 mb-4 mt-4`}>
                 <div className="flex gap-3">
-                  <Info className={`w-5 h-5 ${selectedCount === 0 ? "text-red-600" : "text-blue-600"} flex-shrink-0 mt-0.5`} />
+                  <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
                   <div>
                     <p className="text-sm font-medium text-gray-900 mb-1">Información</p>
-                    {selectedCount === 0 ? (
-                      <p className="text-xs text-gray-700">
-                        <strong>Importante:</strong> Debe seleccionar al menos un candidato para crear el evento.
-                      </p>
-                    ) : (
-                      <p className="text-xs text-gray-700">Los candidatos seleccionados recibirán una notificación por correo electrónico con los detalles del evento y las instrucciones para acceder a la evaluación.</p>
-                    )}
+                    <p className="text-xs text-gray-700">
+                      Puede crear el evento sin participantes y asignarlos más tarde.
+                    </p>
                   </div>
                 </div>
               </div>
 
               <div className="flex items-center justify-between pt-4 border-t border-gray-200">
                 <div>
-                  <span className="text-sm text-gray-600">Candidatos seleccionados: </span>
+                  <span className="text-sm text-gray-600">Participantes seleccionados: </span>
                   <span className="text-lg font-bold text-gray-900">{selectedCount}</span>
                 </div>
                 {selectedCount > 0 && (
@@ -398,7 +366,7 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
 
             <div className="col-span-2 flex justify-end gap-3">
               {errorMessage && (
-                <div className="flex-1 text-red-600 text-sm mt-1">
+                <div className="flex-1 text-red-600 text-sm">
                   {errorMessage}
                 </div>
               )}
@@ -412,7 +380,7 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
               </button>
               <button
                 type="submit"
-                disabled={isSubmitting || selectedCount === 0}
+                disabled={isSubmitting}
                 className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition shadow-sm disabled:opacity-50"
               >
                 {isSubmitting ? 'Creando...' : 'Crear Evento'}
@@ -421,6 +389,14 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
           </form>
         </div>
       </div>
+
+      {/* Modal de páginas bloqueadas */}
+      <BlockedPagesModal
+        isOpen={showBlockedPagesModal}
+        onClose={() => setShowBlockedPagesModal(false)}
+        selectedWebsites={selectedBlockedWebsites}
+        onSave={handleBlockedWebsitesChange}
+      />
     </div>
   );
 }

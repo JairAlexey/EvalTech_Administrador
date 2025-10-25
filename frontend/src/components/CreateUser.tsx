@@ -57,7 +57,6 @@ export default function CreateUser({ onClose, onUserCreated }: CreateUserProps) 
                     />
                     <input
                         name="email"
-                        type="email"
                         placeholder="Correo electrónico"
                         value={form.email}
                         onChange={handleChange}
