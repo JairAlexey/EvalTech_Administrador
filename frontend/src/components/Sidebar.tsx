@@ -23,11 +23,11 @@ export default function Sidebar({ onNavigate, onLogout, currentPage }: SidebarPr
       baseItems.push({ id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard', section: 'GENERAL' });
     }
 
-    // Admins can manage events and candidates
+    // Admins can manage events and participants
     if (isAdmin) {
       baseItems.push(
         { id: 'eventos', icon: Calendar, label: 'Eventos', section: 'GENERAL' },
-        { id: 'candidatos', icon: Users, label: 'Candidatos', section: 'GENERAL' }
+        { id: 'participants', icon: Users, label: 'Participantes', section: 'GENERAL' }
       );
     }
 

@@ -9,8 +9,10 @@ def generate_session_key():
 
 
 class AssignedPort(models.Model):
+
+    # Si un participante esta asignado a un puerto no se puede eliminar
     participant = models.OneToOneField(
-        Participant, on_delete=models.CASCADE, related_name="assigned_port"
+        Participant, on_delete=models.RESTRICT, related_name="assigned_port"
     )
     port = models.IntegerField(unique=True)
     is_active = models.BooleanField(default=True)

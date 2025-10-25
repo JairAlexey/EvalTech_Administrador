@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { ArrowLeft, Search, Info, UserCheck, UserMinus, UserX, Loader } from 'lucide-react';
 import Sidebar from './Sidebar';
 import ConfirmationModal from './ConfirmationModal';
-import eventService, { type EventDetail, type Candidate, type EventFormData } from '../services/eventService';
-import candidateService from '../services/candidateService';
+import eventService, { type EventDetail, type Participant, type EventFormData } from '../services/eventService';
+import participantService from '../services/participantService';
 
 interface EditEventProps {
   onBack?: () => void;
@@ -23,7 +23,7 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [event, setEvent] = useState<EventDetail | null>(null);
-  const [availableCandidates, setAvailableCandidates] = useState<Candidate[]>([]);
+  const [availableParticipants, setAvailableParticipants] = useState<Participant[]>([]);
 
   // Estados para los campos del formulario
   const [eventName, setEventName] = useState('');
@@ -35,9 +35,6 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
   const [evaluator, setEvaluator] = useState('');
 
   // Estados para las opciones de monitoreo
-  const [cameraEnabled, setCameraEnabled] = useState(true);
-  const [micEnabled, setMicEnabled] = useState(true);
-  const [screenEnabled, setScreenEnabled] = useState(true);
   const [notifyParticipants, setNotifyParticipants] = useState(true);
 
   // Estado para el mensaje personalizado
@@ -47,7 +44,7 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
   const [searchTerm, setSearchTerm] = useState('');
 
   // Estado para participantes
-  const [participants, setParticipants] = useState<Candidate[]>([]);
+  const [participants, setParticipants] = useState<Participant[]>([]);
 
   // Utilidad para convertir UTC a local y formatear para input date/time
   function formatUTCToLocalInput(dateStr?: string, timeStr?: string) {
@@ -133,11 +130,6 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
           setEvaluationType(eventData.evaluationType || '');
           setEvaluator(eventData.evaluator || '');
 
-          // Usar valores por defecto para estas propiedades si no están definidas
-          setCameraEnabled(eventData.cameraEnabled !== undefined ? eventData.cameraEnabled : true);
-          setMicEnabled(eventData.micEnabled !== undefined ? eventData.micEnabled : true);
-          setScreenEnabled(eventData.screenEnabled !== undefined ? eventData.screenEnabled : true);
-
           // Procesar participantes
           if (eventData.participants && eventData.participants.length > 0) {
             const mappedParticipants = eventData.participants.map((p: any) => ({
@@ -159,13 +151,13 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
           throw eventError;
         }
 
-        // Cargar candidatos disponibles
+        // Cargar participantes disponibles
         try {
-          const candidates = await candidateService.getCandidates();
+          const participants = await participantService.getParticipants();
 
-          // Filtrar candidatos que no están ya asignados al evento
+          // Filtrar participantes que no están ya asignados al evento
           const assignedIds = new Set(participants.map(p => p.id));
-          const availableCands = candidates
+          const availableCands = participants
             .filter(c => !assignedIds.has(c.id))
             .map(c => ({
               id: c.id,
@@ -177,11 +169,11 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
               color: c.color
             }));
 
-          setAvailableCandidates(availableCands);
-        } catch (candidateErr) {
-          console.error('Error al cargar candidatos disponibles:', candidateErr);
-          setAvailableCandidates([]);
-          // No bloqueamos el flujo por errores en candidatos disponibles
+          setAvailableParticipants(availableCands);
+        } catch (participantErr) {
+          console.error('Error al cargar participantes disponibles:', participantErr);
+          setAvailableParticipants([]);
+          // No bloqueamos el flujo por errores en participantes disponibles
         }
 
       } catch (err) {
@@ -281,7 +273,7 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
           selected: true
         }));
 
-      const newSelectedCandidates = availableCandidates
+      const newSelectedParticipants = availableParticipants
         .filter(c => c.selected)
         .map(c => ({
           id: c.id,
@@ -299,10 +291,7 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
         duration: durationValue.toString(),
         evaluationType: evaluationType,
         evaluator: evaluator.trim(),
-        cameraEnabled: cameraEnabled,
-        micEnabled: micEnabled,
-        screenEnabled: screenEnabled,
-        candidates: [...selectedParticipants, ...newSelectedCandidates],
+        participants: [...selectedParticipants, ...newSelectedParticipants],
         timezone: userTimezone
       };
 
@@ -598,48 +587,6 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
                     </div>
 
                     <div className="space-y-6">
-                      <div>
-                        <h3 className="text-sm font-medium text-gray-700 mb-2">Configuración de monitoreo</h3>
-                        <div className="space-y-3">
-                          <div className="flex items-center">
-                            <input
-                              id="camera-enabled"
-                              type="checkbox"
-                              checked={cameraEnabled}
-                              onChange={(e) => setCameraEnabled(e.target.checked)}
-                              className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                            />
-                            <label htmlFor="camera-enabled" className="ml-2 block text-sm text-gray-700">
-                              Habilitar monitoreo de cámara
-                            </label>
-                          </div>
-                          <div className="flex items-center">
-                            <input
-                              id="mic-enabled"
-                              type="checkbox"
-                              checked={micEnabled}
-                              onChange={(e) => setMicEnabled(e.target.checked)}
-                              className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                            />
-                            <label htmlFor="mic-enabled" className="ml-2 block text-sm text-gray-700">
-                              Habilitar monitoreo de micrófono
-                            </label>
-                          </div>
-                          <div className="flex items-center">
-                            <input
-                              id="screen-enabled"
-                              type="checkbox"
-                              checked={screenEnabled}
-                              onChange={(e) => setScreenEnabled(e.target.checked)}
-                              className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                            />
-                            <label htmlFor="screen-enabled" className="ml-2 block text-sm text-gray-700">
-                              Habilitar monitoreo de pantalla
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-
                       <div>
                         <h3 className="text-sm font-medium text-gray-700 mb-2">Notificaciones</h3>
                         <div className="flex items-center mb-4">
