@@ -2,15 +2,7 @@ import { useState, useEffect } from 'react';
 import { Search, Filter, Plus, Loader, Eye, Edit, Trash2 } from 'lucide-react';
 import Sidebar from './Sidebar';
 import ConfirmationModal from './ConfirmationModal';
-import eventService, { type Event as BaseEvent } from '../services/eventService';
-
-// Ampliamos el tipo para incluir campos que podrían estar ausentes en la API
-type Event = BaseEvent & {
-  selected: boolean;
-  time?: string;
-  duration?: string;
-  participants?: number;
-};
+import eventService, { type Event } from '../services/eventService';
 
 interface EventsListProps {
   onCreateEvent?: () => void;
@@ -135,20 +127,7 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
           throw new Error('Formato de respuesta incorrecto: se esperaba un array de eventos');
         }
 
-        // Ahora es seguro llamar a map() ya que hemos verificado que es un array
-        const processedEvents = response.map((event: BaseEvent) => ({
-          ...event,
-          selected: false,
-          // Asegurar que todos los campos necesarios estén presentes
-          id: event.id || `event-${Math.random().toString(36).substr(2, 9)}`,
-          name: event.name || 'Evento sin nombre',
-          code: event.code || 'SIN-CÓDIGO',
-          date: event.date || 'Fecha no disponible',
-          status: event.status || 'No definido',
-          time: event.time || '--:--',
-          duration: event.duration || 'N/A',
-          participants: typeof event.participants === 'number' ? event.participants : 0
-        }));
+        const processedEvents = response as Event[];
 
         setEvents(processedEvents);
         console.log("Processed events:", processedEvents);
@@ -228,10 +207,9 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
     if (!searchTerm) return true;
     // Agregamos verificación para evitar errores con valores nulos o undefined
     const eventName = (event.name || '').toLowerCase();
-    const eventCode = (event.code || '').toLowerCase();
     const searchTermLower = searchTerm.toLowerCase();
 
-    return eventName.includes(searchTermLower) || eventCode.includes(searchTermLower);
+    return eventName.includes(searchTermLower);
   });
 
   // Paginación de eventos
@@ -339,10 +317,13 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
                         Evento
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        Fecha y Hora
+                        Evaluador
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        Duración
+                        Fecha de Inicio
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                        Fecha de Cierre
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                         Participantes
@@ -358,7 +339,7 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
                   <tbody className="bg-white divide-y divide-gray-200">
                     {paginatedEvents.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                        <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
                           {events.length === 0 ?
                             'No hay eventos disponibles. Crea un nuevo evento para comenzar.' :
                             'No se encontraron eventos que coincidan con la búsqueda.'
@@ -368,16 +349,17 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
                     ) : (
 
                       paginatedEvents.map((event) => {
-                        const { localDate, localTime } = parseEventDateTime(event.date, event.time);
+                        const { localDate: startLocalDate, localTime: startLocalTime } = parseEventDateTime(event.startDate, event.startTime);
+                        const { localDate: closeLocalDate, localTime: closeLocalTime } = parseEventDateTime(event.closeDate, event.closeTime);
                         return (
-                          <tr key={event.id} className="hover:bg-gray-50 transition cursor-pointer"
-                            onClick={(e) => handleViewEvent(e, event.id)}>
+                          <tr key={event.id} className="hover:bg-gray-50 transition"
+                          >
                             <td className="px-6 py-4">
                               <input
                                 type="checkbox"
                                 checked={event.selected}
                                 onChange={(e) => {
-                                  e.stopPropagation(); // Prevenir la navegación al hacer clic en el checkbox
+                                  e.stopPropagation();
                                   toggleEvent(event.id);
                                 }}
                                 className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
@@ -385,25 +367,32 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
                             </td>
                             <td className="px-6 py-4">
                               <div>
-                                <p className="text-sm font-medium text-gray-900">{event.name || 'Sin nombre'}</p>
-                                <p className="text-xs text-gray-500 mt-0.5">{event.code || 'Sin código'}</p>
+                                <p className="text-sm font-medium text-gray-900">{event.name}</p>
                               </div>
                             </td>
                             <td className="px-6 py-4">
                               <div>
-                                <p className="text-sm text-gray-900">{localDate || 'Fecha no disponible'}</p>
-                                <p className="text-xs text-gray-500 mt-0.5">{localTime || '--:--'}</p>
+                                <p className="text-sm text-gray-900">{event.evaluator}</p>
                               </div>
                             </td>
                             <td className="px-6 py-4">
-                              <p className="text-sm text-gray-900">{event.duration || 'N/A'}</p>
+                              <div>
+                                <p className="text-sm text-gray-900">{startLocalDate || event.startDate}</p>
+                                <p className="text-xs text-gray-500 mt-0.5">{startLocalTime || event.startTime}</p>
+                              </div>
                             </td>
                             <td className="px-6 py-4">
-                              <p className="text-sm text-gray-900">{event.participants || 0} candidatos</p>
+                              <div>
+                                <p className="text-sm text-gray-900">{closeLocalDate || event.closeDate}</p>
+                                <p className="text-xs text-gray-500 mt-0.5">{closeLocalTime || event.closeTime}</p>
+                              </div>
                             </td>
                             <td className="px-6 py-4">
-                              <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(event.status || '')}`}>
-                                {event.status || 'No definido'}
+                              <p className="text-sm text-gray-900">{event.participants} participantes</p>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(event.status)}`}>
+                                {event.status}
                               </span>
                             </td>
                             <td className="px-6 py-4">

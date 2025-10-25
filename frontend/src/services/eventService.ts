@@ -3,41 +3,34 @@ import { API_URL } from './authService';
 // Interfaces
 export interface Event {
   id: string;
-  code: string;
   name: string;
-  date: string;
-  time?: string;
+  startDate: string;
+  startTime: string;
+  closeDate: string;
+  closeTime: string;
   status: string;
-  participants?: number;
-  duration?: string;
+  participants: number;
+  evaluator: string;
+  selected: boolean;
 }
 
 export interface EventDetail {
   id: string;
-  code: string;
   name: string;
-  date: string;
-  time: string;
-  startDate?: string;
-  startTime?: string;
-  duration: string;
+  startDate: string;
+  startTime: string;
+  closeDate: string;
+  closeTime: string;
   status: 'Programado' | 'En progreso' | 'Completado' | 'Cancelado';
-  description?: string;
-  evaluationType?: string;
-  evaluator?: string;
-  cameraEnabled?: boolean;
-  micEnabled?: boolean;
-  screenEnabled?: boolean;
+  description: string;
+  evaluator: string;
   participants?: {
     id: string;
     name: string;
     email: string;
-    is_active: boolean;
-    event_key: string;
-    status?: string;
-    position?: string;
-    initials?: string;
-    color?: string;
+    status: string;
+    initials: string;
+    color: string;
   }[];
 }
 
@@ -45,29 +38,32 @@ export interface EventDetailResponse {
   event: EventDetail;
 }
 
-export interface Candidate {
+export interface Participant {
   id: string;
   name: string;
   email: string;
-  selected?: boolean;
-  role?: string;
-  initials?: string;
-  color?: string;
+  selected: boolean;
+  initials: string;
+  color: string;
 }
 
 export interface EventFormData {
   eventName: string;
   description: string;
   startDate: string;
-  startTime: string;
-  duration: string;
-  evaluationType: string;
   evaluator: string;
-  cameraEnabled: boolean;
-  micEnabled: boolean;
-  screenEnabled: boolean;
-  candidates?: Candidate[];
+  participants: Array<{
+    id: string;
+    name: string;
+    email: string;
+    selected: boolean;
+    initials: string;
+    color: string;
+  }>;
   timezone: string;
+  startTime: string;
+  closeTime: string;
+  blockedWebsites?: string[];
 }
 
 export const eventService = {
@@ -146,7 +142,7 @@ export const eventService = {
       }
 
       const data = await response.json();
-      return { id: data.id };
+      return { id: data.id ?? data.eventId };
     } catch (error) {
       console.error('Error al crear evento:', error);
       throw error;

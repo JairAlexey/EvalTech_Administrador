@@ -87,7 +87,7 @@ export default function Home({ onLogin }: HomeProps) {
               <span className="block text-blue-600">evaluación técnica</span>
             </h1>
             <p className="mt-3 text-base text-gray-600 sm:mt-5 sm:text-lg md:mt-5 md:text-xl">
-              Plataforma integral para gestionar evaluaciones técnicas, candidatos y eventos de reclutamiento.
+              Plataforma integral para gestionar evaluaciones técnicas, participantes y eventos de reclutamiento.
               Optimiza tu proceso de selección con EvalTech.
             </p>
             <div className="mt-8 sm:mt-10 flex justify-center">
@@ -143,7 +143,7 @@ export default function Home({ onLogin }: HomeProps) {
           <div className="text-center">
             <h2 className="text-base font-semibold text-blue-600 uppercase tracking-wide">Funcionalidades</h2>
             <p className="mt-2 text-3xl font-extrabold text-gray-900 sm:text-4xl">
-              Todo lo que necesitas para evaluar candidatos
+              Todo lo que necesitas para evaluar participantes
             </p>
             <p className="mt-4 max-w-2xl text-xl text-gray-500 mx-auto">
               Gestiona todo el proceso de evaluación técnica desde un único lugar.
@@ -168,9 +168,9 @@ export default function Home({ onLogin }: HomeProps) {
                 <div className="p-3 bg-green-100 inline-block rounded-full">
                   <CheckCircle className="h-6 w-6 text-green-600" />
                 </div>
-                <h3 className="mt-5 text-lg font-medium text-gray-900">Seguimiento de Candidatos</h3>
+                <h3 className="mt-5 text-lg font-medium text-gray-900">Seguimiento de Participantes</h3>
                 <p className="mt-2 text-base text-gray-500">
-                  Organiza perfiles de candidatos, historial de evaluaciones y resultados en un solo lugar.
+                  Organiza perfiles de participantes, historial de evaluaciones y resultados en un solo lugar.
                 </p>
               </div>
 

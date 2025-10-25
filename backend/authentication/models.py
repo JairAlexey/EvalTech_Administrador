@@ -7,8 +7,8 @@ from django.contrib.auth.hashers import (
 
 class CustomUser(models.Model):
     email = models.EmailField(unique=True)
-    first_name = models.CharField(max_length=150, blank=True)
-    last_name = models.CharField(max_length=150, blank=True)
+    first_name = models.CharField(max_length=150)
+    last_name = models.CharField(max_length=150)
     password = models.CharField(max_length=128)
     date_joined = models.DateTimeField(auto_now_add=True)
 
@@ -33,6 +33,7 @@ class UserRole(models.Model):
         ("evaluator", "Evaluador"),
     ]
 
+    # Eliminar en cascada el rol, cuando un usuario sea eliminado
     user = models.OneToOneField(
         CustomUser, on_delete=models.CASCADE, related_name="user_role"
     )

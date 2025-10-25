@@ -59,7 +59,7 @@ export default function Login({ onLogin, error: externalError, onGoHome }: Login
                   <Settings className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-semibold mb-1">Gestión de candidatos</h3>
+                  <h3 className="font-semibold mb-1">Gestión de participantes</h3>
                   <p className="text-blue-100 text-sm">Administración completa del proceso de evaluación</p>
                 </div>
               </div>
