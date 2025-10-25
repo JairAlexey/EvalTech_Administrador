@@ -68,7 +68,6 @@ export default function EditUserModal({ user, onClose, onSave }: EditUserModalPr
                     />
                     <input
                         name="email"
-                        type="email"
                         placeholder="Correo electrónico"
                         value={form.email}
                         onChange={handleChange}

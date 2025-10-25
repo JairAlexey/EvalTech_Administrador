@@ -43,23 +43,23 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation }: Evalua
       duration: '60 min',
       status: 'Completado',
       participants: [
-        { 
-          id: 'CAND-2025-001', 
-          name: 'Juan Pérez', 
+        {
+          id: 'CAND-2025-001',
+          name: 'Juan Pérez',
           position: 'Frontend Developer',
           status: 'Completado',
           risk: 'Alto'
         },
-        { 
-          id: 'CAND-2025-002', 
-          name: 'Ana Gómez', 
+        {
+          id: 'CAND-2025-002',
+          name: 'Ana Gómez',
           position: 'Frontend Developer',
           status: 'Completado',
           risk: 'Bajo'
         },
-        { 
-          id: 'CAND-2025-003', 
-          name: 'Carlos Rodríguez', 
+        {
+          id: 'CAND-2025-003',
+          name: 'Carlos Rodríguez',
           position: 'Frontend Developer',
           status: 'Completado',
           risk: 'Medio'
@@ -75,16 +75,16 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation }: Evalua
       duration: '90 min',
       status: 'En progreso',
       participants: [
-        { 
-          id: 'CAND-2025-004', 
-          name: 'María López', 
+        {
+          id: 'CAND-2025-004',
+          name: 'María López',
           position: 'Backend Developer',
           status: 'En progreso',
           risk: null
         },
-        { 
-          id: 'CAND-2025-005', 
-          name: 'Roberto Sánchez', 
+        {
+          id: 'CAND-2025-005',
+          name: 'Roberto Sánchez',
           position: 'Backend Developer',
           status: 'Pendiente',
           risk: null
@@ -100,23 +100,23 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation }: Evalua
       duration: '120 min',
       status: 'Programado',
       participants: [
-        { 
-          id: 'CAND-2025-006', 
-          name: 'David Martínez', 
+        {
+          id: 'CAND-2025-006',
+          name: 'David Martínez',
           position: 'Full Stack Developer',
           status: 'Pendiente',
           risk: null
         },
-        { 
-          id: 'CAND-2025-007', 
-          name: 'Laura Díaz', 
+        {
+          id: 'CAND-2025-007',
+          name: 'Laura Díaz',
           position: 'Full Stack Developer',
           status: 'Pendiente',
           risk: null
         },
-        { 
-          id: 'CAND-2025-008', 
-          name: 'Pedro Vázquez', 
+        {
+          id: 'CAND-2025-008',
+          name: 'Pedro Vázquez',
           position: 'Full Stack Developer',
           status: 'Pendiente',
           risk: null
@@ -127,10 +127,10 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation }: Evalua
 
   const filteredEvents = events.filter(event => {
     const matchesSearch = event.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         event.code.toLowerCase().includes(searchTerm.toLowerCase());
-    
+      event.code.toLowerCase().includes(searchTerm.toLowerCase());
+
     const matchesStatus = !filterStatus || event.status === filterStatus;
-    
+
     return matchesSearch && matchesStatus;
   });
 
@@ -320,7 +320,7 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation }: Evalua
                           )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <button 
+                          <button
                             className="text-blue-600 hover:text-blue-900 flex items-center"
                             onClick={() => onViewEvaluation && onViewEvaluation(participant.id, getSelectedEvent()?.id || '')}
                           >
@@ -388,7 +388,7 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation }: Evalua
                           {event.participants.length}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <button 
+                          <button
                             className="text-blue-600 hover:text-blue-900 flex items-center"
                             onClick={() => setSelectedEvent(event.id)}
                           >
@@ -411,22 +411,20 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation }: Evalua
                   <button
                     onClick={() => handlePageChange(currentPage - 1)}
                     disabled={currentPage === 1}
-                    className={`px-3 py-1 border border-gray-300 rounded-md text-sm ${
-                      currentPage === 1
-                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                        : 'bg-white text-gray-700 hover:bg-gray-50'
-                    }`}
+                    className={`px-3 py-1 border border-gray-300 rounded-md text-sm ${currentPage === 1
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-white text-gray-700 hover:bg-gray-50'
+                      }`}
                   >
                     <ChevronLeft className="h-4 w-4" />
                   </button>
                   <button
                     onClick={() => handlePageChange(currentPage + 1)}
                     disabled={filteredEvents.length < 10}
-                    className={`px-3 py-1 border border-gray-300 rounded-md text-sm ${
-                      filteredEvents.length < 10
-                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                        : 'bg-white text-gray-700 hover:bg-gray-50'
-                    }`}
+                    className={`px-3 py-1 border border-gray-300 rounded-md text-sm ${filteredEvents.length < 10
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-white text-gray-700 hover:bg-gray-50'
+                      }`}
                   >
                     <ChevronRight className="h-4 w-4" />
                   </button>

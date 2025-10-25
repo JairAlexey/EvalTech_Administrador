@@ -3,6 +3,8 @@ from django.contrib.auth.hashers import check_password, make_password
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
+from django.core.validators import validate_email
+from django.core.exceptions import ValidationError
 import jwt
 import datetime
 from django.conf import settings
@@ -243,6 +245,14 @@ def create_user_view(request):
         if not all([first_name, last_name, email, password, role]):
             return JsonResponse({"error": "Faltan campos requeridos"}, status=400)
 
+        # Validar formato de email
+        try:
+            validate_email(email)
+        except ValidationError:
+            return JsonResponse(
+                {"error": "El correo electrónico no es válido."}, status=400
+            )
+
         # Validación de longitud mínima de contraseña
         if len(password) < 4:
             return JsonResponse(
@@ -368,6 +378,14 @@ def edit_user_view(request, user_id):
         if not all([first_name, last_name, email, role]):
             return JsonResponse({"error": "Faltan campos requeridos"}, status=400)
 
+        # Validar formato de email
+        try:
+            validate_email(email)
+        except ValidationError:
+            return JsonResponse(
+                {"error": "El correo electrónico no es válido."}, status=400
+            )
+
         # Validar caracteres en contrasena
         if password and len(password) < 4:
             return JsonResponse(
@@ -407,3 +425,19 @@ def edit_user_view(request, user_id):
         return JsonResponse({"error": "Usuario no encontrado"}, status=404)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+def evaluator_users(request):
+    if request.method == "GET":
+        evaluators = UserRole.objects.filter(role="evaluator")
+        users = [
+            {
+                "id": str(er.user.id),
+                "name": f"{er.user.first_name} {er.user.last_name}".strip()
+                or er.user.email,
+            }
+            for er in evaluators
+        ]
+        return JsonResponse({"users": users})
+    return JsonResponse({"error": "Método no permitido"}, status=405)

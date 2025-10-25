@@ -1,41 +1,43 @@
 import { useState, useEffect } from 'react';
-import { Search, Plus, Filter, Edit, Trash2, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
+import { Search, Plus, Filter, Edit, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import Sidebar from './Sidebar';
 import ConfirmationModal from './ConfirmationModal';
-import candidateService, { type Candidate as CandidateType } from '../services/candidateService';
+import CreateParticipant from './CreateParticipant';
+import EditParticipant from './EditParticipant';
+import participantService, { type Participant as ParticipantType } from '../services/participantService';
 
-interface Candidate extends CandidateType {
+interface Participant extends ParticipantType {
   selected: boolean;
 }
 
-interface CandidateListProps {
-  onCreateCandidate?: () => void;
-  onEditCandidate?: (candidateId: string) => void;
-  onViewCandidateDetails?: (candidateId: string) => void;
+interface ParticipantListProps {
   onNavigate?: (page: string) => void;
 }
 
-export default function CandidatesList({ onCreateCandidate, onEditCandidate, onViewCandidateDetails, onNavigate }: CandidateListProps) {
+export default function ParticipantsList({ onNavigate }: ParticipantListProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [candidateToDelete, setCandidateToDelete] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [participantToDelete, setParticipantToDelete] = useState<string | null>(null);
+  const [participantToEdit, setParticipantToEdit] = useState<string | null>(null);
   const [selectAll, setSelectAll] = useState(false);
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [participants, setParticipants] = useState<Participant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Cargar candidatos desde el backend
+  // Cargar participantes desde el backend
   useEffect(() => {
-    const fetchCandidates = async () => {
+    const fetchParticipants = async () => {
       try {
         setLoading(true);
-        const candidatesData = await candidateService.getCandidates(searchTerm);
-        setCandidates(candidatesData.map(candidate => ({ ...candidate, selected: false })));
+        const participantsData = await participantService.getParticipants(searchTerm);
+        setParticipants(participantsData.map(participant => ({ ...participant, selected: false })));
         setError(null);
       } catch (err) {
-        console.error('Error al cargar los candidatos:', err);
-        setError('No se pudieron cargar los candidatos. Por favor, inténtelo de nuevo más tarde.');
+        console.error('Error al cargar los participantes:', err);
+        setError('No se pudieron cargar los participantes. Por favor, inténtelo de nuevo más tarde.');
       } finally {
         setLoading(false);
       }
@@ -43,47 +45,60 @@ export default function CandidatesList({ onCreateCandidate, onEditCandidate, onV
 
     // Usar un debounce para la búsqueda
     const timeoutId = setTimeout(() => {
-      fetchCandidates();
+      fetchParticipants();
     }, 500);
 
     return () => clearTimeout(timeoutId);
   }, [searchTerm]);
 
-  // Calcular cuántos candidatos están seleccionados
-  const selectedCount = candidates.filter(c => c.selected).length;
+  const refreshParticipants = async () => {
+    setLoading(true);
+    try {
+      const participantsData = await participantService.getParticipants(searchTerm);
+      setParticipants(participantsData.map(participant => ({ ...participant, selected: false })));
+      setError(null);
+    } catch (err) {
+      setError('No se pudieron cargar los participantes. Por favor, inténtelo de nuevo más tarde.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  // Función para manejar la selección de un candidato
-  const toggleCandidate = (id: string) => {
-    setCandidates(candidates.map(c =>
+  // Calcular cuántos participantes están seleccionados
+  const selectedCount = participants.filter(c => c.selected).length;
+
+  // Función para manejar la selección de un participante
+  const toggleParticipant = (id: string) => {
+    setParticipants(participants.map(c =>
       c.id === id ? { ...c, selected: !c.selected } : c
     ));
   };
 
-  // Función para seleccionar o deseleccionar todos los candidatos
+  // Función para seleccionar o deseleccionar todos los participantes
   const toggleSelectAll = () => {
     const newSelectAll = !selectAll;
     setSelectAll(newSelectAll);
-    setCandidates(candidates.map(c => ({ ...c, selected: newSelectAll })));
+    setParticipants(participants.map(c => ({ ...c, selected: newSelectAll })));
   };
 
   // Función para manejar el clic en el botón de eliminar
   const handleDeleteClick = (id: string) => {
-    setCandidateToDelete(id);
+    setParticipantToDelete(id);
     setShowDeleteModal(true);
   };
 
   // Función para confirmar la eliminación
   const handleConfirmDelete = async () => {
-    if (candidateToDelete) {
+    if (participantToDelete) {
       try {
         setLoading(true);
-        await candidateService.deleteCandidate(candidateToDelete);
-        setCandidates(candidates.filter(c => c.id !== candidateToDelete));
+        await participantService.deleteParticipant(participantToDelete);
+        setParticipants(participants.filter(c => c.id !== participantToDelete));
         setShowDeleteModal(false);
-        setCandidateToDelete(null);
+        setParticipantToDelete(null);
       } catch (err) {
-        console.error('Error al eliminar el candidato:', err);
-        setError('No se pudo eliminar el candidato. Por favor, inténtelo de nuevo más tarde.');
+        console.error('Error al eliminar el participante:', err);
+        setError('No se pudo eliminar el participante. Por favor, inténtelo de nuevo más tarde.');
       } finally {
         setLoading(false);
       }
@@ -93,52 +108,32 @@ export default function CandidatesList({ onCreateCandidate, onEditCandidate, onV
   // Función para cancelar la eliminación
   const handleCancelDelete = () => {
     setShowDeleteModal(false);
-    setCandidateToDelete(null);
+    setParticipantToDelete(null);
   };
 
-  // Función para obtener la clase CSS del estado
-  const getStatusClass = (status: Candidate['status']) => {
-    switch (status) {
-      case 'Activo':
-        return 'bg-green-100 text-green-800';
-      case 'Inactivo':
-        return 'bg-red-100 text-red-800';
-      case 'Pendiente':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'Cancelado':
-        return 'bg-red-100 text-red-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  // Modify the candidate click handler to prevent default behavior
-  const handleViewCandidate = (e: React.MouseEvent, candidateId: string) => {
-    e.preventDefault(); // Prevent any default behavior
-    e.stopPropagation(); // Stop event propagation
-    console.log("View candidate clicked for ID:", candidateId);
-    if (onViewCandidateDetails) {
-      onViewCandidateDetails(String(candidateId)); // Ensure ID is a string
-    }
+  // Función para manejar el clic en el botón de editar
+  const handleEditClick = (id: string) => {
+    setParticipantToEdit(id);
+    setShowEditModal(true);
   };
 
   return (
     <div className="flex h-screen bg-gray-50">
-      <Sidebar currentPage="candidatos" onNavigate={onNavigate} />
+      <Sidebar currentPage="participants" onNavigate={onNavigate} />
 
       <div className="flex-1 overflow-y-auto">
         <div className="bg-white border-b border-gray-200 px-8 py-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Candidatos</h1>
-              <p className="text-gray-600 mt-1">Gestión de candidatos registrados en el sistema</p>
+              <h1 className="text-2xl font-bold text-gray-900">Participantes</h1>
+              <p className="text-gray-600 mt-1">Gestión de participantes registrados en el sistema</p>
             </div>
             <button
-              onClick={() => onCreateCandidate && onCreateCandidate()}
+              onClick={() => setShowCreateModal(true)}
               className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition shadow-sm"
             >
               <Plus className="w-4 h-4" />
-              Nuevo candidato
+              Nuevo participante
             </button>
           </div>
         </div>
@@ -165,7 +160,7 @@ export default function CandidatesList({ onCreateCandidate, onEditCandidate, onV
                       type="text"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      placeholder="Buscar candidatos..."
+                      placeholder="Buscar participantes..."
                       className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm w-64"
                     />
                   </div>
@@ -206,13 +201,7 @@ export default function CandidatesList({ onCreateCandidate, onEditCandidate, onV
                         Correo
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        Puesto
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        Evento
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        Estado
+                        Eventos
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                         Acciones
@@ -220,64 +209,55 @@ export default function CandidatesList({ onCreateCandidate, onEditCandidate, onV
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {candidates.length === 0 ? (
+                    {participants.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
-                          {searchTerm ? 'No se encontraron candidatos que coincidan con la búsqueda.' : 'No hay candidatos disponibles. Crea un nuevo candidato para comenzar.'}
+                        <td colSpan={4} className="px-6 py-12 text-center text-gray-500">
+                          {searchTerm ? 'No se encontraron participantes que coincidan con la búsqueda.' : 'No hay participantes disponibles. Crea un nuevo participante para comenzar.'}
                         </td>
                       </tr>
                     ) : (
-                      candidates.map((candidate) => (
-                        <tr key={candidate.id} className="hover:bg-gray-50 transition">
+                      participants.map((participant) => (
+                        <tr key={participant.id} className="hover:bg-gray-50 transition">
                           <td className="px-6 py-4">
                             <input
                               type="checkbox"
-                              checked={candidate.selected}
-                              onChange={() => toggleCandidate(candidate.id)}
+                              checked={participant.selected}
+                              onChange={() => toggleParticipant(participant.id)}
                               className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                             />
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center">
-                              <div className={`w-8 h-8 rounded-full ${candidate.color} flex items-center justify-center text-gray-700 font-medium`}>
-                                {candidate.initials}
+                              <div className={`w-8 h-8 rounded-full ${participant.color} flex items-center justify-center text-gray-700 font-medium`}>
+                                {participant.initials}
                               </div>
-                              <span className="ml-3 font-medium">{candidate.name}</span>
+                              <span className="ml-3 font-medium">{participant.name}</span>
                             </div>
                           </td>
                           <td className="px-6 py-4 text-sm text-gray-600">
-                            {candidate.email}
+                            {participant.email}
                           </td>
                           <td className="px-6 py-4 text-sm text-gray-600">
-                            {candidate.position}
-                          </td>
-                          <td className="px-6 py-4">
-                            {candidate.event ? (
-                              <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
-                                {candidate.event}
-                              </span>
-                            ) : '-'}
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusClass(candidate.status)}`}>
-                              {candidate.status}
-                            </span>
+                            {participant.events && participant.events.length > 0 ? (
+                              <ul>
+                                {participant.events.map(event => (
+                                  <li key={event.id}>{event.name}</li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <span className="text-gray-400 text-xs">Sin eventos</span>
+                            )}
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-2">
                               <button
-                                onClick={(e) => handleViewCandidate(e, candidate.id)}
-                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </button>
-                              <button
                                 onClick={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
-                                  onEditCandidate && onEditCandidate(candidate.id);
+                                  handleEditClick(participant.id);
                                 }}
                                 className="p-1.5 text-gray-600 hover:bg-gray-100 rounded transition"
+                                title="Editar participante"
                               >
                                 <Edit className="w-4 h-4" />
                               </button>
@@ -285,9 +265,10 @@ export default function CandidatesList({ onCreateCandidate, onEditCandidate, onV
                                 onClick={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
-                                  handleDeleteClick(candidate.id);
+                                  handleDeleteClick(participant.id);
                                 }}
                                 className="p-1.5 text-red-600 hover:bg-red-50 rounded transition"
+                                title="Eliminar participante"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -304,12 +285,12 @@ export default function CandidatesList({ onCreateCandidate, onEditCandidate, onV
             <div className="px-6 py-4 border-t border-gray-200">
               <div className="flex items-center justify-between">
                 <p className="text-sm text-gray-600">
-                  {candidates.length > 0
-                    ? `Mostrando 1 a ${Math.min(candidates.length, 10)} de ${candidates.length} candidatos`
-                    : 'No hay candidatos disponibles'
+                  {participants.length > 0
+                    ? `Mostrando 1 a ${Math.min(participants.length, 10)} de ${participants.length} participantes`
+                    : 'No hay participantes disponibles'
                   }
                 </p>
-                {candidates.length > 10 && (
+                {participants.length > 10 && (
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
@@ -320,7 +301,7 @@ export default function CandidatesList({ onCreateCandidate, onEditCandidate, onV
                     </button>
 
                     {/* Generar botones de página dinámicamente */}
-                    {Array.from({ length: Math.ceil(candidates.length / 10) }).map((_, index) => (
+                    {Array.from({ length: Math.ceil(participants.length / 10) }).map((_, index) => (
                       <button
                         key={index}
                         onClick={() => setCurrentPage(index + 1)}
@@ -335,7 +316,7 @@ export default function CandidatesList({ onCreateCandidate, onEditCandidate, onV
 
                     <button
                       onClick={() => setCurrentPage(currentPage + 1)}
-                      disabled={loading || currentPage * 10 >= candidates.length}
+                      disabled={loading || currentPage * 10 >= participants.length}
                       className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <ChevronRight className="w-4 h-4 text-gray-600" />
@@ -348,11 +329,36 @@ export default function CandidatesList({ onCreateCandidate, onEditCandidate, onV
         </div>
       </div>
 
+      {/* Modal de creación de participante */}
+      <CreateParticipant
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSuccess={() => {
+          setShowCreateModal(false);
+          refreshParticipants()
+        }}
+      />
+
+      {/* Modal de edición de participante */}
+      <EditParticipant
+        isOpen={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setParticipantToEdit(null);
+        }}
+        onSuccess={() => {
+          setShowEditModal(false);
+          setParticipantToEdit(null);
+          refreshParticipants();
+        }}
+        participantId={participantToEdit}
+      />
+
       {/* Modal de confirmación de eliminación */}
       <ConfirmationModal
         isOpen={showDeleteModal}
-        title="Eliminar candidato"
-        message="¿Estás seguro de que deseas eliminar este candidato? Esta acción no se puede deshacer."
+        title="Eliminar participante"
+        message="¿Estás seguro de que deseas eliminar este participante? Esta acción no se puede deshacer."
         confirmButtonText="Eliminar"
         cancelButtonText="Cancelar"
         onConfirm={handleConfirmDelete}

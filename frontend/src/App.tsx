@@ -4,9 +4,8 @@ import EventsList from './components/EventsList';
 import CreateEvent from './components/CreateEvent';
 import EventDetails from './components/EventDetails';
 import EditEvent from './components/EditEvent';
-import CandidatesList from './components/CandidatesList';
-import CandidateDetails from './components/CandidateDetails';
-import EditCandidate from './components/EditCandidate';
+import Participant from './components/ParticipantsList';
+import EditParticipant from './components/EditParticipant';
 import Dashboard from './components/Dashboard';
 import Home from './components/Home';
 import EvaluationsList from './components/EvaluationsList';
@@ -14,14 +13,13 @@ import EvaluationDetails from './components/EvaluationDetails';
 import UserRoleManagement from './components/UserRoleManagement';
 import WaitingForRole from './components/WaitingForRole';
 import { useAuth } from './contexts/AuthContext';
-import CreateCandidate from './components/CreateCandidate';
+import CreateParticipant from './components/CreateParticipant';
 
-type Page = 'home' | 'login' | 'dashboard' | 'eventos' | 'create-event' | 'event-details' | 'edit-event' | 'candidatos' | 'candidate-details' | 'edit-candidate' | 'create-candidate' | 'evaluaciones' | 'evaluation-details' | 'estadisticas' | 'exportar' | 'ajustes' | 'cuenta' | 'roles';
+type Page = 'home' | 'login' | 'dashboard' | 'eventos' | 'create-event' | 'event-details' | 'edit-event' | 'participants' | 'edit-participant' | 'create-participant' | 'evaluaciones' | 'evaluation-details' | 'estadisticas' | 'exportar' | 'ajustes' | 'cuenta' | 'roles';
 
 function App() {
     const [currentPage, setCurrentPage] = useState<Page>('home');
     const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-    const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
     const [selectedParticipantId, setSelectedParticipantId] = useState<string | null>(null);
     const [loginError, setLoginError] = useState<string | null>(null);
 
@@ -41,9 +39,8 @@ function App() {
         }
 
         // Reset relevant state when changing main sections
-        if (['dashboard', 'eventos', 'candidatos', 'evaluaciones', 'estadisticas', 'ajustes', 'roles'].includes(page)) {
+        if (['dashboard', 'eventos', 'participants', 'evaluaciones', 'estadisticas', 'ajustes', 'roles'].includes(page)) {
             setSelectedEventId(null);
-            setSelectedCandidateId(null);
             setSelectedParticipantId(null);
         }
         setCurrentPage(page as Page);
@@ -61,10 +58,9 @@ function App() {
             'create-event',
             'event-details',
             'edit-event',
-            'candidatos',
-            'candidate-details',
-            'edit-candidate',
-            'create-candidate',
+            'participants',
+            'edit-participant',
+            'create-participant',
             'evaluaciones',
             'evaluation-details',
             'estadisticas',
@@ -124,29 +120,19 @@ function App() {
         console.log("Navigated to edit-event with ID:", eventId);
     };
 
-    // Candidate Handlers
-    const handleCreateCandidate = () => {
-        if (!hasPermissionForPage('create-candidate')) return;
-        setCurrentPage('create-candidate');
+    // Participant Handlers
+    const handleCreateParticipant = () => {
+        if (!hasPermissionForPage('create-participant')) return;
+        setCurrentPage('create-participant');
     };
 
-    const handleViewCandidateDetails = (candidateId: string) => {
-        console.log("View candidate details for ID:", candidateId);
-        // Store the ID first, then navigate
-        setSelectedCandidateId(candidateId);
-        console.log("Selected candidate ID set to:", candidateId);
+    const handleEditParticipant = (participantId: string) => {
+        if (!hasPermissionForPage('edit-participant')) return;
+        setSelectedParticipantId(participantId);
+        console.log("Edit participant ID set to:", participantId);
         // Navigate immediately
-        setCurrentPage('candidate-details');
-        console.log("Navigated to candidate-details with ID:", candidateId);
-    };
-
-    const handleEditCandidate = (candidateId: string) => {
-        if (!hasPermissionForPage('edit-candidate')) return;
-        setSelectedCandidateId(candidateId);
-        console.log("Edit candidate ID set to:", candidateId);
-        // Navigate immediately
-        setCurrentPage('edit-candidate');
-        console.log("Navigated to edit-candidate with ID:", candidateId);
+        setCurrentPage('edit-participant');
+        console.log("Navigated to edit-participant with ID:", participantId);
     };
 
     // Evaluation Handlers
@@ -163,9 +149,9 @@ function App() {
         setCurrentPage('eventos');
     };
 
-    const handleBackToCandidates = () => {
-        setSelectedCandidateId(null);
-        setCurrentPage('candidatos');
+    const handleBackToParticipants = () => {
+        setSelectedParticipantId(null);
+        setCurrentPage('participants');
     };
 
     const handleBackToEvaluations = () => {
@@ -234,7 +220,7 @@ function App() {
 
         // Check permission for current page
         // PROBLEMA: Esta verificación está causando redirecciones no deseadas
-        // para páginas como event-details y candidate-details
+        // para páginas como event-details y participant-details
         if (isAuthenticated && !hasPermissionForPage(currentPage)) {
             // Redirect to default page based on role
             if (isSuperAdmin) {
@@ -313,53 +299,35 @@ function App() {
                     />
                 );
 
-            case 'candidatos':
+            case 'participants':
                 return (
-                    <CandidatesList
-                        onViewCandidateDetails={handleViewCandidateDetails}
-                        onEditCandidate={handleEditCandidate}
-                        onCreateCandidate={handleCreateCandidate}
+                    <Participant
                         onNavigate={handleNavigate}
                     />
                 );
 
-            case 'create-candidate':
+
+            case 'create-participant':
                 return (
-                    <CreateCandidate
-                        onBack={handleBackToCandidates}
-                        onNavigate={handleNavigate}
-                        onCreate={() => setCurrentPage('candidatos')}
+                    <CreateParticipant
+                        isOpen={true}
+                        onClose={() => setCurrentPage('participants')}
+                        onSuccess={() => setCurrentPage('participants')}
                     />
                 );
 
-
-            case 'candidate-details':
-                console.log("Rendering CandidateDetails with ID:", selectedCandidateId);
-                if (!selectedCandidateId) {
-                    console.error("No candidate ID selected, navigating back to candidates list");
-                    setCurrentPage('candidatos');
+            case 'edit-participant':
+                if (!selectedParticipantId) {
+                    console.error("No participant ID selected, navigating back to participants list");
+                    setCurrentPage('participants');
                     return null;
                 }
                 return (
-                    <CandidateDetails
-                        onBack={handleBackToCandidates}
-                        onNavigate={handleNavigate}
-                        candidateId={selectedCandidateId}
-                        onEdit={handleEditCandidate}
-                    />
-                );
-
-            case 'edit-candidate':
-                if (!selectedCandidateId) {
-                    console.error("No candidate ID selected, navigating back to candidates list");
-                    setCurrentPage('candidatos');
-                    return null;
-                }
-                return (
-                    <EditCandidate
-                        onBack={handleBackToCandidates}
-                        candidateId={selectedCandidateId}
-                        onNavigate={handleNavigate}
+                    <EditParticipant
+                        isOpen={true}
+                        onClose={() => setCurrentPage('participants')}
+                        onSuccess={() => setCurrentPage('participants')}
+                        participantId={selectedParticipantId}
                     />
                 );
 
@@ -375,7 +343,7 @@ function App() {
                 return (
                     <EvaluationDetails
                         onBack={handleBackToEvaluations}
-                        candidateId={selectedParticipantId || undefined}
+                        participantId={selectedParticipantId || undefined}
                         eventId={selectedEventId || undefined}
                         onNavigate={handleNavigate}
                     />
