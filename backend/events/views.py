@@ -2,8 +2,15 @@ from django.utils import timezone
 from datetime import timedelta, datetime
 from django.http import JsonResponse, HttpRequest
 import json, re
-from events.communication import send_bulk_emails
-from .models import Event, Participant, ParticipantLog, Website, BlockedHost
+from events.communication import send_emails
+from .models import (
+    Event,
+    Participant,
+    ParticipantLog,
+    Website,
+    BlockedHost,
+    ParticipantEvent,
+)
 from django.views.decorators.csrf import csrf_exempt
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Q
@@ -14,6 +21,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.db.models.deletion import RestrictedError
 from authentication.models import CustomUser
+from authentication.models import UserRole
 
 
 def check_event_time(event):
@@ -152,17 +160,56 @@ def log_participant_audio_video_event(request: HttpRequest):
         return JsonResponse({"error": str(e)}, status=400)
 
 
-def trigger_emails(request, event_id):
+@csrf_exempt
+def send_key_emails(request, event_id):
     if request.method == "POST":
         try:
-            send_bulk_emails(
-                event_id=event_id,
-                subject="Nuevo comunicado del evento",
-                body="<h1>Contenido importante del evento</h1>",
-            )
-            return JsonResponse({"status": "Correos enviados exitosamente"})
+            # Obtener IDs de participantes seleccionados
+            try:
+                data = json.loads(request.body.decode("utf-8"))
+                participant_ids = data.get("participantIds", [])
+                user_id = data.get("userId")
+            except Exception:
+                participant_ids = []
+                user_id = None
+
+            # Verificar que el usuario existe y obtener su rol
+            try:
+                user = CustomUser.objects.get(id=user_id)
+
+                user_role = UserRole.objects.get(user=user)
+            except (CustomUser.DoesNotExist, UserRole.DoesNotExist):
+                return JsonResponse({"error": "Usuario no encontrado"}, status=404)
+
+            # Verificar que el evento existe
+            try:
+                event = Event.objects.get(id=event_id)
+            except Event.DoesNotExist:
+                return JsonResponse({"error": "Evento no encontrado"}, status=404)
+
+            # Permitir solo si es evaluador del evento o superadmin
+            if not user_id or (
+                str(event.evaluator_id) != str(user_id)
+                and user_role.role != "superadmin"
+            ):
+                return JsonResponse(
+                    {
+                        "error": "Solo el evaluador asignado o superadmin puede enviar correos"
+                    },
+                    status=403,
+                )
+
+            # Llamar a la función de envío de correos
+            result = send_emails(event_id, participant_ids if participant_ids else None)
+
+            if result["success"]:
+                return JsonResponse({"success": True, "sent": result["sent"]})
+            else:
+                return JsonResponse({"error": result["error"]}, status=400)
+
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=400)
+    return JsonResponse({"error": "Método no permitido"}, status=405)
 
 
 @csrf_exempt
@@ -301,6 +348,7 @@ def participant_detail(request, participant_id):
             # Actualizar el participante
             data = json.loads(request.body)
             changed = False
+            email_changed = False
 
             # Validar campos obligatorios
             first_name = data.get("first_name", "").strip()
@@ -350,9 +398,15 @@ def participant_detail(request, participant_id):
             if participant.email != email:
                 participant.email = email
                 changed = True
+                email_changed = True
 
             if changed:
                 participant.save()
+                # Si el correo cambió, actualiza los event_key de los eventos asociados
+                if email_changed:
+                    for pe in ParticipantEvent.objects.filter(participant=participant):
+                        pe.generate_event_key()
+                        pe.save()
 
             return JsonResponse(
                 {
@@ -649,7 +703,9 @@ def events(request):
                 if cid:
                     try:
                         participant = Participant.objects.get(id=cid)
-                        new_event.participants.add(participant)
+                        ParticipantEvent.objects.get_or_create(
+                            event=new_event, participant=participant
+                        )
                     except Participant.DoesNotExist:
                         pass
 
@@ -1034,16 +1090,16 @@ def handle_event_participants(event, participants_payload):
 
     with transaction.atomic():
         # Agregar asociaciones nuevas
-        if participants_to_add:
-            event.participants.add(*participants_to_add)
+        for participant in participants_to_add:
+            ParticipantEvent.objects.get_or_create(event=event, participant=participant)
 
-        # Quitar asociaciones que ya no están seleccionadas
-        if emails_to_remove:
-            to_remove = [
-                current_by_email[e] for e in emails_to_remove if e in current_by_email
-            ]
-            if to_remove:
-                event.participants.remove(*to_remove)
+        # Quitar asociaciones eliminando el registro intermedio
+        for email in emails_to_remove:
+            participant = current_by_email.get(email)
+            if participant:
+                ParticipantEvent.objects.filter(
+                    event=event, participant=participant
+                ).delete()
 
     # Métricas útiles para logs/debug
     added_count = len(participants_to_add)
