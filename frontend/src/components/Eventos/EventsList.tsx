@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Search, Filter, Plus, Loader, Eye, Edit, Trash2 } from 'lucide-react';
-import Sidebar from './Sidebar';
-import ConfirmationModal from './ConfirmationModal';
-import eventService, { type Event } from '../services/eventService';
+import Sidebar from '../utils/Sidebar';
+import ConfirmationModal from '../utils/ConfirmationModal';
+import eventService, { type Event } from '../../services/eventService';
 
 interface EventsListProps {
   onCreateEvent?: () => void;
@@ -326,6 +326,12 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
                         Fecha de Cierre
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                        Duración (min)
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                        Fecha de Fin
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                         Participantes
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
@@ -351,6 +357,7 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
                       paginatedEvents.map((event) => {
                         const { localDate: startLocalDate, localTime: startLocalTime } = parseEventDateTime(event.startDate, event.startTime);
                         const { localDate: closeLocalDate, localTime: closeLocalTime } = parseEventDateTime(event.closeDate, event.closeTime);
+                        const { localDate: endLocalDate, localTime: endLocalTime } = parseEventDateTime(event.endDate, event.endTime);
                         return (
                           <tr key={event.id} className="hover:bg-gray-50 transition"
                           >
@@ -385,6 +392,15 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
                               <div>
                                 <p className="text-sm text-gray-900">{closeLocalDate || event.closeDate}</p>
                                 <p className="text-xs text-gray-500 mt-0.5">{closeLocalTime || event.closeTime}</p>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <p className="text-sm text-gray-900">{event.duration}</p>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div>
+                                <p className="text-sm text-gray-900">{endLocalDate || event.endDate}</p>
+                                <p className="text-xs text-gray-500 mt-0.5">{endLocalTime || event.endTime}</p>
                               </div>
                             </td>
                             <td className="px-6 py-4">

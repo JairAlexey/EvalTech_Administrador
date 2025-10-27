@@ -10,4 +10,5 @@ urlpatterns = [
     path("user-info/", views.user_info_view, name="user_info"),
     path("roles/", views.role_management_view, name="role_management"),
     path("users/", views.evaluator_users, name="evaluators"),
+    path("update-profile/", views.update_profile_view, name="update_profile"),
 ]

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Loader } from 'lucide-react';
-import participantService from '../services/participantService';
+import participantService from '../../services/participantService';
 
 interface EditParticipantProps {
   isOpen: boolean;
