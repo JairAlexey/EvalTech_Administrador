@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Edit2, Check, Globe } from 'lucide-react';
-import blockedPagesService, { type BlockedPage } from '../services/blockedPagesService';
+import blockedPagesService, { type BlockedPage } from '../../services/blockedPagesService';
 
 interface BlockedPagesModalProps {
     isOpen: boolean;

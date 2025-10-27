@@ -1,16 +1,16 @@
 import { useState, useEffect } from 'react';
 import { Loader, Search, Edit, Trash2 } from 'lucide-react';
-import Sidebar from './Sidebar';
-import authService, { type User as AuthUser } from '../services/authService';
+import Sidebar from '../utils/Sidebar';
+import authService, { type User as AuthUser } from '../../services/authService';
 import CreateUser from './CreateUser';
 import EditUserModal from './EditUser';
-import ConfirmationModal from './ConfirmationModal';
+import ConfirmationModal from '../utils/ConfirmationModal';
 
 interface User extends AuthUser {
     role: string;
     roleName?: string;
 }
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface UserRoleManagementProps {
     onNavigate?: (page: string) => void;
