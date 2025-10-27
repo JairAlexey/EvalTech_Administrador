@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { ArrowLeft, Search, Info } from 'lucide-react';
-import Sidebar from './Sidebar';
-import eventService, { type EventFormData } from '../services/eventService';
-import participantService from '../services/participantService';
-import evaluatorService from '../services/evaluatorService';
+import Sidebar from '../utils/Sidebar';
+import eventService, { type EventFormData } from '../../services/eventService';
+import participantService from '../../services/participantService';
+import evaluatorService from '../../services/evaluatorService';
 import BlockedPagesModal from './BlockedPagesModal';
 
 interface Participant {
@@ -27,6 +27,7 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
   const [startDate, setStartDate] = useState('');
   const [startTime, setStartTime] = useState('');
   const [closeTime, setCloseTime] = useState('');
+  const [duration, setDuration] = useState('');
   const [evaluator, setEvaluator] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -126,7 +127,8 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
         timezone,
         startTime,
         closeTime,
-        blockedWebsites: selectedBlockedWebsites, // Agregar websites bloqueados
+        duration: parseInt(duration),
+        blockedWebsites: selectedBlockedWebsites,
       };
 
       // Enviar los datos al servidor
@@ -205,7 +207,7 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
                   />
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-2">
                       Fecha de inicio <span className="text-red-500">*</span>
@@ -232,6 +234,9 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
                     />
                   </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label htmlFor="closeTime" className="block text-sm font-medium text-gray-700 mb-2">
                       Hora cierre <span className="text-red-500">*</span>
@@ -245,7 +250,22 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
                     />
                   </div>
+                  <div>
+                    <label htmlFor="duration" className="block text-sm font-medium text-gray-700 mb-2">
+                      Duración (minutos) <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      id="duration"
+                      value={duration}
+                      onChange={(e) => setDuration(e.target.value)}
+                      placeholder="Ej: 60"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Mínimo 15 min, máximo 5 horas</p>
+                  </div>
                 </div>
+
                 <div>
                   <label htmlFor="evaluator" className="block text-sm font-medium text-gray-700 mb-2">
                     Evaluador asignado <span className="text-red-500">*</span>

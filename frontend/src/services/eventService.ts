@@ -8,6 +8,9 @@ export interface Event {
   startTime: string;
   closeDate: string;
   closeTime: string;
+  duration: number;
+  endDate: string;
+  endTime: string;
   status: string;
   participants: number;
   evaluator: string;
@@ -24,13 +27,19 @@ export interface EventDetail {
   status: 'Programado' | 'En progreso' | 'Completado' | 'Cancelado';
   description: string;
   evaluator: string;
-  participants?: {
+  evaluatorId: string;
+  duration: number;
+  endDate: string;
+  endTime: string;
+  blockedWebsites?: string[];
+  participants: {
     id: string;
     name: string;
     email: string;
     status: string;
     initials: string;
     color: string;
+    selected?: boolean;
   }[];
 }
 
@@ -63,6 +72,7 @@ export interface EventFormData {
   timezone: string;
   startTime: string;
   closeTime: string;
+  duration: number;
   blockedWebsites?: string[];
 }
 

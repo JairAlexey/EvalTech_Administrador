@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Search, Filter, ChevronLeft, ChevronRight, Eye, ClipboardList } from 'lucide-react';
-import Sidebar from './Sidebar';
+import Sidebar from '../utils/Sidebar';
 
 interface Event {
   id: string;

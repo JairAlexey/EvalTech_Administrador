@@ -10,6 +10,7 @@ interface AuthContextType {
     refreshUserInfo: () => Promise<User | null>;
     hasRole: (role: string) => boolean;
     hasAnyRole: () => boolean;
+    updateUser: (userData: any) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -96,6 +97,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return user?.role !== null && user?.role !== undefined;
     };
 
+    const updateUser = (userData: any) => {
+        setUser(userData);
+    };
+
     return (
         <AuthContext.Provider value={{
             user,
@@ -105,7 +110,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             logout,
             refreshUserInfo,
             hasRole,
-            hasAnyRole
+            hasAnyRole,
+            updateUser
         }}>
             {children}
         </AuthContext.Provider>

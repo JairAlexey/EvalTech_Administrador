@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Calendar, Users, FileText, Activity, ArrowUp, ArrowDown, TrendingUp } from 'lucide-react';
-import Sidebar from './Sidebar';
+import Sidebar from './utils/Sidebar';
 
 interface DashboardProps {
   onNavigate?: (page: string) => void;
