@@ -242,8 +242,21 @@ def create_user_view(request):
         role = data.get("role")
 
         # Validar que hay valores en campos
-        if not all([first_name, last_name, email, password, role]):
-            return JsonResponse({"error": "Faltan campos requeridos"}, status=400)
+        field_names = {
+            "firstName": "nombre",
+            "lastName": "apellidos",
+            "email": "correo electrónico",
+            "role": "rol",
+        }
+        required_fields = ["firstName", "lastName", "email", "role"]
+        for field in required_fields:
+            if not data.get(field):
+                return JsonResponse(
+                    {
+                        "error": f"El campo {field_names.get(field, field)} es obligatorio"
+                    },
+                    status=400,
+                )
 
         # Validar formato de email
         try:
@@ -320,10 +333,22 @@ def delete_user_view(request, user_id):
 
     try:
         user = CustomUser.objects.get(id=user_id)
-        user.delete()
-        return JsonResponse(
-            {"success": True, "message": "Usuario eliminado correctamente"}
-        )
+        try:
+            user.delete()
+            return JsonResponse(
+                {"success": True, "message": "Usuario eliminado correctamente"}
+            )
+        except Exception as e:
+            from django.db.models.deletion import RestrictedError
+
+            if isinstance(e, RestrictedError):
+                return JsonResponse(
+                    {
+                        "error": "No se puede eliminar el usuario porque está asignado como evaluador en uno o más eventos."
+                    },
+                    status=400,
+                )
+            raise
     except CustomUser.DoesNotExist:
         return JsonResponse({"error": "Usuario no encontrado"}, status=404)
 
@@ -374,9 +399,22 @@ def edit_user_view(request, user_id):
         password = data.get("password")
         role = data.get("role")
 
-        # Validar que hay valores en campos
-        if not all([first_name, last_name, email, role]):
-            return JsonResponse({"error": "Faltan campos requeridos"}, status=400)
+        # Validaciones requeridas
+        field_names = {
+            "firstName": "nombre",
+            "lastName": "apellidos",
+            "email": "correo electrónico",
+            "role": "rol",
+        }
+        required_fields = ["firstName", "lastName", "email", "role"]
+        for field in required_fields:
+            if not data.get(field):
+                return JsonResponse(
+                    {
+                        "error": f"El campo {field_names.get(field, field)} es obligatorio"
+                    },
+                    status=400,
+                )
 
         # Validar formato de email
         try:
@@ -441,3 +479,105 @@ def evaluator_users(request):
         ]
         return JsonResponse({"users": users})
     return JsonResponse({"error": "Método no permitido"}, status=405)
+
+
+@csrf_exempt
+@require_POST
+def update_profile_view(request):
+    """Vista para actualizar el perfil del usuario autenticado"""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JsonResponse(
+            {"error": "Encabezado de autorización inválido"}, status=401
+        )
+
+    token = auth_header.split(" ")[1]
+    payload = verify_token(token)
+    if not payload:
+        return JsonResponse({"error": "Token inválido o expirado"}, status=401)
+
+    try:
+        user = CustomUser.objects.get(id=payload["user_id"])
+        data = json.loads(request.body)
+
+        first_name = data.get("firstName")
+        last_name = data.get("lastName")
+        email = data.get("email")
+        current_password = data.get("currentPassword")
+        new_password = data.get("newPassword")
+
+        # Validar que hay valores en campos obligatorios
+        field_names = {
+            "firstName": "nombre",
+            "lastName": "apellidos",
+            "email": "correo electrónico",
+        }
+        required_fields = ["firstName", "lastName", "email"]
+        for field in required_fields:
+            if not data.get(field):
+                return JsonResponse(
+                    {
+                        "error": f"El campo {field_names.get(field, field)} es obligatorio"
+                    },
+                    status=400,
+                )
+
+        # Validar formato de email
+        try:
+            validate_email(email)
+        except ValidationError:
+            return JsonResponse(
+                {"error": "El correo electrónico no es válido"}, status=400
+            )
+
+        # Verificar si ya existe otro usuario con ese email
+        if CustomUser.objects.filter(email=email).exclude(id=user.id).exists():
+            return JsonResponse({"error": "El email ya está registrado"}, status=400)
+
+        # Si se proporciona nueva contraseña, validar contraseña actual
+        if new_password:
+            if not current_password:
+                return JsonResponse(
+                    {"error": "Debes ingresar tu contraseña actual para cambiarla"},
+                    status=400,
+                )
+
+            if not user.check_password(current_password):
+                return JsonResponse(
+                    {"error": "La contraseña actual es incorrecta"}, status=400
+                )
+
+            if len(new_password) < 4:
+                return JsonResponse(
+                    {"error": "La nueva contraseña debe tener al menos 4 caracteres"},
+                    status=400,
+                )
+
+            if current_password == new_password:
+                return JsonResponse(
+                    {"error": "La nueva contraseña debe ser diferente a la actual"},
+                    status=400,
+                )
+
+            user.set_password(new_password)
+
+        # Actualizar datos básicos
+        user.first_name = first_name
+        user.last_name = last_name
+        user.email = email
+        user.save()
+
+        return JsonResponse(
+            {
+                "success": True,
+                "message": "Perfil actualizado correctamente",
+                "user": get_user_data(user),
+            }
+        )
+
+    except CustomUser.DoesNotExist:
+        return JsonResponse({"error": "Usuario no encontrado"}, status=404)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Formato JSON inválido"}, status=400)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)

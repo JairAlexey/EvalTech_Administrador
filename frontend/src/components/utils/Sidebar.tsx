@@ -1,5 +1,5 @@
-import { LogOut, LayoutDashboard, Calendar, Users, FileText, BarChart3, FileDown, Settings, User, UserCog } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
+import { LogOut, LayoutDashboard, Calendar, Users, FileText, BarChart3, FileDown, User, UserCog } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface SidebarProps {
   currentPage?: string;
@@ -46,7 +46,6 @@ export default function Sidebar({ onNavigate, onLogout, currentPage }: SidebarPr
 
     // Config items for all users
     const configItems = [
-      { id: 'ajustes', icon: Settings, label: 'Ajustes', section: 'CONFIGURACIÓN' },
       { id: 'cuenta', icon: User, label: 'Mi cuenta', section: 'CONFIGURACIÓN' },
     ];
 

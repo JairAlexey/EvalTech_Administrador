@@ -1,21 +1,21 @@
 import { useState, useEffect } from 'react';
 import Login from './components/Login';
-import EventsList from './components/EventsList';
-import CreateEvent from './components/CreateEvent';
-import EventDetails from './components/EventDetails';
-import EditEvent from './components/EditEvent';
-import Participant from './components/ParticipantsList';
-import EditParticipant from './components/EditParticipant';
+import EventsList from './components/Eventos/EventsList';
+import CreateEvent from './components/Eventos/CreateEvent';
+import EventDetails from './components/Eventos/EventDetails';
+import EditEvent from './components/Eventos/EditEvent';
+import Participant from './components/Participantes/ParticipantsList';
+import EditParticipant from './components/Participantes/EditParticipant';
 import Dashboard from './components/Dashboard';
 import Home from './components/Home';
-import EvaluationsList from './components/EvaluationsList';
-import EvaluationDetails from './components/EvaluationDetails';
-import UserRoleManagement from './components/UserRoleManagement';
-import WaitingForRole from './components/WaitingForRole';
+import EvaluationsList from './components/Evaluaciones/EvaluationsList';
+import EvaluationDetails from './components/Evaluaciones/EvaluationDetails';
+import UserRoleManagement from './components/Roles/UserRoleManagement';
 import { useAuth } from './contexts/AuthContext';
-import CreateParticipant from './components/CreateParticipant';
+import CreateParticipant from './components/Participantes/CreateParticipant';
+import Profile from './components/Perfil/Profile';
 
-type Page = 'home' | 'login' | 'dashboard' | 'eventos' | 'create-event' | 'event-details' | 'edit-event' | 'participants' | 'edit-participant' | 'create-participant' | 'evaluaciones' | 'evaluation-details' | 'estadisticas' | 'exportar' | 'ajustes' | 'cuenta' | 'roles';
+type Page = 'home' | 'login' | 'dashboard' | 'eventos' | 'create-event' | 'event-details' | 'edit-event' | 'participants' | 'edit-participant' | 'create-participant' | 'evaluaciones' | 'evaluation-details' | 'estadisticas' | 'exportar' | 'cuenta' | 'roles';
 
 function App() {
     const [currentPage, setCurrentPage] = useState<Page>('home');
@@ -39,7 +39,7 @@ function App() {
         }
 
         // Reset relevant state when changing main sections
-        if (['dashboard', 'eventos', 'participants', 'evaluaciones', 'estadisticas', 'ajustes', 'roles'].includes(page)) {
+        if (['dashboard', 'eventos', 'participants', 'evaluaciones', 'estadisticas', 'roles'].includes(page)) {
             setSelectedEventId(null);
             setSelectedParticipantId(null);
         }
@@ -49,7 +49,7 @@ function App() {
     // Check if user has permission for a page
     const hasPermissionForPage = (page: string): boolean => {
         // Pages accessible to evaluators
-        const evaluatorPages = ['dashboard', 'evaluaciones', 'evaluation-details', 'ajustes', 'cuenta'];
+        const evaluatorPages = ['dashboard', 'evaluaciones', 'evaluation-details', 'cuenta'];
 
         // Pages accessible to admin and superadmin
         const adminPages = [
@@ -65,7 +65,6 @@ function App() {
             'evaluation-details',
             'estadisticas',
             'exportar',
-            'ajustes',
             'cuenta'
         ];
 
@@ -120,21 +119,6 @@ function App() {
         console.log("Navigated to edit-event with ID:", eventId);
     };
 
-    // Participant Handlers
-    const handleCreateParticipant = () => {
-        if (!hasPermissionForPage('create-participant')) return;
-        setCurrentPage('create-participant');
-    };
-
-    const handleEditParticipant = (participantId: string) => {
-        if (!hasPermissionForPage('edit-participant')) return;
-        setSelectedParticipantId(participantId);
-        console.log("Edit participant ID set to:", participantId);
-        // Navigate immediately
-        setCurrentPage('edit-participant');
-        console.log("Navigated to edit-participant with ID:", participantId);
-    };
-
     // Evaluation Handlers
     const handleViewEvaluationDetails = (participantId: string, eventId: string) => {
         if (!hasPermissionForPage('evaluation-details')) return;
@@ -147,11 +131,6 @@ function App() {
     const handleBackToEvents = () => {
         setSelectedEventId(null);
         setCurrentPage('eventos');
-    };
-
-    const handleBackToParticipants = () => {
-        setSelectedParticipantId(null);
-        setCurrentPage('participants');
     };
 
     const handleBackToEvaluations = () => {
@@ -174,14 +153,11 @@ function App() {
         try {
             const userInfo = await login(email, password);
 
-            // Check if the user has a role before redirecting
+            // Verificar usuario
             if (userInfo && userInfo.role) {
-                // User has a role, navigate to dashboard
                 setCurrentPage('dashboard');
-            } else {
-                // User has no role, stay on the current page
-                // The renderContent function will show WaitingForRole component
             }
+
         } catch (error) {
             setLoginError(error instanceof Error ? error.message : 'Error al iniciar sesión');
         }
@@ -211,11 +187,6 @@ function App() {
         // Non-authenticated users can only see home, login
         if (!isAuthenticated && !['home', 'login'].includes(currentPage)) {
             return <Home onLogin={handleNavigateToLogin} />;
-        }
-
-        // Authenticated users with no role see the waiting screen
-        if (isAuthenticated && !hasAnyRole()) {
-            return <WaitingForRole />;
         }
 
         // Check permission for current page
@@ -356,6 +327,9 @@ function App() {
                         onLogout={handleLogout}
                     />
                 );
+
+            case 'cuenta':
+                return <Profile onNavigate={handleNavigate} />;
 
             default:
                 return <div>Página no encontrada</div>;

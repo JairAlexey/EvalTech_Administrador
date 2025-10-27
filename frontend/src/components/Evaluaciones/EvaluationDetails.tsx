@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ArrowLeft, Download, Flag, Clock, BarChart2 } from 'lucide-react';
-import Sidebar from './Sidebar';
+import Sidebar from '../utils/Sidebar';
 
 interface EvaluationDetailsProps {
   onBack?: () => void;
@@ -316,8 +316,8 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
               <button
                 onClick={() => setActiveTab('resumen')}
                 className={`py-3 px-1 border-b-2 font-medium text-sm ${activeTab === 'resumen'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                   }`}
               >
                 Resumen
@@ -325,8 +325,8 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
               <button
                 onClick={() => setActiveTab('evidencias')}
                 className={`py-3 px-1 border-b-2 font-medium text-sm ${activeTab === 'evidencias'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                   }`}
               >
                 Evidencias
@@ -334,8 +334,8 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
               <button
                 onClick={() => setActiveTab('linea-tiempo')}
                 className={`py-3 px-1 border-b-2 font-medium text-sm ${activeTab === 'linea-tiempo'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                   }`}
               >
                 Línea de tiempo
@@ -343,8 +343,8 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
               <button
                 onClick={() => setActiveTab('detalles')}
                 className={`py-3 px-1 border-b-2 font-medium text-sm ${activeTab === 'detalles'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                   }`}
               >
                 Detalles
@@ -559,16 +559,16 @@ export default function EvaluationDetails({ onBack, onNavigate }: EvaluationDeta
                       {/* Punto en la línea */}
                       <div className="absolute -left-12 mt-1.5">
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center ${alert.risk === 'Alto'
-                            ? 'bg-red-100'
-                            : alert.risk === 'Medio'
-                              ? 'bg-orange-100'
-                              : 'bg-green-100'
+                          ? 'bg-red-100'
+                          : alert.risk === 'Medio'
+                            ? 'bg-orange-100'
+                            : 'bg-green-100'
                           }`}>
                           <div className={`w-2.5 h-2.5 rounded-full ${alert.risk === 'Alto'
-                              ? 'bg-red-600'
-                              : alert.risk === 'Medio'
-                                ? 'bg-orange-500'
-                                : 'bg-green-500'
+                            ? 'bg-red-600'
+                            : alert.risk === 'Medio'
+                              ? 'bg-orange-500'
+                              : 'bg-green-500'
                             }`}></div>
                         </div>
                       </div>

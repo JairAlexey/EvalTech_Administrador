@@ -14,17 +14,10 @@ urlpatterns = [
     # Rutas para la gestión de participantes
     path("api/participants", views.participants),
     path("api/participants/<int:participant_id>", views.participant_detail),
-    # Rutas para la gestión de páginas bloqueadas
-    path("blocked-pages/", views.blocked_pages, name="blocked_pages"),
-    path(
-        "blocked-pages/<int:page_id>/",
-        views.blocked_page_detail,
-        name="blocked_page_detail",
-    ),
-    # Rutas para websites
+    # Rutas para paginas
     path("api/websites/", views.websites, name="websites"),
     path("api/websites/<int:website_id>/", views.website_detail, name="website_detail"),
-    # Rutas para hosts bloqueados en eventos
+    # Rutas para paginas bloqueadas en eventos
     path(
         "api/<int:event_id>/blocked-hosts/",
         views.event_blocked_hosts,

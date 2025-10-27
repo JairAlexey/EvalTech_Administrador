@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Search, Plus, Filter, Edit, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
-import Sidebar from './Sidebar';
-import ConfirmationModal from './ConfirmationModal';
+import Sidebar from '../utils/Sidebar';
+import ConfirmationModal from '../utils/ConfirmationModal';
 import CreateParticipant from './CreateParticipant';
 import EditParticipant from './EditParticipant';
-import participantService, { type Participant as ParticipantType } from '../services/participantService';
+import participantService, { type Participant as ParticipantType } from '../../services/participantService';
 
 interface Participant extends ParticipantType {
   selected: boolean;

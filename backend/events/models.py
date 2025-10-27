@@ -13,9 +13,11 @@ class Event(models.Model):
     ]
 
     name = models.CharField(max_length=200, unique=True)
-    description = models.TextField(null=True)
+    description = models.TextField()
     start_date = models.DateTimeField()
     close_date = models.DateTimeField()
+    duration = models.IntegerField(help_text="Duración en minutos")
+    end_date = models.DateTimeField()
     evaluator = models.ForeignKey(
         CustomUser, on_delete=models.RESTRICT, related_name="events_as_evaluator"
     )

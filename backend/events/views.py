@@ -382,7 +382,7 @@ def participant_detail(request, participant_id):
 def events(request):
     if request.method == "GET":
         # Listar todos los eventos
-        events = Event.objects.all().order_by("-start_date")
+        events = Event.objects.all().order_by("start_date")
         events_data = []
 
         for event in events:
@@ -397,6 +397,11 @@ def events(request):
             close_time_str = (
                 event.close_date.strftime("%H:%M %p") if event.close_date else ""
             )
+            # Duración en minutos
+            duration_minutes = event.duration if event.duration else 0
+            # Fecha de fin
+            end_date_str = event.end_date.strftime("%d/%m/%Y") if event.end_date else ""
+            end_time_str = event.end_date.strftime("%H:%M %p") if event.end_date else ""
 
             # Mapear estado interno a formato de presentación
             status_mapping = {
@@ -423,6 +428,9 @@ def events(request):
                     "startTime": time_str,
                     "closeDate": close_date_str,
                     "closeTime": close_time_str,
+                    "duration": duration_minutes,
+                    "endDate": end_date_str,
+                    "endTime": end_time_str,
                     "participants": participant_count,
                     "status": display_status,
                     "evaluator": evaluator_data,
@@ -446,6 +454,7 @@ def events(request):
                 "startTime": "hora de inicio",
                 "closeTime": "fecha de fin",
                 "evaluator": "evaluador",
+                "duration": "duración",
             }
 
             # Validar campos
@@ -478,16 +487,27 @@ def events(request):
                     status=400,
                 )
 
-            # Duración
+            # =======================
+            # Validar duración
+            # =======================
+            duration_minutes = data.get("duration")
             try:
-                duration_minutes = int(float(data.get("duration", 30)))
-                if duration_minutes < 30:
+                duration_minutes = int(duration_minutes)
+                if duration_minutes < 15:
                     return JsonResponse(
-                        {"error": "La duración debe ser mayor o igual a 30 minutos"},
+                        {"error": "La duración debe ser de al menos 15 minutos"},
+                        status=400,
+                    )
+                if duration_minutes > 300:  # 5 horas
+                    return JsonResponse(
+                        {"error": "La duración no puede exceder 5 horas"},
                         status=400,
                     )
             except (ValueError, TypeError):
-                return JsonResponse({"error": "Duración inválida"}, status=400)
+                return JsonResponse(
+                    {"error": "La duración debe ser un número válido de minutos"},
+                    status=400,
+                )
 
             # =======================
             # Validar fechas y horas
@@ -551,10 +571,18 @@ def events(request):
 
             # Validar que la hora de cierre sea al menos 5 minutos después de la hora de inicio
             min_close_local = start_local + timedelta(minutes=5)
+            max_close_local = start_local + timedelta(minutes=30)
             if close_local < min_close_local:
                 return JsonResponse(
                     {
                         "error": "La hora de cierre debe ser al menos 5 minutos después de la hora de inicio"
+                    },
+                    status=400,
+                )
+            if close_local > max_close_local:
+                return JsonResponse(
+                    {
+                        "error": "La hora de cierre no puede ser más de 30 minutos después de la hora de inicio"
                     },
                     status=400,
                 )
@@ -563,8 +591,11 @@ def events(request):
             start_utc = start_local.astimezone(ZoneInfo("UTC"))
             close_utc = close_local.astimezone(ZoneInfo("UTC"))
 
+            # Calcular end_date (closeTime + duración en minutos)
+            end_utc = close_utc + timedelta(minutes=duration_minutes)
+
             # =======================
-            # 2) Participantes (opcional)
+            # 2) Participantes
             # =======================
             participants = data.get("participants", [])
             selected_participants = [
@@ -585,24 +616,17 @@ def events(request):
                     {"error": "El evaluador seleccionado no existe"}, status=400
                 )
 
-            # Validar que el evaluador no tenga otro evento ese día
-            # Calcular el rango UTC que corresponde al día local del usuario
-            start_of_day_local = start_local.replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
-            end_of_day_local = start_of_day_local + timedelta(days=1)
-
-            start_of_day_utc = start_of_day_local.astimezone(ZoneInfo("UTC"))
-            end_of_day_utc = end_of_day_local.astimezone(ZoneInfo("UTC"))
-
-            evaluator_events_same_day = Event.objects.filter(
+            # Validar que el evaluador no tenga eventos solapados (por rango de fechas)
+            overlapping_events = Event.objects.filter(
                 evaluator=evaluator_instance,
-                start_date__gte=start_of_day_utc,
-                start_date__lt=end_of_day_utc,
+                start_date__lt=end_utc,
+                end_date__gt=start_utc,
             )
-            if evaluator_events_same_day.exists():
+            if overlapping_events.exists():
                 return JsonResponse(
-                    {"error": "El evaluador ya está asignado a un evento ese día"},
+                    {
+                        "error": "El evaluador ya tiene otro evento en ese rango de fechas"
+                    },
                     status=400,
                 )
 
@@ -611,6 +635,8 @@ def events(request):
                 description=data.get("description", ""),
                 start_date=start_utc,
                 close_date=close_utc,
+                duration=duration_minutes,
+                end_date=end_utc,
                 evaluator=evaluator_instance,
                 status="programado",
             )
@@ -668,156 +694,290 @@ def event_detail(request, event_id):
             for participant in participants
         ]
 
-        # Formatear fecha y hora para el frontend
-        date_str = event.start_date.strftime("%d/%m/%Y") if event.start_date else ""
-        time_str = event.start_date.strftime("%H:%M") if event.start_date else ""
+        # Formatear hora para el frontend
+        close_time_str = (
+            event.close_date.strftime("%H:%M")
+            if getattr(event, "close_date", None)
+            else ""
+        )
+        end_date_str = event.end_date.strftime("%d/%m/%Y") if event.end_date else ""
+        end_time_str = event.end_date.strftime("%H:%M") if event.end_date else ""
 
-        # Serializar el evaluador como string
+        # Serializar el evaluador como string + id
         evaluator_name = None
+        evaluator_id = None
         if event.evaluator:
             evaluator_name = f"{event.evaluator.first_name} {event.evaluator.last_name}"
+            evaluator_id = str(event.evaluator.id)
+
+        # Calcular duración en minutos
+        duration_minutes = event.duration
+
+        # Obtener páginas bloqueadas (hostnames)
+        blocked_hosts = BlockedHost.objects.filter(event=event).select_related(
+            "website"
+        )
+        blocked_websites = [bh.website.hostname for bh in blocked_hosts]
 
         event_data = {
             "id": event.id,
             "name": event.name,
             "description": event.description,
-            "date": date_str,
-            "time": time_str,
             "startDate": (
                 event.start_date.strftime("%Y-%m-%d") if event.start_date else ""
             ),
-            "startTime": event.start_date.strftime("%H:%M") if event.start_date else "",
-            "duration": event.duration,
-            "evaluationType": event.event_type,
+            "startTime": (
+                event.start_date.strftime("%H:%M") if event.start_date else ""
+            ),
+            "closeTime": close_time_str,
+            "duration": duration_minutes,
             "evaluator": evaluator_name,
+            "evaluatorId": evaluator_id,
             "status": event.status,
             "participants": participants_data,
+            "endDate": end_date_str,
+            "endTime": end_time_str,
+            "blockedWebsites": blocked_websites,
         }
 
         return JsonResponse({"event": event_data})
 
     elif request.method == "PUT":
         try:
-            print(f"Updating event {event_id}")
             data = json.loads(request.body)
-            print(f"Received data: {data}")
 
-            changed = False  # Para guardar solo si hubo cambios
-
-            # =======================
-            # 1) Fecha/hora → UTC
-            # =======================
-            start_date_str = data.get("startDate", "")
-            start_time_str = data.get("startTime", "")
-            tz_str = (data.get("timezone") or "").strip() or "America/Guayaquil"
-
-            print(f"Date: {start_date_str}, Time: {start_time_str}, TZ: {tz_str}")
-
-            if start_date_str and start_time_str:
-                try:
-                    start_datetime_str = f"{start_date_str} {start_time_str}"
-                    print(f"Parsing datetime: {start_datetime_str}")
-
-                    # Parseo  de formatos comunes
-                    try:
-                        start_naive = datetime.strptime(
-                            start_datetime_str, "%Y-%m-%d %H:%M"
-                        )
-                    except ValueError:
-                        start_naive = datetime.strptime(
-                            start_datetime_str, "%d/%m/%Y %H:%M"
-                        )
-
-                    # Zona horaria enviada por el front (IANA)
-                    try:
-                        user_tz = ZoneInfo(tz_str)
-                    except Exception:
-                        print(
-                            f"Invalid timezone '{tz_str}', falling back to America/Guayaquil"
-                        )
-                        user_tz = ZoneInfo("America/Guayaquil")
-
-                    # Aware en tz del usuario
-                    start_local = timezone.make_aware(start_naive, user_tz)
-
-                    # Duración (para end time)
-                    try:
-                        duration_minutes = int(float(data.get("duration", 60)))
-                    except (ValueError, TypeError):
-                        duration_minutes = 60
-
-                    end_local = start_local + timedelta(minutes=duration_minutes)
-
-                    # Convertir a UTC para guardar
-                    start_utc = start_local.astimezone(ZoneInfo("UTC"))
-                    end_utc = end_local.astimezone(ZoneInfo("UTC"))
-
-                    print(f"Start UTC: {start_utc}, End UTC: {end_utc}")
-
-                    if event.start_date != start_utc:
-                        event.start_date = start_utc
-                        changed = True
-                    if event.end_date != end_utc:
-                        event.end_date = end_utc
-                        changed = True
-
-                except Exception as date_error:
-                    print(f"Date parsing error: {date_error}")
-
-            # =======================
-            # 2) Otros campos
-            # =======================
-            new_name = data.get("eventName")
-            if new_name is not None and new_name != event.name:
-                event.name = new_name
-                changed = True
-
-            new_description = data.get("description")
-            if new_description is not None and new_description != event.description:
-                event.description = new_description
-                changed = True
-
-            try:
-                duration_value = data.get("duration")
-                if duration_value is not None:
-                    new_duration = int(float(duration_value))
-                    if new_duration != event.duration:
-                        event.duration = new_duration
-                        changed = True
-            except (ValueError, TypeError):
-                pass  # Mantener duración existente
-
-            new_event_type = data.get("evaluationType")
-            if new_event_type is not None and new_event_type != event.event_type:
-                event.event_type = new_event_type
-                changed = True
-
-            new_evaluator = data.get("evaluator")
-            if new_evaluator is not None:
-                try:
-                    evaluator_instance = CustomUser.objects.get(id=new_evaluator)
-                    if evaluator_instance != event.evaluator:
-                        event.evaluator = evaluator_instance
-                        changed = True
-                except CustomUser.DoesNotExist:
+            # Validaciones requeridas
+            field_names = {
+                "eventName": "nombre del evento",
+                "description": "descripción",
+                "startDate": "fecha de inicio",
+                "startTime": "hora de inicio",
+                "closeTime": "hora de cierre",
+                "evaluator": "evaluador",
+                "duration": "duración",
+            }
+            for field in field_names:
+                if not data.get(field):
                     return JsonResponse(
-                        {"error": "El evaluador seleccionado no existe"}, status=400
+                        {
+                            "error": f"El campo {field_names.get(field, field)} es obligatorio"
+                        },
+                        status=400,
                     )
 
-            # =======================
-            # 3) Guardar solo si cambió
-            # =======================
+            # Unicidad y longitud de nombre
+            event_name = data.get("eventName", "").strip()
+            if (
+                Event.objects.filter(name__iexact=event_name)
+                .exclude(id=event.id)
+                .exists()
+            ):
+                return JsonResponse(
+                    {"error": "Ya existe un evento con ese nombre"}, status=400
+                )
+            if len(event_name) < 4:
+                return JsonResponse(
+                    {"error": "El nombre del evento debe tener al menos 4 caracteres"},
+                    status=400,
+                )
+
+            # Descripción mínima
+            description = data.get("description", "")
+            if len(description.strip()) < 5:
+                return JsonResponse(
+                    {"error": "La descripción debe tener al menos 5 caracteres"},
+                    status=400,
+                )
+
+            # Timezone
+            tz_str = (data.get("timezone") or "").strip() or "America/Guayaquil"
+            try:
+                user_tz = ZoneInfo(tz_str)
+            except Exception:
+                user_tz = ZoneInfo("America/Guayaquil")
+
+            start_date_str = data.get("startDate", "")
+            start_time_str = data.get("startTime", "")
+            close_time_str = data.get("closeTime", "")
+
+            # Parseo inicio
+            try:
+                start_naive = datetime.strptime(
+                    f"{start_date_str} {start_time_str}", "%Y-%m-%d %H:%M"
+                )
+            except ValueError:
+                try:
+                    start_naive = datetime.strptime(
+                        f"{start_date_str} {start_time_str}", "%d/%m/%Y %H:%M"
+                    )
+                except ValueError:
+                    return JsonResponse(
+                        {"error": "Formato de fecha/hora de inicio inválido"},
+                        status=400,
+                    )
+
+            # Parseo cierre
+            try:
+                close_naive = datetime.strptime(
+                    f"{start_date_str} {close_time_str}", "%Y-%m-%d %H:%M"
+                )
+            except ValueError:
+                try:
+                    close_naive = datetime.strptime(
+                        f"{start_date_str} {close_time_str}", "%d/%m/%Y %H:%M"
+                    )
+                except ValueError:
+                    return JsonResponse(
+                        {"error": "Formato de hora de cierre inválido"}, status=400
+                    )
+
+            # Convertir a zona horaria del usuario
+            start_local = timezone.make_aware(start_naive, user_tz)
+            close_local = timezone.make_aware(close_naive, user_tz)
+
+            # Validar que la fecha/hora de inicio sea mayor a la actual en la zona del usuario
+            now_local = timezone.localtime(timezone.now(), user_tz).replace(
+                second=0, microsecond=0
+            )
+            if start_local <= now_local:
+                return JsonResponse(
+                    {
+                        "error": "La fecha y hora de inicio deben ser mayor a la fecha y hora actual"
+                    },
+                    status=400,
+                )
+
+            # Validar que la hora de cierre sea al menos 5 minutos después de la hora de inicio y no más de 30 minutos
+            min_close_local = start_local + timedelta(minutes=5)
+            max_close_local = start_local + timedelta(minutes=30)
+            if close_local < min_close_local:
+                return JsonResponse(
+                    {
+                        "error": "La hora de cierre debe ser al menos 5 minutos después de la hora de inicio"
+                    },
+                    status=400,
+                )
+            if close_local > max_close_local:
+                return JsonResponse(
+                    {
+                        "error": "La hora de cierre no puede ser más de 30 minutos después de la hora de inicio"
+                    },
+                    status=400,
+                )
+
+            # Validar duración
+            duration_minutes = data.get("duration")
+            try:
+                duration_minutes = int(duration_minutes)
+                if duration_minutes < 15:
+                    return JsonResponse(
+                        {"error": "La duración debe ser de al menos 15 minutos"},
+                        status=400,
+                    )
+                if duration_minutes > 300:  # 5 horas
+                    return JsonResponse(
+                        {"error": "La duración no puede exceder 5 horas"},
+                        status=400,
+                    )
+            except (ValueError, TypeError):
+                return JsonResponse(
+                    {"error": "La duración debe ser un número válido de minutos"},
+                    status=400,
+                )
+
+            # Convertir a UTC para guardar en la BD
+            start_utc = start_local.astimezone(ZoneInfo("UTC"))
+            close_utc = close_local.astimezone(ZoneInfo("UTC"))
+
+            # Calcular end_date (closeTime + duración en minutos)
+            end_utc = close_utc + timedelta(minutes=duration_minutes)
+
+            # Evaluador
+            evaluator_id = data.get("evaluator", "")
+            try:
+                evaluator_instance = CustomUser.objects.get(id=evaluator_id)
+            except CustomUser.DoesNotExist:
+                return JsonResponse(
+                    {"error": "El evaluador seleccionado no existe"}, status=400
+                )
+
+            # Validar que el evaluador no tenga eventos solapados (por rango de fechas), excluyendo el actual
+            overlapping_events = Event.objects.filter(
+                evaluator=evaluator_instance,
+                start_date__lt=end_utc,
+                end_date__gt=start_utc,
+            ).exclude(id=event.id)
+            if overlapping_events.exists():
+                return JsonResponse(
+                    {
+                        "error": "El evaluador ya tiene otro evento en ese rango de fechas"
+                    },
+                    status=400,
+                )
+
+            # Actualización de campos (sin duración ni tipo)
+            changed = False
+            if event.name != event_name:
+                event.name = event_name
+                changed = True
+            if event.description != description:
+                event.description = description
+                changed = True
+            if event.start_date != start_utc:
+                event.start_date = start_utc
+                changed = True
+            if getattr(event, "close_date", None) != close_utc:
+                event.close_date = close_utc
+                changed = True
+            if event.evaluator != evaluator_instance:
+                event.evaluator = evaluator_instance
+                changed = True
+            if event.duration != duration_minutes:
+                event.duration = duration_minutes
+                changed = True
+            if event.end_date != end_utc:
+                event.end_date = end_utc
+                changed = True
+
             if changed:
                 event.save()
 
-            # =======================
-            # 4) Participantes
-            # =======================
+            # Participantes
             if "participants" in data:
                 try:
                     handle_event_participants(event, data.get("participants", []))
                 except Exception as participant_error:
                     print(f"Error processing participantes: {participant_error}")
+
+            # Websites bloqueados
+            if "blockedWebsites" in data:
+                incoming_ids = set()
+                for wid in data.get("blockedWebsites") or []:
+                    try:
+                        incoming_ids.add(int(wid))
+                    except (TypeError, ValueError):
+                        continue
+
+                existing_bh = BlockedHost.objects.filter(event=event)
+                existing_ids = set(existing_bh.values_list("website_id", flat=True))
+
+                to_add = incoming_ids - existing_ids
+                to_remove = existing_ids - incoming_ids
+
+                if to_add:
+                    for wid in to_add:
+                        try:
+                            website = Website.objects.get(id=wid)
+                            BlockedHost.objects.get_or_create(
+                                event=event, website=website
+                            )
+                        except Website.DoesNotExist:
+                            continue
+
+                if to_remove:
+                    BlockedHost.objects.filter(
+                        event=event, website_id__in=list(to_remove)
+                    ).delete()
 
             return JsonResponse({"success": True, "updated": changed})
 
@@ -906,95 +1066,6 @@ def handle_event_participants(event, participants_payload):
         "removed": removed_count,
         "skipped_not_found": skipped_emails,
     }
-
-
-@csrf_exempt
-def blocked_pages(request):
-    """Endpoint para listar y crear páginas bloqueadas"""
-
-    if request.method == "GET":
-        pages = BlockedPage.objects.all().order_by("-created_at")
-        pages_data = [
-            {
-                "id": page.id,
-                "domain": page.domain,
-                "created_at": page.created_at.isoformat() if page.created_at else None,
-            }
-            for page in pages
-        ]
-        return JsonResponse({"blocked_pages": pages_data})
-
-    elif request.method == "POST":
-        try:
-            data = json.loads(request.body)
-            domain = data.get("domain", "").strip().lower()
-
-            if not domain:
-                return JsonResponse({"error": "El dominio es obligatorio"}, status=400)
-
-            if BlockedPage.objects.filter(domain__iexact=domain).exists():
-                return JsonResponse({"error": "Este dominio ya existe"}, status=400)
-
-            page = BlockedPage.objects.create(domain=domain)
-
-            return JsonResponse(
-                {
-                    "id": page.id,
-                    "domain": page.domain,
-                    "created_at": page.created_at.isoformat(),
-                }
-            )
-        except Exception as e:
-            return JsonResponse({"error": str(e)}, status=400)
-
-    return JsonResponse({"error": "Método no permitido"}, status=405)
-
-
-@csrf_exempt
-def blocked_page_detail(request, page_id):
-    """Endpoint para actualizar o eliminar una página bloqueada"""
-
-    try:
-        page = BlockedPage.objects.get(id=page_id)
-    except BlockedPage.DoesNotExist:
-        return JsonResponse({"error": "Página bloqueada no encontrada"}, status=404)
-
-    if request.method == "PUT":
-        try:
-            data = json.loads(request.body)
-            domain = data.get("domain", "").strip().lower()
-
-            if not domain:
-                return JsonResponse({"error": "El dominio es obligatorio"}, status=400)
-
-            if (
-                BlockedPage.objects.filter(domain__iexact=domain)
-                .exclude(id=page_id)
-                .exists()
-            ):
-                return JsonResponse({"error": "Este dominio ya existe"}, status=400)
-
-            page.domain = domain
-            page.save()
-
-            return JsonResponse(
-                {
-                    "id": page.id,
-                    "domain": page.domain,
-                    "created_at": page.created_at.isoformat(),
-                }
-            )
-        except Exception as e:
-            return JsonResponse({"error": str(e)}, status=400)
-
-    elif request.method == "DELETE":
-        try:
-            page.delete()
-            return JsonResponse({"message": "Página bloqueada eliminada exitosamente"})
-        except Exception as e:
-            return JsonResponse({"error": str(e)}, status=400)
-
-    return JsonResponse({"error": "Método no permitido"}, status=405)
 
 
 @csrf_exempt
