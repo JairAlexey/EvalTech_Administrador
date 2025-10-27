@@ -259,21 +259,27 @@ export const eventService = {
   /**
    * Envía correos electrónicos a los participantes del evento
    * @param eventId ID del evento
+   * @param participantIds (opcional) IDs de participantes seleccionados
    * @returns Promise con confirmación de éxito
    */
-  async sendEventEmails(eventId: string): Promise<void> {
+  async sendEventEmails(eventId: string, participantIds: string[], userId: number): Promise<void> {
     try {
       const token = localStorage.getItem('auth_token');
       if (!token) {
         throw new Error('No hay token de autenticación');
       }
 
+      const body = participantIds && participantIds.length > 0
+        ? JSON.stringify({ participantIds, userId })
+        : undefined;
+
       const response = await fetch(`${API_URL}/events/api/events/${eventId}/emails`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
-        }
+        },
+        body
       });
 
       if (!response.ok) {
