@@ -10,7 +10,7 @@ urlpatterns = [
     # Rutas para la gestión de eventos
     path("api/events", views.events),
     path("api/events/<int:event_id>", views.event_detail),
-    path("api/events/<int:event_id>/emails", views.trigger_emails),
+    path("api/events/<int:event_id>/emails", views.send_key_emails),
     # Rutas para la gestión de participantes
     path("api/participants", views.participants),
     path("api/participants/<int:participant_id>", views.participant_detail),
