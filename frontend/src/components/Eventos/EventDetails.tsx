@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ArrowLeft, Loader, Calendar, Clock, User, Globe, Users, CheckCircle, XCircle, AlertCircle, Play } from 'lucide-react';
 import Sidebar from '../utils/Sidebar';
 import eventService, { type EventDetail } from '../../services/eventService';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface EventDetailsProps {
   onBack?: () => void;
@@ -15,6 +16,15 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [event, setEvent] = useState<EventDetail | null>(null);
+  const [selectedParticipants, setSelectedParticipants] = useState<string[]>([]);
+  const [sendingEmails, setSendingEmails] = useState(false);
+
+  // Estados para el modal
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalType, setModalType] = useState<'success' | 'error'>('success');
+  const [modalMessage, setModalMessage] = useState('');
+
+  const { user } = useAuth(); // usuario autenticado
 
   useEffect(() => {
     const fetchEventDetails = async () => {
@@ -100,6 +110,75 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
         </div>
       </div>
     </div>
+  );
+
+  // Selección de participantes
+  const handleSelectAll = (checked: boolean) => {
+    if (checked && event?.participants) {
+      setSelectedParticipants(event.participants.map(p => p.id));
+    } else {
+      setSelectedParticipants([]);
+    }
+  };
+
+  const handleSelectParticipant = (id: string, checked: boolean) => {
+    setSelectedParticipants(prev =>
+      checked ? [...prev, id] : prev.filter(pid => pid !== id)
+    );
+  };
+
+  const allSelected = event?.participants?.length === selectedParticipants.length && selectedParticipants.length > 0;
+
+  // Enviar correos
+  const handleSendEmails = async () => {
+    if (!eventId || selectedParticipants.length === 0 || !user?.id) return;
+    setSendingEmails(true);
+    try {
+      // llamada a servicio
+      await eventService.sendEventEmails(eventId, selectedParticipants, user.id);
+      // Si la función no lanza error, mostrar modal de éxito
+      setModalType('success');
+      setModalMessage('Correos enviados correctamente');
+      setModalVisible(true);
+    } catch (err: any) {
+      // Mostrar mensaje personalizado del backend si existe
+      let msg = 'Error al enviar correos';
+      if (err && err.message) msg = err.message;
+      setModalType('error');
+      setModalMessage(msg);
+      setModalVisible(true);
+    } finally {
+      setSendingEmails(false);
+    }
+  };
+
+  // Modal JSX
+  const Modal = () => (
+    modalVisible ? (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-30">
+        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center relative">
+          {/* Icono de cerrar en la esquina superior derecha */}
+          <button
+            onClick={() => setModalVisible(false)}
+            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+            aria-label="Cerrar"
+          >
+            <XCircle className="w-6 h-6" />
+          </button>
+          {modalType === 'success' ? (
+            <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-4" />
+          ) : (
+            <XCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          )}
+          <h3 className={`text-xl font-semibold mb-2 ${modalType === 'success' ? 'text-green-700' : 'text-red-700'}`}>
+            {modalType === 'success' ? 'Éxito' : 'Error'}
+          </h3>
+          <p className={`mb-6 ${modalType === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+            {modalMessage}
+          </p>
+        </div>
+      </div>
+    ) : null
   );
 
   return (
@@ -255,7 +334,7 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
 
                 {/* Participants Table */}
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                  <div className="bg-gray-50 px-8 py-6 border-b border-gray-100">
+                  <div className="bg-gray-50 px-8 py-6 border-b border-gray-100 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="p-3 bg-gradient-to-br from-blue-50 to-indigo-100 rounded-xl">
                         <Users className="w-6 h-6 text-blue-600" />
@@ -267,12 +346,29 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
                         </p>
                       </div>
                     </div>
+                    <div>
+                      <button
+                        className={`px-5 py-2 rounded-xl font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50`}
+                        disabled={selectedParticipants.length === 0 || sendingEmails}
+                        onClick={handleSendEmails}
+                      >
+                        {sendingEmails ? 'Enviando...' : 'Enviar correo'}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead className="bg-gray-50">
                         <tr>
+                          <th className="px-4 py-4 text-center">
+                            <input
+                              type="checkbox"
+                              checked={allSelected}
+                              onChange={e => handleSelectAll(e.target.checked)}
+                              aria-label="Seleccionar todos"
+                            />
+                          </th>
                           <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Participante</th>
                           <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
                           <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Estado</th>
@@ -282,6 +378,14 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
                         {event.participants && event.participants.length > 0 ? (
                           event.participants.map((participant, index) => (
                             <tr key={participant.id} className="hover:bg-gray-50 transition-colors">
+                              <td className="px-4 py-6 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedParticipants.includes(participant.id)}
+                                  onChange={e => handleSelectParticipant(participant.id, e.target.checked)}
+                                  aria-label={`Seleccionar ${participant.name}`}
+                                />
+                              </td>
                               <td className="px-8 py-6 whitespace-nowrap">
                                 <div className="flex items-center gap-4">
                                   <div className={`w-10 h-10 rounded-full ${participant.color || 'bg-gradient-to-r from-blue-500 to-indigo-500'} flex items-center justify-center text-white font-semibold shadow-lg`}>
@@ -306,7 +410,7 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
                           ))
                         ) : (
                           <tr>
-                            <td colSpan={3} className="px-8 py-12 text-center">
+                            <td colSpan={4} className="px-8 py-12 text-center">
                               <Users className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                               <p className="text-gray-500 text-lg font-medium mb-2">Sin participantes</p>
                               <p className="text-gray-400 text-sm">No hay participantes asignados a este evento</p>
@@ -333,6 +437,8 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
             )}
           </div>
         </div>
+        {/* Modal para mensajes personalizados */}
+        <Modal />
       </div>
     </div>
   );

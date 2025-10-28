@@ -3,106 +3,90 @@ import os
 import requests
 from django.contrib import admin
 from dotenv import load_dotenv
-from .models import Participant
+from .models import Participant, ParticipantEvent, Event
 
-load_dotenv()  
+load_dotenv()
 
 MJ_APIKEY_PUBLIC = os.getenv("MJ_APIKEY_PUBLIC")
 MJ_APIKEY_PRIVATE = os.getenv("MJ_APIKEY_PRIVATE")
 EMAIL_SENDER = os.getenv("EMAIL_SENDER")
 
-def send_bulk_emails(event_id: int, subject: str, body: str):
+
+def send_emails(event_id, participant_ids=None):
     """
-    Sends bulk emails to all participants of an event.
+    Send emails to participants of an event.
+
     Args:
-        event_id: Event ID
-        subject: Email subject
-        body: Email HTML content
+        event_id: ID of the event
+        participant_ids: List of participant IDs to send emails to. If None, sends to all participants.
+
+    Returns:
+        dict: Dictionary with 'success' boolean and 'sent' count or 'error' message
     """
-    # Get all participants of the event
-    participants = Participant.objects.filter(event_id=event_id)
-    
-    if not participants.exists():
-        raise ValueError("The event has no registered participants")
-
-    emails = [participant.email for participant in participants]
-    
-    # Configure Mailjet API
-    mailjet_url = "https://api.mailjet.com/v3.1/send"
-    auth = (MJ_APIKEY_PUBLIC, MJ_APIKEY_PRIVATE)
-    
-    # Send in batches of 50 (Mailjet limit)
-    batch_size = 50
-    for i in range(0, len(emails), batch_size):
-        batch_emails = emails[i:i + batch_size]
-        
-        messages = [
-            {
-                "From": {
-                    "Email": EMAIL_SENDER,
-                    "Name": "AdministradorMonitoreo Application",
-                },
-                "To": [{"Email": email}],
-                "Subject": subject,
-                "HTMLPart": body,
-            }
-            for email in batch_emails
-        ]
-
-        response = requests.post(
-            mailjet_url,
-            auth=auth,
-            json={"Messages": messages}
-        )
-        
-        print(f"Mailjet response: {response.status_code} - {response.text}")  # Depuración
-
-        if not response.ok:
-            raise Exception(f"Error sending emails: {response.text}")
-        
-
-@admin.action(description="Send email to participants")
-def send_emails(modeladmin, request, queryset):
     logger = logging.getLogger(__name__)
-    
-    for event in queryset:
-        try:
-            logger.info(f"Starting email sending for event: {event.id} - {event.name}")
-            
-            participants = Participant.objects.filter(event=event)
-            logger.info(f"Participants found: {participants.count()}")
 
-            # Lista de emails con su respectiva clave única
-            messages = []
-            for participant in participants:
-                messages.append({
+    try:
+        # Obtener el evento
+        try:
+            event = Event.objects.get(id=event_id)
+        except Event.DoesNotExist:
+            return {"success": False, "error": "Evento no encontrado"}
+
+        logger.info(f"Starting email sending for event: {event.id} - {event.name}")
+
+        # Filtrar ParticipantEvent por los IDs seleccionados
+        if participant_ids:
+            participant_events = ParticipantEvent.objects.filter(
+                event=event, participant_id__in=participant_ids
+            ).select_related("participant")
+        else:
+            participant_events = ParticipantEvent.objects.filter(
+                event=event
+            ).select_related("participant")
+
+        logger.info(f"Participants found: {participant_events.count()}")
+
+        if not participant_events.exists():
+            return {
+                "success": False,
+                "error": "No hay participantes para enviar correo",
+            }
+
+        # Construir mensajes para Mailjet
+        messages = []
+        for pe in participant_events:
+            participant = pe.participant
+            messages.append(
+                {
                     "From": {
                         "Email": EMAIL_SENDER,
                         "Name": "AdministradorMonitoreo Application",
                     },
                     "To": [{"Email": participant.email}],
-                    "Subject": f"Event credentials for {event.name}",
-                    "HTMLPart": f"Key: {participant.event_key}",
-                })
-                logger.info(f"Prepared email for: {participant.email}")
+                    "Subject": f"Credenciales para el evento {event.name}",
+                    "HTMLPart": f"Clave única de acceso: <b>{pe.event_key}</b>",
+                }
+            )
+            logger.info(f"Prepared email for: {participant.email}")
 
-            if messages:
-                mailjet_url = "https://api.mailjet.com/v3.1/send"
-                auth = (MJ_APIKEY_PUBLIC, MJ_APIKEY_PRIVATE)
+        if messages:
+            mailjet_url = "https://api.mailjet.com/v3.1/send"
+            auth = (MJ_APIKEY_PUBLIC, MJ_APIKEY_PRIVATE)
 
-                response = requests.post(
-                    mailjet_url,
-                    auth=auth,
-                    json={"Messages": messages}
-                )
+            response = requests.post(
+                mailjet_url, auth=auth, json={"Messages": messages}
+            )
 
-                logger.info(f"Mailjet response: {response.status_code} - {response.text}")
+            logger.info(f"Mailjet response: {response.status_code} - {response.text}")
 
-                if not response.ok:
-                    raise Exception(f"Error sending emails: {response.text}")
+            if not response.ok:
+                return {
+                    "success": False,
+                    "error": f"Error al enviar correos: {response.text}",
+                }
 
-            modeladmin.message_user(request, "Emails sent")
-        
-        except Exception as e:
-            logger.error(f"Critical error: {str(e)}", exc_info=True)
-            modeladmin.message_user(request, f"Error: {str(e)}", level='ERROR')
+        return {"success": True, "sent": len(messages)}
+
+    except Exception as e:
+        logger.error(f"Critical error: {str(e)}", exc_info=True)
+        return {"success": False, "error": str(e)}
