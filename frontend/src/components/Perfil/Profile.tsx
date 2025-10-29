@@ -94,29 +94,30 @@ export default function Profile({ onNavigate }: ProfileProps) {
                     )}
 
                     <form onSubmit={handleSubmit}>
-                        {/* Personal Information Card */}
-                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-                            <div className="flex items-center gap-3 mb-6">
-                                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                                    <User className="w-6 h-6 text-blue-600" />
-                                </div>
-                                <h2 className="text-xl font-semibold text-gray-900">Información Personal</h2>
-                            </div>
-
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Correo Electrónico <span className="text-red-500">*</span>
-                                    </label>
-                                    <input
-                                        value={email}
-                                        onChange={(e) => setEmail(e.target.value)}
-                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                        placeholder="correo@ejemplo.com"
-                                    />
+                        {/* Two Column Layout */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                            {/* Personal Information Card */}
+                            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                                <div className="flex items-center gap-3 mb-6">
+                                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                                        <User className="w-6 h-6 text-blue-600" />
+                                    </div>
+                                    <h2 className="text-xl font-semibold text-gray-900">Información Personal</h2>
                                 </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Correo Electrónico <span className="text-red-500">*</span>
+                                        </label>
+                                        <input
+                                            value={email}
+                                            onChange={(e) => setEmail(e.target.value)}
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            placeholder="correo@ejemplo.com"
+                                        />
+                                    </div>
+
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
                                             Nombre <span className="text-red-500">*</span>
@@ -142,66 +143,64 @@ export default function Profile({ onNavigate }: ProfileProps) {
                                             placeholder="Apellido"
                                         />
                                     </div>
-                                </div>
 
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Rol
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={
-                                            user?.role === 'superadmin'
-                                                ? 'Super Administrador'
-                                                : user?.role === 'admin'
-                                                    ? 'Administrador'
-                                                    : user?.role === 'evaluator'
-                                                        ? 'Evaluador'
-                                                        : 'Sin rol'
-                                        }
-                                        disabled
-                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Security Card */}
-                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-                            <div className="flex items-center gap-3 mb-6">
-                                <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                                    <Lock className="w-6 h-6 text-red-600" />
-                                </div>
-                                <div>
-                                    <h2 className="text-xl font-semibold text-gray-900">Cambiar Contraseña</h2>
-                                    <p className="text-sm text-gray-500">Deja estos campos vacíos si no deseas cambiar tu contraseña</p>
-                                </div>
-                            </div>
-
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Contraseña Actual
-                                    </label>
-                                    <div className="relative">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Rol
+                                        </label>
                                         <input
-                                            type={showCurrentPassword ? 'text' : 'password'}
-                                            value={currentPassword}
-                                            onChange={(e) => setCurrentPassword(e.target.value)}
-                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                            placeholder="Ingresa tu contraseña actual"
+                                            type="text"
+                                            value={
+                                                user?.role === 'superadmin'
+                                                    ? 'Super Administrador'
+                                                    : user?.role === 'admin'
+                                                        ? 'Administrador'
+                                                        : user?.role === 'evaluator'
+                                                            ? 'Evaluador'
+                                                            : 'Sin rol'
+                                            }
+                                            disabled
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed"
                                         />
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                                            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                                        >
-                                            {showCurrentPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Security Card */}
+                            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                                <div className="flex items-center gap-3 mb-6">
+                                    <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                                        <Lock className="w-6 h-6 text-red-600" />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-xl font-semibold text-gray-900">Cambiar Contraseña</h2>
+                                        <p className="text-sm text-gray-500">Deja estos campos vacíos si no deseas cambiar tu contraseña</p>
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Contraseña Actual
+                                        </label>
+                                        <div className="relative">
+                                            <input
+                                                type={showCurrentPassword ? 'text' : 'password'}
+                                                value={currentPassword}
+                                                onChange={(e) => setCurrentPassword(e.target.value)}
+                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                placeholder="Ingresa tu contraseña actual"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                                                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                                            >
+                                                {showCurrentPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                            </button>
+                                        </div>
+                                    </div>
+
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
                                             Nueva Contraseña
