@@ -14,13 +14,29 @@ import UserRoleManagement from './components/Roles/UserRoleManagement';
 import { useAuth } from './contexts/AuthContext';
 import CreateParticipant from './components/Participantes/CreateParticipant';
 import Profile from './components/Perfil/Profile';
+import AccessDeniedPage from './components/utils/AccessDenied';
+import NotFoundPage from './components/utils/NotFound';
 
 type Page = 'home' | 'login' | 'dashboard' | 'eventos' | 'create-event' | 'event-details' | 'edit-event' | 'participants' | 'edit-participant' | 'create-participant' | 'evaluaciones' | 'evaluation-details' | 'estadisticas' | 'exportar' | 'cuenta' | 'roles';
 
 function App() {
-    const [currentPage, setCurrentPage] = useState<Page>('home');
-    const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-    const [selectedParticipantId, setSelectedParticipantId] = useState<string | null>(null);
+    // Recuperar el estado guardado de localStorage o usar valores por defecto
+    const getInitialPage = (): Page => {
+        const savedPage = localStorage.getItem('currentPage');
+        return (savedPage as Page) || 'home';
+    };
+
+    const getInitialEventId = (): string | null => {
+        return localStorage.getItem('selectedEventId');
+    };
+
+    const getInitialParticipantId = (): string | null => {
+        return localStorage.getItem('selectedParticipantId');
+    };
+
+    const [currentPage, setCurrentPage] = useState<Page>(getInitialPage);
+    const [selectedEventId, setSelectedEventId] = useState<string | null>(getInitialEventId);
+    const [selectedParticipantId, setSelectedParticipantId] = useState<string | null>(getInitialParticipantId);
     const [loginError, setLoginError] = useState<string | null>(null);
 
     const { isAuthenticated, isLoading, logout, user, hasAnyRole, login } = useAuth();
@@ -32,26 +48,69 @@ function App() {
     const handleNavigate = (page: string) => {
         console.log("Navigating to:", page);
 
-        // Check permission for the page
-        if (!hasPermissionForPage(page)) {
-            console.warn("User doesn't have permission to access page:", page);
-            return;
-        }
-
-        // Reset relevant state when changing main sections
+        // Secciones principales
         if (['dashboard', 'eventos', 'participants', 'evaluaciones', 'estadisticas', 'roles'].includes(page)) {
             setSelectedEventId(null);
             setSelectedParticipantId(null);
+            localStorage.removeItem('selectedEventId');
+            localStorage.removeItem('selectedParticipantId');
         }
         setCurrentPage(page as Page);
+        localStorage.setItem('currentPage', page);
     };
 
-    // Check if user has permission for a page
-    const hasPermissionForPage = (page: string): boolean => {
-        // Pages accessible to evaluators
-        const evaluatorPages = ['dashboard', 'evaluaciones', 'evaluation-details', 'cuenta'];
+    // Efecto para sincronizar los IDs seleccionados con localStorage
+    useEffect(() => {
+        if (selectedEventId) {
+            localStorage.setItem('selectedEventId', selectedEventId);
+        } else {
+            localStorage.removeItem('selectedEventId');
+        }
+    }, [selectedEventId]);
 
-        // Pages accessible to admin and superadmin
+    useEffect(() => {
+        if (selectedParticipantId) {
+            localStorage.setItem('selectedParticipantId', selectedParticipantId);
+        } else {
+            localStorage.removeItem('selectedParticipantId');
+        }
+    }, [selectedParticipantId]);
+
+    // Efecto para manejar la página después de la autenticación
+    useEffect(() => {
+        if (!isLoading) {
+            const savedPage = localStorage.getItem('currentPage') as Page;
+
+            // Si no está autenticado y está en una página protegida, ir a home
+            if (!isAuthenticated && savedPage && !['home', 'login'].includes(savedPage)) {
+                handleNavigate('home');
+            }
+
+            // Si está autenticado pero no tiene permisos para la página guardada, ir a dashboard
+            if (isAuthenticated && savedPage && !hasPermissionForPage(savedPage)) {
+                handleNavigate('dashboard');
+            }
+        }
+    }, [isAuthenticated, isLoading]);
+
+    // Permisos para roles
+    const hasPermissionForPage = (page: string): boolean => {
+
+        // Paginas evaluadores
+        const evaluatorPages = [
+            'dashboard',
+            'eventos',
+            'create-event',
+            'event-details',
+            'edit-event',
+            'evaluaciones',
+            'evaluation-details',
+            'estadisticas',
+            'exportar',
+            'cuenta'
+        ];
+
+        // Paginas administradores
         const adminPages = [
             'dashboard',
             'eventos',
@@ -68,7 +127,7 @@ function App() {
             'cuenta'
         ];
 
-        // Pages accessible only to superadmin
+        // Paginas superadmin
         const superAdminPages = [...adminPages, 'roles'];
 
         if (!isAuthenticated) {
@@ -76,7 +135,7 @@ function App() {
         }
 
         if (!hasAnyRole()) {
-            return false; // User has no role assigned
+            return false; // Sin rol asignado
         }
 
         if (isSuperAdmin) {
@@ -94,68 +153,61 @@ function App() {
         return false;
     };
 
-    // Event Handlers
+    // Controladores de eventos
     const handleCreateEvent = () => {
-        if (!hasPermissionForPage('create-event')) return;
-        setCurrentPage('create-event');
+        handleNavigate('create-event');
     };
 
     const handleViewEventDetails = (eventId: string) => {
-        console.log("View event details for ID:", eventId);
-        // Store the ID first, then navigate
         setSelectedEventId(eventId);
-        console.log("Selected event ID set to:", eventId);
-        // Navigate immediately instead of using setTimeout
-        setCurrentPage('event-details');
-        console.log("Navigated to event-details with ID:", eventId);
+        handleNavigate('event-details');
     };
 
     const handleEditEvent = (eventId: string) => {
-        if (!hasPermissionForPage('edit-event')) return;
         setSelectedEventId(eventId);
-        console.log("Edit event ID set to:", eventId);
-        // Navigate immediately
-        setCurrentPage('edit-event');
-        console.log("Navigated to edit-event with ID:", eventId);
+        handleNavigate('edit-event');
     };
 
-    // Evaluation Handlers
+    // Controladores de evaluaciones
     const handleViewEvaluationDetails = (participantId: string, eventId: string) => {
-        if (!hasPermissionForPage('evaluation-details')) return;
         setSelectedParticipantId(participantId);
         setSelectedEventId(eventId);
-        setCurrentPage('evaluation-details');
+        handleNavigate('evaluation-details');
     };
 
-    // Return to list view handlers
+    // Controladores de regreso
     const handleBackToEvents = () => {
         setSelectedEventId(null);
-        setCurrentPage('eventos');
+        handleNavigate('eventos');
     };
 
     const handleBackToEvaluations = () => {
         setSelectedParticipantId(null);
         setSelectedEventId(null);
-        setCurrentPage('evaluaciones');
+        handleNavigate('evaluaciones');
     };
 
     const handleNavigateToLogin = () => {
-        setCurrentPage('login');
+        handleNavigate('login');
     };
 
     const handleLogout = async () => {
         await logout();
-        setCurrentPage('login');
+        // Limpiar localStorage al cerrar sesión
+        localStorage.removeItem('currentPage');
+        localStorage.removeItem('selectedEventId');
+        localStorage.removeItem('selectedParticipantId');
+        handleNavigate('login');
     };
 
-    // Auth Handlers
+    // Controladores de autenticacion
     const handleLogin = async (email: string, password: string) => {
         try {
             const userInfo = await login(email, password);
 
             // Verificar usuario
             if (userInfo && userInfo.role) {
-                setCurrentPage('dashboard');
+                handleNavigate('dashboard');
             }
 
         } catch (error) {
@@ -189,22 +241,19 @@ function App() {
             return <Home onLogin={handleNavigateToLogin} />;
         }
 
-        // Check permission for current page
-        // PROBLEMA: Esta verificación está causando redirecciones no deseadas
-        // para páginas como event-details y participant-details
+        // Guard centralizado: Accesos
         if (isAuthenticated && !hasPermissionForPage(currentPage)) {
-            // Redirect to default page based on role
-            if (isSuperAdmin) {
-                setCurrentPage('dashboard');
-            } else if (isAdmin) {
-                setCurrentPage('eventos');
-            } else if (isEvaluator) {
-                setCurrentPage('evaluaciones');
-            }
-            return null;
+            return (
+                <AccessDeniedPage
+                    onNavigate={handleNavigate}
+                    onLogout={handleLogout}
+                    currentPage={currentPage}
+                />
+            );
         }
 
         switch (currentPage) {
+
             case 'home':
                 return <Home onLogin={handleNavigateToLogin} />;
 
@@ -213,7 +262,7 @@ function App() {
                     <Login
                         onLogin={handleLogin}
                         error={loginError}
-                        onGoHome={() => setCurrentPage('home')}
+                        onGoHome={() => handleNavigate('home')}
                     />
                 );
 
@@ -235,7 +284,7 @@ function App() {
                 console.log("Rendering EventDetails with ID:", selectedEventId);
                 if (!selectedEventId) {
                     console.error("No event ID selected, navigating back to events list");
-                    setCurrentPage('eventos');
+                    handleNavigate('eventos');
                     return null;
                 }
                 return (
@@ -251,7 +300,7 @@ function App() {
             case 'edit-event':
                 if (!selectedEventId) {
                     console.error("No event ID selected, navigating back to events list");
-                    setCurrentPage('eventos');
+                    handleNavigate('eventos');
                     return null;
                 }
                 return (
@@ -274,6 +323,7 @@ function App() {
                 return (
                     <Participant
                         onNavigate={handleNavigate}
+                        canAccess={hasPermissionForPage}
                     />
                 );
 
@@ -282,22 +332,22 @@ function App() {
                 return (
                     <CreateParticipant
                         isOpen={true}
-                        onClose={() => setCurrentPage('participants')}
-                        onSuccess={() => setCurrentPage('participants')}
+                        onClose={() => handleNavigate('participants')}
+                        onSuccess={() => handleNavigate('participants')}
                     />
                 );
 
             case 'edit-participant':
                 if (!selectedParticipantId) {
                     console.error("No participant ID selected, navigating back to participants list");
-                    setCurrentPage('participants');
+                    handleNavigate('participants');
                     return null;
                 }
                 return (
                     <EditParticipant
                         isOpen={true}
-                        onClose={() => setCurrentPage('participants')}
-                        onSuccess={() => setCurrentPage('participants')}
+                        onClose={() => handleNavigate('participants')}
+                        onSuccess={() => handleNavigate('participants')}
                         participantId={selectedParticipantId}
                     />
                 );
@@ -332,7 +382,13 @@ function App() {
                 return <Profile onNavigate={handleNavigate} />;
 
             default:
-                return <div>Página no encontrada</div>;
+                return (
+                    <NotFoundPage
+                        onNavigate={handleNavigate}
+                        onLogout={handleLogout}
+                        currentPage={currentPage}
+                    />
+                );
         }
     };
 

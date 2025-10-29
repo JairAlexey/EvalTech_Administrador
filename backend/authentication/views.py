@@ -10,11 +10,12 @@ import datetime
 from django.conf import settings
 from .models import UserRole, CustomUser
 import hashlib
+from events.models import Event
 
 # Clave secreta para JWT
 JWT_SECRET = getattr(settings, "SECRET_KEY", "django-insecure-token")
 JWT_ALGORITHM = "HS256"
-JWT_EXP_DELTA_SECONDS = 60 * 60 * 24  # 24 horas
+JWT_EXP_DELTA_SECONDS = 300  # 5 minutos (300 segundos)
 
 
 def generate_token(user):
@@ -381,13 +382,23 @@ def edit_user_view(request, user_id):
     try:
         user = CustomUser.objects.get(id=user_id)
 
-        # No permitir editar a un superadmin
         try:
+            # No permitir editar a un superadmin
             user_role = UserRole.objects.get(user=user)
             if user_role.role == "superadmin":
                 return JsonResponse(
                     {"error": "No puedes editar un usuario superadmin"}, status=400
                 )
+
+            # No permitir editar a un evaluador con eventos
+            if user_role.role == "evaluator":
+                if Event.objects.filter(evaluator=user).exists():
+                    return JsonResponse(
+                        {
+                            "error": "No puedes editar un usuario evaluador que tiene eventos asignados."
+                        },
+                        status=400,
+                    )
         except UserRole.DoesNotExist:
             pass
 
@@ -577,6 +588,35 @@ def update_profile_view(request):
 
     except CustomUser.DoesNotExist:
         return JsonResponse({"error": "Usuario no encontrado"}, status=404)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Formato JSON inválido"}, status=400)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def refresh_token_view(request):
+    """Vista para renovar el token JWT del usuario si está activo"""
+    try:
+        data = json.loads(request.body)
+        token = data.get("token")
+
+        if not token:
+            return JsonResponse({"error": "Token no proporcionado"}, status=400)
+
+        payload = verify_token(token)
+        if not payload:
+            return JsonResponse({"error": "Token inválido o expirado"}, status=401)
+
+        # Si el token es válido, buscar el usuario y generar un nuevo token
+        try:
+            user = CustomUser.objects.get(id=payload["user_id"])
+            new_token = generate_token(user)
+            return JsonResponse({"token": new_token, "user": get_user_data(user)})
+        except CustomUser.DoesNotExist:
+            return JsonResponse({"error": "Usuario no encontrado"}, status=404)
+
     except json.JSONDecodeError:
         return JsonResponse({"error": "Formato JSON inválido"}, status=400)
     except Exception as e:
