@@ -288,6 +288,44 @@ export const authService = {
     }
   },
 
+  /**
+   * Renueva el token JWT si el usuario está activo
+   * @returns Promesa con el nuevo token y la información del usuario
+   */
+  async refreshToken(): Promise<AuthResponse> {
+    try {
+      const token = this.getToken();
+      if (!token) {
+        throw new Error('No hay token de autenticación');
+      }
+
+      const response = await fetch(`${API_URL}/auth/refresh-token/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ token }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Error al renovar token');
+      }
+
+      const data = await response.json();
+      
+      // Guardar el nuevo token y la información del usuario
+      localStorage.setItem(TOKEN_KEY, data.token);
+      localStorage.setItem(USER_INFO_KEY, JSON.stringify(data.user));
+      
+      return data;
+    } catch (error) {
+      console.error('Error al renovar token:', error);
+      throw error;
+    }
+  },
+
 };
 
 export default authService;

@@ -262,7 +262,7 @@ export const eventService = {
    * @param participantIds (opcional) IDs de participantes seleccionados
    * @returns Promise con confirmación de éxito
    */
-  async sendEventEmails(eventId: string, participantIds: string[], userId: number): Promise<void> {
+  async sendEventEmails(eventId: string, participantIds: string[]): Promise<void> {
     try {
       const token = localStorage.getItem('auth_token');
       if (!token) {
@@ -270,7 +270,7 @@ export const eventService = {
       }
 
       const body = participantIds && participantIds.length > 0
-        ? JSON.stringify({ participantIds, userId })
+        ? JSON.stringify({ participantIds })
         : undefined;
 
       const response = await fetch(`${API_URL}/events/api/events/${eventId}/emails`, {

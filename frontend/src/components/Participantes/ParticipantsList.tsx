@@ -12,9 +12,10 @@ interface Participant extends ParticipantType {
 
 interface ParticipantListProps {
   onNavigate?: (page: string) => void;
+  canAccess?: (page: string) => boolean; // <-- new optional prop
 }
 
-export default function ParticipantsList({ onNavigate }: ParticipantListProps) {
+export default function ParticipantsList({ onNavigate, canAccess }: ParticipantListProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -89,19 +90,25 @@ export default function ParticipantsList({ onNavigate }: ParticipantListProps) {
 
   // Función para confirmar la eliminación
   const handleConfirmDelete = async () => {
-    if (participantToDelete) {
-      try {
-        setLoading(true);
-        await participantService.deleteParticipant(participantToDelete);
-        setParticipants(participants.filter(c => c.id !== participantToDelete));
-        setShowDeleteModal(false);
-        setParticipantToDelete(null);
-      } catch (err) {
-        console.error('Error al eliminar el participante:', err);
-        setError('No se pudo eliminar el participante. Por favor, inténtelo de nuevo más tarde.');
-      } finally {
-        setLoading(false);
-      }
+    if (!participantToDelete) return;
+
+    // Guardar id localmente y cerrar modal inmediatamente
+    const idToDelete = participantToDelete;
+    setShowDeleteModal(false);
+    setParticipantToDelete(null);
+
+    setLoading(true);
+    try {
+      // Ejecutar eliminación en background
+      await participantService.deleteParticipant(idToDelete);
+      // Usar forma funcional para evitar problemas con closures
+      setParticipants(prev => prev.filter(c => c.id !== idToDelete));
+      setError(null);
+    } catch (err) {
+      console.error('Error al eliminar el participante:', err);
+      setError('No se pudo eliminar el participante. Por favor, inténtelo de nuevo más tarde.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -113,8 +120,23 @@ export default function ParticipantsList({ onNavigate }: ParticipantListProps) {
 
   // Función para manejar el clic en el botón de editar
   const handleEditClick = (id: string) => {
+    // Ejecutar guard antes de abrir modal localmente
+    if (canAccess && !canAccess('edit-participant')) {
+      // Delegar a App para que muestre AccessDenied u otra navegación
+      onNavigate && onNavigate('edit-participant');
+      return;
+    }
     setParticipantToEdit(id);
     setShowEditModal(true);
+  };
+
+  const handleCreateClick = () => {
+    // Ejecutar guard antes de abrir modal localmente
+    if (canAccess && !canAccess('create-participant')) {
+      onNavigate && onNavigate('create-participant');
+      return;
+    }
+    setShowCreateModal(true);
   };
 
   return (
@@ -129,7 +151,7 @@ export default function ParticipantsList({ onNavigate }: ParticipantListProps) {
               <p className="text-gray-600 mt-1">Gestión de participantes registrados en el sistema</p>
             </div>
             <button
-              onClick={() => setShowCreateModal(true)}
+              onClick={handleCreateClick}
               className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition shadow-sm"
             >
               <Plus className="w-4 h-4" />
