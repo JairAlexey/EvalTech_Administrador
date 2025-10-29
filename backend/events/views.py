@@ -22,6 +22,7 @@ from django.db.models import Q
 from django.db.models.deletion import RestrictedError
 from authentication.models import CustomUser
 from authentication.models import UserRole
+from authentication.views import verify_token, get_user_data
 
 
 def check_event_time(event):
@@ -164,19 +165,29 @@ def log_participant_audio_video_event(request: HttpRequest):
 def send_key_emails(request, event_id):
     if request.method == "POST":
         try:
-            # Obtener IDs de participantes seleccionados
+            # --- Validar token desde headers y obtener usuario ---
+            auth_header = request.headers.get("Authorization", "")
+            if not auth_header.startswith("Bearer "):
+                return JsonResponse(
+                    {"error": "Encabezado de autorización inválido"}, status=401
+                )
+            token = auth_header.split(" ")[1]
+            payload = verify_token(token)
+            if not payload:
+                return JsonResponse({"error": "Token inválido o expirado"}, status=401)
+
+            user_id = payload.get("user_id")
+
+            # Obtener participantIds del body (el body ya no debe contener userId)
             try:
                 data = json.loads(request.body.decode("utf-8"))
                 participant_ids = data.get("participantIds", [])
-                user_id = data.get("userId")
             except Exception:
                 participant_ids = []
-                user_id = None
 
             # Verificar que el usuario existe y obtener su rol
             try:
                 user = CustomUser.objects.get(id=user_id)
-
                 user_role = UserRole.objects.get(user=user)
             except (CustomUser.DoesNotExist, UserRole.DoesNotExist):
                 return JsonResponse({"error": "Usuario no encontrado"}, status=404)
@@ -435,10 +446,35 @@ def participant_detail(request, participant_id):
 @csrf_exempt
 def events(request):
     if request.method == "GET":
-        # Listar todos los eventos
-        events = Event.objects.all().order_by("start_date")
-        events_data = []
+        # --- Obtener role/usuario a partir del token (si se envía) ---
+        auth_header = request.headers.get("Authorization", "")
+        user_role = None
+        user_data = None
+        if auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+            payload = verify_token(token)
+            if payload:
+                try:
+                    user = CustomUser.objects.get(id=payload.get("user_id"))
+                    user_data = get_user_data(
+                        user
+                    )  # devuelve dict con 'role', 'id', 'email', ...
+                    user_role = user_data.get("role")
+                except CustomUser.DoesNotExist:
+                    user_role = None
 
+        # Filtrar eventos según rol: admin/superadmin -> todos, evaluator -> solo sus eventos
+        if user_role in ("admin", "superadmin"):
+            events = Event.objects.all().order_by("start_date")
+        elif user_role == "evaluator" and user_data:
+            events = Event.objects.filter(evaluator__id=user_data.get("id")).order_by(
+                "start_date"
+            )
+        else:
+            # Comportamiento por defecto (sin token o rol desconocido): listar todos
+            events = Event.objects.all().order_by("start_date")
+
+        events_data = []
         for event in events:
             participant_count = Participant.objects.filter(events=event).count()
 

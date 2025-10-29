@@ -7,57 +7,24 @@ interface SidebarProps {
   onLogout?: () => void;
 }
 
+// Todas las páginas posibles
+const ALL_PAGES = [
+  { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard', section: 'GENERAL', roles: ['admin', 'superadmin', 'evaluator'] },
+  { id: 'eventos', icon: Calendar, label: 'Eventos', section: 'GENERAL', roles: ['admin', 'superadmin', 'evaluator'] },
+  { id: 'participants', icon: Users, label: 'Participantes', section: 'GENERAL', roles: ['admin', 'superadmin'] },
+  { id: 'evaluaciones', icon: FileText, label: 'Evaluaciones', section: 'GENERAL', roles: ['superadmin', 'evaluator'] },
+  { id: 'estadisticas', icon: BarChart3, label: 'Estadísticas', section: 'REPORTES', roles: ['admin', 'superadmin', 'evaluator'] },
+  { id: 'exportar', icon: FileDown, label: 'Exportar datos', section: 'REPORTES', roles: ['admin', 'superadmin', 'evaluator'] },
+  { id: 'roles', icon: UserCog, label: 'Roles', section: 'CONFIGURACIÓN', roles: ['superadmin'] },
+  { id: 'cuenta', icon: User, label: 'Mi cuenta', section: 'CONFIGURACIÓN', roles: ['admin', 'superadmin', 'evaluator'] },
+];
+
 export default function Sidebar({ onNavigate, onLogout, currentPage }: SidebarProps) {
   const { user } = useAuth();
-  const isSuperAdmin = user?.role === 'superadmin';
-  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
-  const isEvaluator = user?.role === 'evaluator';
+  const role = user?.role ?? '';
 
-  // Define menu items based on role
-  const getMenuItems = () => {
-    // Base items common for all roles
-    const baseItems = [];
-
-    // Add dashboard for admins and evaluators
-    if (isEvaluator || isSuperAdmin) {
-      baseItems.push({ id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard', section: 'GENERAL' });
-    }
-
-    // Admins can manage events and participants
-    if (isAdmin) {
-      baseItems.push(
-        { id: 'eventos', icon: Calendar, label: 'Eventos', section: 'GENERAL' },
-        { id: 'participants', icon: Users, label: 'Participantes', section: 'GENERAL' }
-      );
-    }
-
-    // Evaluators can see evaluations
-    if (isEvaluator || isSuperAdmin) {
-      baseItems.push({ id: 'evaluaciones', icon: FileText, label: 'Evaluaciones', section: 'GENERAL' });
-    }
-
-    // Report items - only for admins
-    const reportItems = isAdmin
-      ? [
-        { id: 'estadisticas', icon: BarChart3, label: 'Estadísticas', section: 'REPORTES' },
-        { id: 'exportar', icon: FileDown, label: 'Exportar datos', section: 'REPORTES' },
-      ]
-      : [];
-
-    // Config items for all users
-    const configItems = [
-      { id: 'cuenta', icon: User, label: 'Mi cuenta', section: 'CONFIGURACIÓN' },
-    ];
-
-    // Only superadmin can manage roles
-    if (isSuperAdmin) {
-      configItems.unshift({ id: 'roles', icon: UserCog, label: 'Roles', section: 'CONFIGURACIÓN' });
-    }
-
-    return [...baseItems, ...reportItems, ...configItems];
-  };
-
-  const menuItems = getMenuItems();
+  // Filtra las páginas según el rol
+  const menuItems = ALL_PAGES.filter(page => role && page.roles.includes(role));
   const sections = [...new Set(menuItems.map(item => item.section))];
 
   return (

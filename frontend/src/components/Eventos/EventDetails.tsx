@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { ArrowLeft, Loader, Calendar, Clock, User, Globe, Users, CheckCircle, XCircle, AlertCircle, Play } from 'lucide-react';
 import Sidebar from '../utils/Sidebar';
 import eventService, { type EventDetail } from '../../services/eventService';
-import { useAuth } from '../../contexts/AuthContext';
 
 interface EventDetailsProps {
   onBack?: () => void;
@@ -23,8 +22,6 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
   const [modalVisible, setModalVisible] = useState(false);
   const [modalType, setModalType] = useState<'success' | 'error'>('success');
   const [modalMessage, setModalMessage] = useState('');
-
-  const { user } = useAuth(); // usuario autenticado
 
   useEffect(() => {
     const fetchEventDetails = async () => {
@@ -131,11 +128,11 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
 
   // Enviar correos
   const handleSendEmails = async () => {
-    if (!eventId || selectedParticipants.length === 0 || !user?.id) return;
+    if (!eventId || selectedParticipants.length === 0) return;
     setSendingEmails(true);
     try {
-      // llamada a servicio
-      await eventService.sendEventEmails(eventId, selectedParticipants, user.id);
+      // llamada a servicio (ya no enviamos user.id)
+      await eventService.sendEventEmails(eventId, selectedParticipants);
       // Si la función no lanza error, mostrar modal de éxito
       setModalType('success');
       setModalMessage('Correos enviados correctamente');
