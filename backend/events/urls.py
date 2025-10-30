@@ -14,6 +14,9 @@ urlpatterns = [
     # Rutas para la gestión de participantes
     path("api/participants", views.participants),
     path("api/participants/<int:participant_id>", views.participant_detail),
+    # Importación masiva de participantes y plantilla
+    path("api/participants/import", views.import_participants, name="participants_import"),
+    path("api/participants/template", views.participants_template, name="participants_template"),
     # Rutas para paginas
     path("api/websites/", views.websites, name="websites"),
     path("api/websites/<int:website_id>/", views.website_detail, name="website_detail"),
