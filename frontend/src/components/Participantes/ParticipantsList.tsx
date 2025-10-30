@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Search, Plus, Filter, Edit, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Plus, Filter, Edit, Trash2, ChevronLeft, ChevronRight, Upload } from 'lucide-react';
 import Sidebar from '../utils/Sidebar';
 import ConfirmationModal from '../utils/ConfirmationModal';
 import CreateParticipant from './CreateParticipant';
 import EditParticipant from './EditParticipant';
+import ImportParticipantsModal from './ImportParticipantsModal';
 import participantService, { type Participant as ParticipantType } from '../../services/participantService';
 
 interface Participant extends ParticipantType {
@@ -21,6 +22,7 @@ export default function ParticipantsList({ onNavigate, canAccess }: ParticipantL
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [participantToDelete, setParticipantToDelete] = useState<string | null>(null);
   const [participantToEdit, setParticipantToEdit] = useState<string | null>(null);
   const [selectAll, setSelectAll] = useState(false);
@@ -189,6 +191,14 @@ export default function ParticipantsList({ onNavigate, canAccess }: ParticipantL
                   <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition text-sm">
                     <Filter className="w-4 h-4" />
                     Filtros
+                  </button>
+                  <button
+                    onClick={() => setShowImportModal(true)}
+                    className="flex items-center gap-2 px-4 py-2 border border-blue-600 text-blue-700 rounded-lg hover:bg-blue-50 transition text-sm"
+                    title="Cargar participantes desde Excel"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Cargar participantes
                   </button>
                 </div>
               </div>
@@ -386,6 +396,16 @@ export default function ParticipantsList({ onNavigate, canAccess }: ParticipantL
         onConfirm={handleConfirmDelete}
         onCancel={handleCancelDelete}
         isDestructive={true}
+      />
+
+      {/* Modal de importación de participantes */}
+      <ImportParticipantsModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onSuccess={() => {
+          setShowImportModal(false);
+          refreshParticipants();
+        }}
       />
     </div>
   );

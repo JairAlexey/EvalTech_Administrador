@@ -23,6 +23,10 @@ from django.db.models.deletion import RestrictedError
 from authentication.models import CustomUser
 from authentication.models import UserRole
 from authentication.views import verify_token, get_user_data
+from openpyxl import load_workbook
+from openpyxl.workbook import Workbook
+from io import BytesIO
+from django.http import HttpResponse
 
 
 def check_event_time(event):
@@ -333,6 +337,225 @@ def participants(request):
             return JsonResponse({"error": str(e)}, status=400)
 
     return JsonResponse({"error": "Método no permitido"}, status=405)
+
+
+@csrf_exempt
+def participants_template(request):
+    """Devuelve una plantilla Excel con columnas requeridas: Nombre, Apellidos, Email"""
+    if request.method != "GET":
+        return JsonResponse({"error": "Método no permitido"}, status=405)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Participantes"
+    ws.append(["Nombre", "Apellidos", "Email"])
+    # Fila ejemplo vacía (opcional)
+    ws.append(["", "", ""])
+
+    bio = BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+
+    response = HttpResponse(
+        bio.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = (
+        'attachment; filename="plantilla_participantes.xlsx"'
+    )
+    return response
+
+
+def _validate_participant_fields(
+    first_name: str, last_name: str, email: str, seen_emails: set
+):
+    errors = []
+    fn = (first_name or "").strip()
+    ln = (last_name or "").strip()
+    em = (email or "").strip().lower()
+
+    if not fn:
+        errors.append("Nombre requerido")
+    if not ln:
+        errors.append("Apellidos requeridos")
+    if not em:
+        errors.append("Email requerido")
+    else:
+        try:
+            validate_email(em)
+        except ValidationError:
+            errors.append("Email inválido")
+
+    # Duplicado dentro del archivo (o del payload)
+    if em:
+        if em in seen_emails:
+            errors.append("Email duplicado en el archivo")
+        else:
+            seen_emails.add(em)
+
+    # Duplicado en BD
+    if em and Participant.objects.filter(email__iexact=em).exists():
+        errors.append("Email ya existe en el sistema")
+
+    return fn, ln, em, errors
+
+
+@csrf_exempt
+def import_participants(request):
+    """Importa participantes desde Excel (modo previsualización o creación) o desde JSON corregido.
+
+    - POST multipart/form-data con campo 'file': parsea Excel y devuelve filas validadas (no crea si dry_run=1).
+    - POST application/json con 'rows': valida y crea participantes, devolviendo resumen.
+    """
+
+    if request.method != "POST":
+        return JsonResponse({"error": "Método no permitido"}, status=405)
+
+    # Determinar dry_run
+    dry_raw = request.GET.get("dry_run") or request.POST.get("dry_run")
+    dry_run = str(dry_raw).lower() in {"1", "true", "yes"}
+
+    results = []
+
+    # Modo archivo Excel (previsualización)
+    if "file" in request.FILES:
+        up_file = request.FILES["file"]
+
+        # Validar tipo de archivo por extensión y content_type
+        filename = getattr(up_file, "name", "")
+        content_type = getattr(up_file, "content_type", "")
+        if not (
+            filename.lower().endswith(".xlsx")
+            or content_type
+            == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ):
+            return JsonResponse(
+                {"error": "El archivo debe ser un Excel (.xlsx)"}, status=400
+            )
+
+        try:
+            wb = load_workbook(up_file, data_only=True)
+            ws = wb.active
+        except Exception as e:
+            return JsonResponse(
+                {"error": f"No se pudo leer el Excel: {str(e)}"}, status=400
+            )
+
+        # Leer cabeceras
+        headers = []
+        for cell in ws[1]:
+            value = (
+                (cell.value or "").strip()
+                if isinstance(cell.value, str)
+                else (cell.value or "")
+            )
+            headers.append(str(value))
+
+        normalized = [h.strip().lower() for h in headers]
+        expected = ["nombre", "apellidos", "email"]
+        if normalized[:3] != expected:
+            return JsonResponse(
+                {
+                    "error": "Formato inválido. Las primeras 3 columnas deben ser: Nombre, Apellidos, Email",
+                    "headers": headers,
+                },
+                status=400,
+            )
+
+        col_idx = {"nombre": 1, "apellidos": 2, "email": 3}
+
+        seen_emails = set()
+        for row_idx in range(2, ws.max_row + 1):
+            fn = ws.cell(row=row_idx, column=col_idx["nombre"]).value
+            ln = ws.cell(row=row_idx, column=col_idx["apellidos"]).value
+            em = ws.cell(row=row_idx, column=col_idx["email"]).value
+
+            fn, ln, em, errs = _validate_participant_fields(fn, ln, em, seen_emails)
+            results.append(
+                {
+                    "row_number": row_idx,
+                    "first_name": fn,
+                    "last_name": ln,
+                    "email": em,
+                    "errors": errs,
+                }
+            )
+
+        # En modo archivo siempre devolvemos previsualización (no creamos), a menos que dry_run sea falso explícitamente.
+        if dry_run or True:
+            valid_count = sum(1 for r in results if not r["errors"])
+            invalid_count = len(results) - valid_count
+            return JsonResponse(
+                {
+                    "rows": results,
+                    "valid_count": valid_count,
+                    "invalid_count": invalid_count,
+                }
+            )
+
+    # Modo JSON (commit de filas corregidas)
+    try:
+        data = json.loads(request.body or b"{}")
+    except Exception:
+        data = {}
+
+    rows = data.get("rows", [])
+    if not isinstance(rows, list) or not rows:
+        return JsonResponse(
+            {"error": "Se requiere un arreglo 'rows' para importar"}, status=400
+        )
+
+    created = 0
+    output_rows = []
+    seen_emails = set()
+
+    for idx, r in enumerate(rows, start=1):
+        fn, ln, em = r.get("first_name"), r.get("last_name"), r.get("email")
+        fn, ln, em, errs = _validate_participant_fields(fn, ln, em, seen_emails)
+        if errs:
+            output_rows.append(
+                {
+                    "index": idx,
+                    "first_name": fn,
+                    "last_name": ln,
+                    "email": em,
+                    "errors": errs,
+                }
+            )
+            continue
+
+        try:
+            Participant.objects.create(
+                first_name=fn, last_name=ln, name=f"{fn} {ln}".strip(), email=em
+            )
+            created += 1
+            output_rows.append(
+                {
+                    "index": idx,
+                    "first_name": fn,
+                    "last_name": ln,
+                    "email": em,
+                    "errors": [],
+                }
+            )
+        except Exception as e:
+            output_rows.append(
+                {
+                    "index": idx,
+                    "first_name": fn,
+                    "last_name": ln,
+                    "email": em,
+                    "errors": [str(e)],
+                }
+            )
+
+    return JsonResponse(
+        {
+            "created": created,
+            "failed": len(output_rows) - created,
+            "rows": output_rows,
+        }
+    )
 
 
 @csrf_exempt
