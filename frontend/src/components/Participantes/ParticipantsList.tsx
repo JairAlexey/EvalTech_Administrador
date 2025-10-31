@@ -16,6 +16,19 @@ interface ParticipantListProps {
   canAccess?: (page: string) => boolean; // <-- new optional prop
 }
 
+function getColorClass(color: string) {
+  const allowed = [
+    "bg-blue-200",
+    "bg-green-200",
+    "bg-purple-200",
+    "bg-red-200",
+    "bg-yellow-200",
+    "bg-indigo-200",
+    "bg-pink-200"
+  ];
+  return allowed.includes(color) ? color : "bg-gray-200";
+}
+
 export default function ParticipantsList({ onNavigate, canAccess }: ParticipantListProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -39,7 +52,6 @@ export default function ParticipantsList({ onNavigate, canAccess }: ParticipantL
         setParticipants(participantsData.map(participant => ({ ...participant, selected: false })));
         setError(null);
       } catch (err) {
-        console.error('Error al cargar los participantes:', err);
         setError('No se pudieron cargar los participantes. Por favor, inténtelo de nuevo más tarde.');
       } finally {
         setLoading(false);
@@ -107,8 +119,12 @@ export default function ParticipantsList({ onNavigate, canAccess }: ParticipantL
       setParticipants(prev => prev.filter(c => c.id !== idToDelete));
       setError(null);
     } catch (err) {
-      console.error('Error al eliminar el participante:', err);
-      setError('No se pudo eliminar el participante. Por favor, inténtelo de nuevo más tarde.');
+      const errorObj = err as any;
+      const backendMsg =
+        errorObj?.response?.data?.error ||
+        errorObj?.message ||
+        'No se pudo eliminar el participante. Por favor, inténtelo de nuevo más tarde.';
+      setError(backendMsg);
     } finally {
       setLoading(false);
     }
@@ -260,7 +276,7 @@ export default function ParticipantsList({ onNavigate, canAccess }: ParticipantL
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center">
-                              <div className={`w-8 h-8 rounded-full ${participant.color} flex items-center justify-center text-gray-700 font-medium`}>
+                              <div className={`w-8 h-8 rounded-full ${getColorClass(participant.color)} flex items-center justify-center text-gray-700 font-medium`}>
                                 {participant.initials}
                               </div>
                               <span className="ml-3 font-medium">{participant.name}</span>
