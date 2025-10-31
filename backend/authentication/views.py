@@ -15,7 +15,7 @@ from events.models import Event
 # Clave secreta para JWT
 JWT_SECRET = getattr(settings, "SECRET_KEY", "django-insecure-token")
 JWT_ALGORITHM = "HS256"
-JWT_EXP_DELTA_SECONDS = 300  # 5 minutos (300 segundos)
+JWT_EXP_DELTA_SECONDS = 1800  # 30 minutos (1800 segundos)
 
 
 def generate_token(user):
@@ -607,7 +607,11 @@ def refresh_token_view(request):
 
         payload = verify_token(token)
         if not payload:
-            return JsonResponse({"error": "Token inválido o expirado"}, status=401)
+            # Token expirado o inválido - no se puede renovar
+            return JsonResponse(
+                {"error": "Token inválido o expirado. Por favor, inicia sesión nuevamente."},
+                status=401
+            )
 
         # Si el token es válido, buscar el usuario y generar un nuevo token
         try:

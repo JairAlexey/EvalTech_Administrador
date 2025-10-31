@@ -39,14 +39,19 @@ function App() {
     const [selectedParticipantId, setSelectedParticipantId] = useState<string | null>(getInitialParticipantId);
     const [loginError, setLoginError] = useState<string | null>(null);
 
-    const { isAuthenticated, isLoading, logout, user, hasAnyRole, login } = useAuth();
+    const { isAuthenticated, isLoading, logout, user, hasAnyRole, login, refreshUserInfo } = useAuth();
     const isSuperAdmin = user?.role === 'superadmin';
     const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
     const isEvaluator = user?.role === 'evaluator';
 
     // Navigation handler for sidebar and component navigation
-    const handleNavigate = (page: string) => {
+    const handleNavigate = async (page: string) => {
         console.log("Navigating to:", page);
+
+        // Si está autenticado, verificar y renovar token si es necesario
+        if (isAuthenticated) {
+            await refreshUserInfo();
+        }
 
         // Secciones principales
         if (['dashboard', 'eventos', 'participants', 'evaluaciones', 'estadisticas', 'roles'].includes(page)) {
