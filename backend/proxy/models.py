@@ -9,25 +9,44 @@ def generate_session_key():
 
 
 class AssignedPort(models.Model):
-
-    # Si un participante esta asignado a un puerto no se puede eliminar
-    participant = models.OneToOneField(
-        Participant, on_delete=models.RESTRICT, related_name="assigned_port"
+    participant_event = models.OneToOneField(
+        "events.ParticipantEvent",
+        on_delete=models.CASCADE,
+        related_name="assigned_port",
     )
     port = models.IntegerField(unique=True)
     is_active = models.BooleanField(default=True)
-    last_activity = models.DateTimeField(auto_now=True)
-    session_key = models.CharField(
-        max_length=40, unique=True, default=generate_session_key
+
+    # Tiempo acumulado de conexión en segundos
+    total_duration = models.IntegerField(
+        default=0, help_text="Duración total en segundos"
     )
 
-    def get_event_key(self):
-        return self.participant.event_key
+    # Para calcular la sesión actual
+    current_session_time = models.DateTimeField(null=True, blank=True)
+
+    last_activity = models.DateTimeField(auto_now=True)
 
     class Meta:
-        indexes = [
-            models.Index(fields=["port"]),
-            models.Index(fields=["is_active"]),
-        ]
-
         db_table = "puertos_asignados"
+
+    def start_session(self):
+        """Inicia una nueva sesión de conexión"""
+        from django.utils import timezone
+
+        self.current_session_time = timezone.now()
+        self.is_active = True
+        self.save()
+
+    def end_session(self):
+        """Termina la sesión actual y acumula el tiempo"""
+        if self.current_session_time:
+            from django.utils import timezone
+
+            session_duration = (
+                timezone.now() - self.current_session_time
+            ).total_seconds()
+            self.total_duration += int(session_duration)
+            self.current_session_time = None
+        self.is_active = False
+        self.save()
