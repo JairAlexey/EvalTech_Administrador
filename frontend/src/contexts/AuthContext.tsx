@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { authService, type User } from '../services/authService';
 
 interface AuthContextType {
@@ -15,123 +15,78 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Constantes para el sistema de renovación de token
-const TOKEN_REFRESH_INTERVAL = 240000; // 4 minutos (240 segundos) - renovar antes de que expire a los 5
-const ACTIVITY_TIMEOUT = 300000; // 5 minutos (300 segundos) sin actividad = dejar que el token expire
+// Función helper para decodificar JWT
+function decodeJWT(token: string): any {
+    try {
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(
+            atob(base64)
+                .split('')
+                .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+                .join('')
+        );
+        return JSON.parse(jsonPayload);
+    } catch (error) {
+        return null;
+    }
+}
+
+// Función para verificar si el token está por expirar (menos de 5 minutos)
+function shouldRefreshToken(token: string | null): boolean {
+    if (!token) return false;
+
+    const payload = decodeJWT(token);
+    if (!payload || !payload.exp) return false;
+
+    const expirationTime = payload.exp * 1000;
+    const currentTime = Date.now();
+    const timeUntilExpiration = expirationTime - currentTime;
+
+    // Renovar si quedan menos de 5 minutos (300000 ms)
+    return timeUntilExpiration < 300000;
+}
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [user, setUser] = useState<User | null>(null);
     const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState<boolean>(true);
-    
-    // Referencias para los intervalos y actividad
-    const refreshIntervalRef = useRef<number | null>(null);
-    const inactivityTimeoutRef = useRef<number | null>(null);
-    const lastActivityRef = useRef<number>(Date.now());
 
-    // Función para renovar el token
-    const renewToken = async () => {
-        try {
-            // Solo renovar si hay actividad reciente (últimos 5 minutos)
-            const timeSinceLastActivity = Date.now() - lastActivityRef.current;
-            
-            if (timeSinceLastActivity > ACTIVITY_TIMEOUT) {
-                console.log('No hay actividad reciente. No se renovará el token.');
-                // No renovar el token - dejar que expire naturalmente o que el timeout cierre sesión
-                return;
+    // Función para renovar el token si está por expirar
+    const checkAndRefreshToken = async () => {
+        const token = authService.getToken();
+
+        if (shouldRefreshToken(token)) {
+            try {
+                console.log('Token por expirar, renovando...');
+                const response = await authService.refreshToken();
+                setUser(response.user);
+                console.log('Token renovado exitosamente');
+            } catch (error) {
+                console.error('Error al renovar token:', error);
+                // Si falla la renovación (token expirado), cerrar sesión
+                console.log('Token expirado, cerrando sesión...');
+                await logout();
+                // Redirigir a login
+                window.location.href = '/';
             }
-
-            console.log('Actividad detectada. Renovando token...');
-            const response = await authService.refreshToken();
-            setUser(response.user);
-            console.log('Token renovado exitosamente');
-        } catch (error) {
-            console.error('Error al renovar token:', error);
-            // Si falla la renovación (ej: token expirado), cerrar sesión
-            await logout();
         }
     };
-
-    // Función para registrar actividad del usuario y reiniciar el timeout de inactividad
-    const recordActivity = () => {
-        lastActivityRef.current = Date.now();
-        
-        // Reiniciar el timeout de inactividad
-        if (inactivityTimeoutRef.current) {
-            clearTimeout(inactivityTimeoutRef.current);
-        }
-        
-        // Configurar nuevo timeout: si no hay actividad por 5 minutos, cerrar sesión
-        inactivityTimeoutRef.current = window.setTimeout(async () => {
-            console.log('Usuario inactivo por 5 minutos. Cerrando sesión automáticamente...');
-            await logout();
-        }, ACTIVITY_TIMEOUT);
-    };
-
-    // Iniciar el sistema de renovación de token
-    const startTokenRefresh = () => {
-        // Limpiar cualquier intervalo existente
-        if (refreshIntervalRef.current) {
-            clearInterval(refreshIntervalRef.current);
-        }
-
-        // Iniciar nuevo intervalo de renovación
-        refreshIntervalRef.current = setInterval(renewToken, TOKEN_REFRESH_INTERVAL);
-        
-        // Registrar actividad inicial
-        recordActivity();
-    };
-
-    // Detener el sistema de renovación de token
-    const stopTokenRefresh = () => {
-        if (refreshIntervalRef.current) {
-            clearInterval(refreshIntervalRef.current);
-            refreshIntervalRef.current = null;
-        }
-        
-        if (inactivityTimeoutRef.current) {
-            clearTimeout(inactivityTimeoutRef.current);
-            inactivityTimeoutRef.current = null;
-        }
-    };
-
-    // Detectar actividad del usuario
-    useEffect(() => {
-        if (!isAuthenticated) return;
-
-        const events = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
-        
-        const handleActivity = () => {
-            recordActivity();
-        };
-
-        // Agregar listeners para detectar actividad
-        events.forEach(event => {
-            document.addEventListener(event, handleActivity);
-        });
-
-        return () => {
-            // Limpiar listeners
-            events.forEach(event => {
-                document.removeEventListener(event, handleActivity);
-            });
-        };
-    }, [isAuthenticated]);
 
     useEffect(() => {
         const initAuth = async () => {
             setIsLoading(true);
             try {
-                // Check if we have a token stored
                 if (authService.getToken()) {
                     const isValid = await authService.verifyToken();
                     if (isValid) {
                         const userInfo = await authService.refreshUserInfo();
                         setUser(userInfo);
                         setIsAuthenticated(true);
-                        startTokenRefresh(); // Iniciar renovación automática
+
+                        // Verificar si necesita refresh al iniciar
+                        await checkAndRefreshToken();
                     } else {
-                        // Token invalid, clean up
                         authService.logout();
                         setUser(null);
                         setIsAuthenticated(false);
@@ -150,11 +105,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         };
 
         initAuth();
-
-        // Cleanup al desmontar
-        return () => {
-            stopTokenRefresh();
-        };
     }, []);
 
     const login = async (email: string, password: string): Promise<User | null> => {
@@ -163,10 +113,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const response = await authService.login(email, password);
             setUser(response.user);
             setIsAuthenticated(true);
-            startTokenRefresh(); // Iniciar renovación automática al hacer login
-            return response.user; // Return the user object
+            return response.user;
         } catch (error) {
-            throw error; // Re-throw the error for the login component to handle
+            throw error;
         } finally {
             setIsLoading(false);
         }
@@ -175,7 +124,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const logout = async () => {
         setIsLoading(true);
         try {
-            stopTokenRefresh(); // Detener renovación al cerrar sesión
             await authService.logout();
             setUser(null);
             setIsAuthenticated(false);
@@ -186,11 +134,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const refreshUserInfo = async () => {
         try {
+            // Verificar y renovar token antes de refrescar info
+            await checkAndRefreshToken();
+
             const userInfo = await authService.refreshUserInfo();
             setUser(userInfo);
             return userInfo;
         } catch (error) {
             console.error('Error refreshing user info:', error);
+            // Si hay error al refrescar info, probablemente el token expiró
+            if (error instanceof Error && error.message.includes('Token inválido')) {
+                console.log('Token inválido, cerrando sesión...');
+                await logout();
+                window.location.href = '/';
+            }
             return null;
         }
     };
