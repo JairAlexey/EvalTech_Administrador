@@ -661,7 +661,12 @@ def participant_detail(request, participant_id):
                 {"message": f'Participante "{participant_name}" eliminado exitosamente'}
             )
         except Exception as e:
-            return JsonResponse({"error": str(e)}, status=400)
+            return JsonResponse(
+                {
+                    "error": "No se pudo eliminar el participante porque está asociado a uno o más eventos."
+                },
+                status=400,
+            )
 
     return JsonResponse({"error": "Método no permitido"}, status=405)
 
