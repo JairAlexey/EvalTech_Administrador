@@ -3,6 +3,7 @@ import { Search, Filter, Plus, Loader, Eye, Edit, Trash2 } from 'lucide-react';
 import Sidebar from '../utils/Sidebar';
 import ConfirmationModal from '../utils/ConfirmationModal';
 import eventService, { type Event } from '../../services/eventService';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface EventsListProps {
   onCreateEvent?: () => void;
@@ -21,6 +22,8 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
 
   function parseEventDateTime(
     dateStr?: string,
@@ -160,9 +163,16 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
         setEvents(events.filter(event => event.id !== eventToDelete));
         setShowDeleteModal(false);
         setEventToDelete(null);
-      } catch (err) {
+      } catch (err: any) {
         console.error('Error al eliminar el evento:', err);
-        setError('No se pudo eliminar el evento. Por favor, inténtelo de nuevo más tarde.');
+        // Si el backend envía un mensaje, úsalo
+        let backendMsg = 'No se pudo eliminar el evento. Por favor, inténtelo de nuevo más tarde.';
+        if (err?.response?.data?.error) {
+          backendMsg = err.response.data.error;
+        } else if (err?.message) {
+          backendMsg = err.message;
+        }
+        setError(backendMsg);
       } finally {
         setLoading(false);
       }
@@ -195,8 +205,6 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
         return 'bg-yellow-100 text-yellow-700';
       case 'Completado':
         return 'bg-green-100 text-green-700';
-      case 'Cancelado':
-        return 'bg-red-100 text-red-700';
       default:
         return 'bg-gray-100 text-gray-700';
     }
@@ -240,13 +248,15 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
               <h1 className="text-2xl font-bold text-gray-900">Gestión de Eventos</h1>
               <p className="text-gray-600 mt-1">Administre los eventos de evaluación técnica</p>
             </div>
-            <button
-              onClick={onCreateEvent}
-              className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition shadow-sm"
-            >
-              <Plus className="w-4 h-4" />
-              Nuevo evento
-            </button>
+            {isAdmin && (
+              <button
+                onClick={onCreateEvent}
+                className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition shadow-sm"
+              >
+                <Plus className="w-4 h-4" />
+                Nuevo evento
+              </button>
+            )}
           </div>
         </div>
 
@@ -433,16 +443,18 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
                                 >
                                   <Edit className="w-4 h-4" />
                                 </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    handleDeleteClick(event.id);
-                                  }}
-                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded transition"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                                {isAdmin && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      handleDeleteClick(event.id);
+                                    }}
+                                    className="p-1.5 text-red-600 hover:bg-red-50 rounded transition"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>
