@@ -18,6 +18,7 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [event, setEvent] = useState<EventDetail | null>(null);
+  const [eventStatus, setEventStatus] = useState<string>('programado');
 
   // Estados para los campos del formulario
   const [eventName, setEventName] = useState('');
@@ -76,6 +77,9 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
         setEvent(eventData);
         setEventName(eventData.name);
         setDescription(eventData.description || '');
+
+        // Guardar el estado del evento
+        setEventStatus(eventData.status?.toLowerCase() || 'programado');
 
         // Formatear fechas
         let localDate = '';
@@ -167,6 +171,12 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
     e.preventDefault();
     if (!eventId) return;
 
+    // Si el evento está completado, no permitir el envío
+    if (eventStatus === 'completado') {
+      setError('No se puede editar un evento completado');
+      return;
+    }
+
     try {
       setSaving(true);
       setError(null);
@@ -229,6 +239,13 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
     }
   };
 
+  // Determinar si los campos deben estar deshabilitados
+  const isInProgress = eventStatus === 'en_progreso';
+  const isCompleted = eventStatus === 'completado';
+  const isStartDateDisabled = isInProgress || isCompleted;
+  const isStartTimeDisabled = isInProgress || isCompleted;
+  const isFieldDisabled = isCompleted;
+
   return (
     <div className="flex h-screen bg-gray-50">
       <Sidebar currentPage="eventos" onNavigate={onNavigate} />
@@ -284,7 +301,8 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
                       value={eventName}
                       onChange={(e) => setEventName(e.target.value)}
                       placeholder="Ej: Evaluación Técnica - Desarrolladores Frontend"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
+                      disabled={isFieldDisabled}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
                     />
                   </div>
 
@@ -298,7 +316,8 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
                       onChange={(e) => setDescription(e.target.value)}
                       placeholder="Breve descripción del evento de evaluación"
                       rows={3}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm resize-none"
+                      disabled={isFieldDisabled}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm resize-none disabled:bg-gray-100 disabled:cursor-not-allowed"
                     />
                   </div>
 
@@ -312,7 +331,8 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
                         id="eventDate"
                         value={eventDate}
                         onChange={(e) => setEventDate(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
+                        disabled={isStartDateDisabled}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
                       />
                     </div>
                     <div>
@@ -324,7 +344,8 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
                         id="eventTime"
                         value={eventTime}
                         onChange={(e) => setEventTime(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
+                        disabled={isStartTimeDisabled}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
                       />
                     </div>
                   </div>
@@ -339,7 +360,8 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
                         id="closeTime"
                         value={closeTime}
                         onChange={(e) => setCloseTime(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
+                        disabled={isFieldDisabled}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
                       />
                     </div>
                     <div>
@@ -352,7 +374,8 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
                         value={duration}
                         onChange={(e) => setDuration(e.target.value)}
                         placeholder="Ej: 60"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
+                        disabled={isFieldDisabled}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
                       />
                       <p className="text-xs text-gray-500 mt-1">Mínimo 15 min, máximo 5 horas</p>
                     </div>
@@ -366,7 +389,8 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
                       id="evaluator"
                       value={evaluator}
                       onChange={(e) => setEvaluator(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm bg-white"
+                      disabled={isFieldDisabled}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm bg-white disabled:bg-gray-100 disabled:cursor-not-allowed"
                     >
                       <option value="">Seleccionar evaluador...</option>
                       {isLoadingEvaluators ? (
@@ -387,7 +411,8 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
                     <button
                       type="button"
                       onClick={() => setShowBlockedPagesModal(true)}
-                      className="w-full px-4 py-2 text-sm text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition font-medium"
+                      disabled={isFieldDisabled}
+                      className="w-full px-4 py-2 text-sm text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition font-medium disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed disabled:border-gray-200"
                     >
                       Configurar sitios bloqueados
                     </button>
@@ -430,10 +455,13 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
                     {filteredParticipants.map((participant) => (
                       <div
                         key={participant.id}
-                        onClick={() => toggleParticipant(participant.id)}
-                        className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition ${participant.selected
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                        onClick={() => !isFieldDisabled && toggleParticipant(participant.id)}
+                        className={`flex items-center gap-3 p-3 rounded-lg border transition ${isFieldDisabled
+                          ? 'cursor-not-allowed opacity-60'
+                          : 'cursor-pointer'
+                          } ${participant.selected
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                           }`}
                       >
                         <div className={`w-10 h-10 rounded-full ${participant.color} flex items-center justify-center text-white font-semibold text-sm flex-shrink-0`}>
@@ -464,7 +492,7 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
                     <span className="text-sm text-gray-600">Participantes seleccionados: </span>
                     <span className="text-lg font-bold text-gray-900">{selectedCount}</span>
                   </div>
-                  {selectedCount > 0 && (
+                  {selectedCount > 0 && !isFieldDisabled && (
                     <button
                       type="button"
                       onClick={clearSelection}
@@ -479,7 +507,7 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
               {/* Botones de acción */}
               <div className="col-span-2 flex justify-end gap-3">
                 {error && (
-                  <div className="flex-1 text-red-600 text-sm">
+                  <div className="flex-1 text-red-600 text-sm px-4 py-2">
                     {error}
                   </div>
                 )}
@@ -493,8 +521,8 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
                 </button>
                 <button
                   type="submit"
-                  disabled={saving}
-                  className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition shadow-sm disabled:opacity-50 flex items-center"
+                  disabled={saving || isCompleted}
+                  className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
                 >
                   {saving ? (
                     <>

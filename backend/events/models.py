@@ -9,7 +9,6 @@ class Event(models.Model):
         ("programado", "Programado"),
         ("en_progreso", "En progreso"),
         ("completado", "Completado"),
-        ("cancelado", "Cancelado"),
     ]
 
     name = models.CharField(max_length=200, unique=True)

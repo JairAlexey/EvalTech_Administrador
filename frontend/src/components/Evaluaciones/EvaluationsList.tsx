@@ -10,7 +10,7 @@ interface Event {
   time: string;
   duration: string;
   participants: Participant[];
-  status: 'Programado' | 'En progreso' | 'Completado' | 'Cancelado';
+  status: 'Programado' | 'En progreso' | 'Completado';
 }
 
 interface Participant {
@@ -168,8 +168,6 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation }: Evalua
         return 'bg-blue-100 text-blue-800';
       case 'Programado':
         return 'bg-purple-100 text-purple-800';
-      case 'Cancelado':
-        return 'bg-red-100 text-red-800';
       case 'Pendiente':
         return 'bg-gray-100 text-gray-800';
       case 'No presentó':
