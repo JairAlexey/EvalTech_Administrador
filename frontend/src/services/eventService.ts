@@ -24,7 +24,7 @@ export interface EventDetail {
   startTime: string;
   closeDate: string;
   closeTime: string;
-  status: 'Programado' | 'En progreso' | 'Completado' | 'Cancelado';
+  status: string; // Cambiado de 'Programado' | 'En progreso' | 'Completado' a string
   description: string;
   evaluator: string;
   evaluatorId: string;

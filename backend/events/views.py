@@ -673,23 +673,25 @@ def participant_detail(request, participant_id):
 
 @csrf_exempt
 def events(request):
+
+    # --- Obtener role/usuario a partir del token (si se envía) ---
+    auth_header = request.headers.get("Authorization", "")
+    user_role = None
+    user_data = None
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+        payload = verify_token(token)
+        if payload:
+            try:
+                user = CustomUser.objects.get(id=payload.get("user_id"))
+                user_data = get_user_data(
+                    user
+                )  # devuelve dict con 'role', 'id', 'email', ...
+                user_role = user_data.get("role")
+            except CustomUser.DoesNotExist:
+                user_role = None
+
     if request.method == "GET":
-        # --- Obtener role/usuario a partir del token (si se envía) ---
-        auth_header = request.headers.get("Authorization", "")
-        user_role = None
-        user_data = None
-        if auth_header.startswith("Bearer "):
-            token = auth_header.split(" ")[1]
-            payload = verify_token(token)
-            if payload:
-                try:
-                    user = CustomUser.objects.get(id=payload.get("user_id"))
-                    user_data = get_user_data(
-                        user
-                    )  # devuelve dict con 'role', 'id', 'email', ...
-                    user_role = user_data.get("role")
-                except CustomUser.DoesNotExist:
-                    user_role = None
 
         # Filtrar eventos según rol: admin/superadmin -> todos, evaluator -> solo sus eventos
         if user_role in ("admin", "superadmin"):
@@ -726,7 +728,6 @@ def events(request):
                 "programado": "Programado",
                 "en_progreso": "En progreso",
                 "completado": "Completado",
-                "cancelado": "Cancelado",
             }
 
             display_status = status_mapping.get(event.status, "Programado")
@@ -758,6 +759,14 @@ def events(request):
         return JsonResponse({"events": events_data})
 
     elif request.method == "POST":
+
+        # Solo admin/superadmin pueden crear eventos
+        if user_role not in ("admin", "superadmin"):
+            return JsonResponse(
+                {"error": "No tienes permisos para crear eventos"},
+                status=403,
+            )
+
         # Crear un nuevo evento
         try:
             data = json.loads(request.body)
@@ -920,6 +929,32 @@ def events(request):
                 c for c in participants if c.get("selected", False)
             ]
 
+            # Validar que los participantes no tengan eventos solapados
+            conflicting_participants = []
+            for participant_data in selected_participants:
+                cid = participant_data.get("id")
+                if cid:
+                    try:
+                        participant = Participant.objects.get(id=cid)
+                        # Buscar eventos donde el participante esté asignado y se solapen
+                        overlapping = Event.objects.filter(
+                            participants=participant,
+                            start_date__lt=end_utc,
+                            end_date__gt=start_utc,
+                        )
+                        if overlapping.exists():
+                            conflicting_participants.append(participant.name)
+                    except Participant.DoesNotExist:
+                        pass
+
+            if conflicting_participants:
+                return JsonResponse(
+                    {
+                        "error": f"Los siguientes participantes ya tienen eventos en ese rango de fechas: {', '.join(conflicting_participants)}"
+                    },
+                    status=400,
+                )
+
             # =======================
             # 3) Crear evento
             # =======================
@@ -995,6 +1030,21 @@ def events(request):
 
 @csrf_exempt
 def event_detail(request, event_id):
+
+    auth_header = request.headers.get("Authorization", "")
+    user_role = None
+    user_data = None
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+        payload = verify_token(token)
+        if payload:
+            try:
+                user = CustomUser.objects.get(id=payload.get("user_id"))
+                user_data = get_user_data(user)
+                user_role = user_data.get("role")
+            except CustomUser.DoesNotExist:
+                user_role = None
+
     try:
         event = Event.objects.get(id=event_id)
     except Event.DoesNotExist:
@@ -1066,6 +1116,64 @@ def event_detail(request, event_id):
         try:
             data = json.loads(request.body)
 
+            # ========================================
+            # VALIDACIÓN DE ESTADO DEL EVENTO
+            # ========================================
+
+            # Si el evento está completado, no se puede editar nada
+            if event.status == "completado":
+                return JsonResponse(
+                    {"error": "No se puede editar un evento que ya ha sido completado"},
+                    status=400,
+                )
+
+            # Si el evento está en progreso, validar que no se cambien fecha/hora de inicio
+            if event.status == "en_progreso":
+                incoming_start_date = data.get("startDate", "").strip()
+                incoming_start_time = data.get("startTime", "").strip()
+
+                # Parsear fecha/hora de inicio entrante
+                try:
+                    incoming_start_naive = datetime.strptime(
+                        f"{incoming_start_date} {incoming_start_time}", "%Y-%m-%d %H:%M"
+                    )
+                except ValueError:
+                    try:
+                        incoming_start_naive = datetime.strptime(
+                            f"{incoming_start_date} {incoming_start_time}",
+                            "%d/%m/%Y %H:%M",
+                        )
+                    except ValueError:
+                        return JsonResponse(
+                            {"error": "Formato de fecha/hora de inicio inválido"},
+                            status=400,
+                        )
+
+                # Obtener timezone del usuario
+                tz_str = (data.get("timezone") or "").strip() or "America/Guayaquil"
+                try:
+                    user_tz = ZoneInfo(tz_str)
+                except Exception:
+                    user_tz = ZoneInfo("America/Guayaquil")
+
+                incoming_start_local = timezone.make_aware(
+                    incoming_start_naive, user_tz
+                )
+                incoming_start_utc = incoming_start_local.astimezone(ZoneInfo("UTC"))
+
+                # Comparar con la fecha/hora de inicio actual (sin tolerancia)
+                if event.start_date != incoming_start_utc:
+                    return JsonResponse(
+                        {
+                            "error": "No se puede modificar la fecha u hora de inicio de un evento en progreso"
+                        },
+                        status=400,
+                    )
+
+            # ========================================
+            # VALIDACIONES GENERALES (continúan igual)
+            # ========================================
+
             # Validaciones requeridas
             field_names = {
                 "eventName": "nombre del evento",
@@ -1085,7 +1193,7 @@ def event_detail(request, event_id):
                         status=400,
                     )
 
-            # Unicidad y longitud de nombre
+            # Validar nombre de evento único y longitud mínima
             event_name = data.get("eventName", "").strip()
             if (
                 Event.objects.filter(name__iexact=event_name)
@@ -1101,7 +1209,7 @@ def event_detail(request, event_id):
                     status=400,
                 )
 
-            # Descripción mínima
+            # Validar descripción mínima
             description = data.get("description", "")
             if len(description.strip()) < 5:
                 return JsonResponse(
@@ -1109,7 +1217,31 @@ def event_detail(request, event_id):
                     status=400,
                 )
 
-            # Timezone
+            # =======================
+            # Validar duración
+            # =======================
+            duration_minutes = data.get("duration")
+            try:
+                duration_minutes = int(duration_minutes)
+                if duration_minutes < 15:
+                    return JsonResponse(
+                        {"error": "La duración debe ser de al menos 15 minutos"},
+                        status=400,
+                    )
+                if duration_minutes > 300:  # 5 horas
+                    return JsonResponse(
+                        {"error": "La duración no puede exceder 5 horas"},
+                        status=400,
+                    )
+            except (ValueError, TypeError):
+                return JsonResponse(
+                    {"error": "La duración debe ser un número válido de minutos"},
+                    status=400,
+                )
+
+            # =======================
+            # Validar fechas y horas
+            # =======================
             tz_str = (data.get("timezone") or "").strip() or "America/Guayaquil"
             try:
                 user_tz = ZoneInfo(tz_str)
@@ -1120,7 +1252,7 @@ def event_detail(request, event_id):
             start_time_str = data.get("startTime", "")
             close_time_str = data.get("closeTime", "")
 
-            # Parseo inicio
+            # Parsear fecha y hora de inicio
             try:
                 start_naive = datetime.strptime(
                     f"{start_date_str} {start_time_str}", "%Y-%m-%d %H:%M"
@@ -1136,7 +1268,7 @@ def event_detail(request, event_id):
                         status=400,
                     )
 
-            # Parseo cierre
+            # Parsear hora de cierre (mismo día)
             try:
                 close_naive = datetime.strptime(
                     f"{start_date_str} {close_time_str}", "%Y-%m-%d %H:%M"
@@ -1167,7 +1299,7 @@ def event_detail(request, event_id):
                     status=400,
                 )
 
-            # Validar que la hora de cierre sea al menos 5 minutos después de la hora de inicio y no más de 30 minutos
+            # Validar que la hora de cierre sea al menos 5 minutos después de la hora de inicio
             min_close_local = start_local + timedelta(minutes=5)
             max_close_local = start_local + timedelta(minutes=30)
             if close_local < min_close_local:
@@ -1182,26 +1314,6 @@ def event_detail(request, event_id):
                     {
                         "error": "La hora de cierre no puede ser más de 30 minutos después de la hora de inicio"
                     },
-                    status=400,
-                )
-
-            # Validar duración
-            duration_minutes = data.get("duration")
-            try:
-                duration_minutes = int(duration_minutes)
-                if duration_minutes < 15:
-                    return JsonResponse(
-                        {"error": "La duración debe ser de al menos 15 minutos"},
-                        status=400,
-                    )
-                if duration_minutes > 300:  # 5 horas
-                    return JsonResponse(
-                        {"error": "La duración no puede exceder 5 horas"},
-                        status=400,
-                    )
-            except (ValueError, TypeError):
-                return JsonResponse(
-                    {"error": "La duración debe ser un número válido de minutos"},
                     status=400,
                 )
 
@@ -1231,6 +1343,36 @@ def event_detail(request, event_id):
                 return JsonResponse(
                     {
                         "error": "El evaluador ya tiene otro evento en ese rango de fechas"
+                    },
+                    status=400,
+                )
+
+            # Validar que los participantes no tengan eventos solapados (excluyendo el evento actual)
+            participants = data.get("participants", [])
+            selected_participants = [
+                c for c in participants if c.get("selected", False)
+            ]
+
+            conflicting_participants = []
+            for participant_data in selected_participants:
+                cid = participant_data.get("id")
+                if cid:
+                    try:
+                        participant = Participant.objects.get(id=cid)
+                        overlapping = Event.objects.filter(
+                            participants=participant,
+                            start_date__lt=end_utc,
+                            end_date__gt=start_utc,
+                        ).exclude(id=event.id)
+                        if overlapping.exists():
+                            conflicting_participants.append(participant.name)
+                    except Participant.DoesNotExist:
+                        pass
+
+            if conflicting_participants:
+                return JsonResponse(
+                    {
+                        "error": f"Los siguientes participantes ya tienen eventos en ese rango de fechas: {', '.join(conflicting_participants)}"
                     },
                     status=400,
                 )
@@ -1306,6 +1448,21 @@ def event_detail(request, event_id):
             return JsonResponse({"error": str(e)}, status=400)
 
     elif request.method == "DELETE":
+
+        # Solo admin/superadmin pueden eliminar eventos
+        if user_role not in ("admin", "superadmin"):
+            return JsonResponse(
+                {"error": "No tienes permisos para eliminar eventos"},
+                status=403,
+            )
+
+        # No permitir eliminar si el evento está en progreso
+        if event.status == "en_progreso":
+            return JsonResponse(
+                {"error": "No se puede eliminar un evento que está en progreso"},
+                status=400,
+            )
+
         # Eliminar un evento
         try:
             event.delete()
