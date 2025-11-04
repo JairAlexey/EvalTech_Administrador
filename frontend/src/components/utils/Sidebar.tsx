@@ -1,4 +1,4 @@
-import { LogOut, LayoutDashboard, Calendar, Users, FileText, BarChart3, FileDown, User, UserCog } from 'lucide-react';
+import { LogOut, LayoutDashboard, Calendar, Users, FileText, User, UserCog } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface SidebarProps {
@@ -12,9 +12,7 @@ const ALL_PAGES = [
   { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard', section: 'GENERAL', roles: ['admin', 'superadmin', 'evaluator'] },
   { id: 'eventos', icon: Calendar, label: 'Eventos', section: 'GENERAL', roles: ['admin', 'superadmin', 'evaluator'] },
   { id: 'participants', icon: Users, label: 'Participantes', section: 'GENERAL', roles: ['admin', 'superadmin'] },
-  { id: 'evaluaciones', icon: FileText, label: 'Evaluaciones', section: 'GENERAL', roles: ['superadmin', 'evaluator'] },
-  { id: 'estadisticas', icon: BarChart3, label: 'Estadísticas', section: 'REPORTES', roles: ['admin', 'superadmin', 'evaluator'] },
-  { id: 'exportar', icon: FileDown, label: 'Exportar datos', section: 'REPORTES', roles: ['admin', 'superadmin', 'evaluator'] },
+  { id: 'evaluaciones', icon: FileText, label: 'Evaluaciones', section: 'RESULTADOS', roles: ['superadmin', 'evaluator'] },
   { id: 'roles', icon: UserCog, label: 'Roles', section: 'CONFIGURACIÓN', roles: ['superadmin'] },
   { id: 'cuenta', icon: User, label: 'Mi cuenta', section: 'CONFIGURACIÓN', roles: ['admin', 'superadmin', 'evaluator'] },
 ];

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Loader, Calendar, Clock, User, Globe, Users, CheckCircle, XCircle, AlertCircle, Play } from 'lucide-react';
+import { ArrowLeft, Loader, Calendar, Clock, User, Globe, Users, CheckCircle, XCircle, AlertCircle, Play, Info } from 'lucide-react';
 import Sidebar from '../utils/Sidebar';
 import eventService, { type EventDetail } from '../../services/eventService';
 
@@ -71,10 +71,6 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
         bgColor = 'bg-gradient-to-r from-green-500 to-emerald-500 text-white';
         icon = <CheckCircle className="w-4 h-4" />;
         break;
-      case 'cancelado':
-        bgColor = 'bg-gradient-to-r from-red-500 to-red-600 text-white';
-        icon = <XCircle className="w-4 h-4" />;
-        break;
     }
     return (
       <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold ${bgColor} shadow-lg`}>
@@ -94,20 +90,6 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
     return dateStr;
   };
   const formatTime = (timeStr?: string) => timeStr || '';
-
-  const InfoCard = ({ title, value, icon: Icon, className = "" }: { title: string; value: string; icon: any; className?: string }) => (
-    <div className={`bg-white rounded-xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition-all duration-300 ${className}`}>
-      <div className="flex items-start gap-4">
-        <div className="p-3 bg-gradient-to-br from-blue-50 to-indigo-100 rounded-lg">
-          <Icon className="w-6 h-6 text-blue-600" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-1">{title}</p>
-          <p className="text-lg font-semibold text-gray-900 break-words">{value}</p>
-        </div>
-      </div>
-    </div>
-  );
 
   // Selección de participantes
   const handleSelectAll = (checked: boolean) => {
@@ -224,198 +206,250 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
               </div>
             ) : event ? (
               <>
-                {/* Event Header Card */}
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                  <div className="bg-gradient-to-r from-blue-600 to-indigo-700 px-8 py-8 text-white">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <h2 className="text-2xl font-bold mb-2">{event.name}</h2>
-                        <p className="text-blue-50 leading-relaxed max-w-3xl">
-                          {event.description || 'Sin descripción disponible'}
-                        </p>
-                      </div>
-                      <div className="ml-6">
-                        {renderStatusBadge(event.status)}
+                {/* ============ SECCIÓN: INFORMACIÓN GENERAL ============ */}
+                <div className="space-y-6">
+                  {/* Section Header */}
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-3 bg-gradient-to-br from-blue-50 to-indigo-100 rounded-xl">
+                      <Info className="w-6 h-6 text-blue-600" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-gray-900">Información General</h2>
+                  </div>
+
+                  {/* Event Header Card */}
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="bg-gradient-to-r from-blue-600 to-indigo-700 px-8 py-8 text-white">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h3 className="text-2xl font-bold mb-2">{event.name}</h3>
+                          <p className="text-blue-50 leading-relaxed max-w-3xl">
+                            {event.description || 'Sin descripción disponible'}
+                          </p>
+                        </div>
+                        <div className="ml-6">
+                          {renderStatusBadge(event.status)}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Event Details Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  <InfoCard
-                    title="Fecha de inicio"
-                    value={formatDate(event.startDate) || 'No definida'}
-                    icon={Calendar}
-                  />
-                  <InfoCard
-                    title="Hora de inicio"
-                    value={formatTime(event.startTime) || 'No definida'}
-                    icon={Clock}
-                  />
-                  <InfoCard
-                    title="Hora de cierre"
-                    value={formatTime(event.closeTime) || 'No definida'}
-                    icon={Clock}
-                  />
-                  <InfoCard
-                    title="Duración"
-                    value={event.duration ? `${event.duration} minutos` : 'No definida'}
-                    icon={Clock}
-                  />
-                  <InfoCard
-                    title="Fecha de fin"
-                    value={formatDate(event.endDate) || 'No definida'}
-                    icon={Calendar}
-                  />
-                  <InfoCard
-                    title="Hora de fin"
-                    value={formatTime(event.endTime) || 'No definida'}
-                    icon={Clock}
-                  />
-                </div>
-
-                {/* Evaluator and Blocked Sites */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  {/* Evaluator Card */}
+                  {/* Fecha y Hora del Evento */}
                   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
-                    <div className="flex items-center gap-3 mb-6">
-                      <div className="p-3 bg-gradient-to-br from-green-50 to-emerald-100 rounded-xl">
-                        <User className="w-6 h-6 text-green-600" />
-                      </div>
-                      <h3 className="text-xl font-semibold text-gray-900">Evaluador asignado</h3>
-                    </div>
-                    {event.evaluator ? (
-                      <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
-                        <div className="w-12 h-12 rounded-full bg-gradient-to-r from-green-500 to-emerald-500 flex items-center justify-center text-white font-bold text-lg shadow-lg">
-                          {event.evaluator.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                    <h3 className="text-lg font-semibold text-gray-900 mb-6 flex items-center gap-2">
+                      <Calendar className="w-5 h-5 text-blue-600" />
+                      Programación del Evento
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      {/* Inicio del Evento */}
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                          <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Inicio del Evento</h4>
                         </div>
-                        <div>
-                          <p className="font-semibold text-gray-900">{event.evaluator}</p>
-                          <p className="text-sm text-gray-500">Evaluador principal</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-center py-8">
-                        <User className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                        <p className="text-gray-500">No hay evaluador asignado</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Blocked Websites Card */}
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
-                    <div className="flex items-center gap-3 mb-6">
-                      <div className="p-3 bg-gradient-to-br from-red-50 to-red-100 rounded-xl">
-                        <Globe className="w-6 h-6 text-red-600" />
-                      </div>
-                      <h3 className="text-xl font-semibold text-gray-900">Páginas bloqueadas</h3>
-                    </div>
-                    {event.blockedWebsites && event.blockedWebsites.length > 0 ? (
-                      <div className="space-y-2 max-h-48 overflow-y-auto">
-                        {event.blockedWebsites.map((site: string, idx: number) => (
-                          <div key={idx} className="flex items-center gap-3 p-3 bg-red-50 rounded-lg">
-                            <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-                            <span className="text-sm text-gray-700 break-all">{site}</span>
+                        <div className="space-y-3 pl-4 border-l-2 border-green-200">
+                          <div className="flex items-start gap-3">
+                            <Calendar className="w-5 h-5 text-gray-400 mt-0.5" />
+                            <div>
+                              <p className="text-xs text-gray-500 uppercase tracking-wide">Fecha</p>
+                              <p className="text-base font-semibold text-gray-900">{formatDate(event.startDate) || 'No definida'}</p>
+                            </div>
                           </div>
-                        ))}
+                          <div className="flex items-start gap-3">
+                            <Clock className="w-5 h-5 text-gray-400 mt-0.5" />
+                            <div>
+                              <p className="text-xs text-gray-500 uppercase tracking-wide">Hora de inicio</p>
+                              <p className="text-base font-semibold text-gray-900">{formatTime(event.startTime) || 'No definida'}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-3">
+                            <Clock className="w-5 h-5 text-gray-400 mt-0.5" />
+                            <div>
+                              <p className="text-xs text-gray-500 uppercase tracking-wide">Hora de cierre</p>
+                              <p className="text-base font-semibold text-gray-900">{formatTime(event.closeTime) || 'No definida'}</p>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                    ) : (
-                      <div className="text-center py-8">
-                        <Globe className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                        <p className="text-gray-500">Sin restricciones configuradas</p>
+
+                      {/* Fin del Evento */}
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                          <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Fin del Evento</h4>
+                        </div>
+                        <div className="space-y-3 pl-4 border-l-2 border-red-200">
+                          <div className="flex items-start gap-3">
+                            <Calendar className="w-5 h-5 text-gray-400 mt-0.5" />
+                            <div>
+                              <p className="text-xs text-gray-500 uppercase tracking-wide">Fecha</p>
+                              <p className="text-base font-semibold text-gray-900">{formatDate(event.endDate) || 'No definida'}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-3">
+                            <Clock className="w-5 h-5 text-gray-400 mt-0.5" />
+                            <div>
+                              <p className="text-xs text-gray-500 uppercase tracking-wide">Hora de fin</p>
+                              <p className="text-base font-semibold text-gray-900">{formatTime(event.endTime) || 'No definida'}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-3">
+                            <Clock className="w-5 h-5 text-gray-400 mt-0.5" />
+                            <div>
+                              <p className="text-xs text-gray-500 uppercase tracking-wide">Duración</p>
+                              <p className="text-base font-semibold text-gray-900">{event.duration ? `${event.duration} minutos` : 'No definida'}</p>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                    )}
+                    </div>
+                  </div>
+
+                  {/* Evaluator and Blocked Sites */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Evaluator Card */}
+                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
+                      <div className="flex items-center gap-3 mb-6">
+                        <div className="p-3 bg-gradient-to-br from-green-50 to-emerald-100 rounded-xl">
+                          <User className="w-6 h-6 text-green-600" />
+                        </div>
+                        <h3 className="text-xl font-semibold text-gray-900">Evaluador asignado</h3>
+                      </div>
+                      {event.evaluator ? (
+                        <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
+                          <div className="w-12 h-12 rounded-full bg-gradient-to-r from-green-500 to-emerald-500 flex items-center justify-center text-white font-bold text-lg shadow-lg">
+                            {event.evaluator.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-semibold text-gray-900">{event.evaluator}</p>
+                            <p className="text-sm text-gray-500">Evaluador principal</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center py-8">
+                          <User className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                          <p className="text-gray-500">No hay evaluador asignado</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Blocked Websites Card */}
+                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
+                      <div className="flex items-center gap-3 mb-6">
+                        <div className="p-3 bg-gradient-to-br from-red-50 to-red-100 rounded-xl">
+                          <Globe className="w-6 h-6 text-red-600" />
+                        </div>
+                        <h3 className="text-xl font-semibold text-gray-900">Páginas bloqueadas</h3>
+                      </div>
+                      {event.blockedWebsites && event.blockedWebsites.length > 0 ? (
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {event.blockedWebsites.map((site: string, idx: number) => (
+                            <div key={idx} className="flex items-center gap-3 p-3 bg-red-50 rounded-lg">
+                              <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                              <span className="text-sm text-gray-700 break-all">{site}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8">
+                          <Globe className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                          <p className="text-gray-500">Sin restricciones configuradas</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                {/* Participants Table */}
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                  <div className="bg-gray-50 px-8 py-6 border-b border-gray-100 flex items-center justify-between">
+                {/* ============ SECCIÓN: PARTICIPANTES ============ */}
+                <div className="space-y-6 pt-8 border-t-2 border-gray-200">
+                  {/* Section Header */}
+                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="p-3 bg-gradient-to-br from-blue-50 to-indigo-100 rounded-xl">
-                        <Users className="w-6 h-6 text-blue-600" />
+                      <div className="p-3 bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl">
+                        <Users className="w-6 h-6 text-purple-600" />
                       </div>
                       <div>
-                        <h3 className="text-xl font-semibold text-gray-900">Participantes</h3>
+                        <h2 className="text-2xl font-bold text-gray-900">Participantes</h2>
                         <p className="text-sm text-gray-500 mt-1">
-                          {event.participants?.length || 0} participante(s) asignado(s)
+                          {event.participants?.length || 0} participante(s) asignado(s) al evento
                         </p>
                       </div>
                     </div>
-                    <div>
-                      <button
-                        className={`px-5 py-2 rounded-xl font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50`}
-                        disabled={selectedParticipants.length === 0 || sendingEmails}
-                        onClick={handleSendEmails}
-                      >
-                        {sendingEmails ? 'Enviando...' : 'Enviar correo'}
-                      </button>
-                    </div>
+                    <button
+                      className={`px-6 py-3 rounded-xl font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl`}
+                      disabled={selectedParticipants.length === 0 || sendingEmails}
+                      onClick={handleSendEmails}
+                    >
+                      {sendingEmails ? (
+                        <span className="flex items-center gap-2">
+                          <Loader className="w-4 h-4 animate-spin" />
+                          Enviando...
+                        </span>
+                      ) : (
+                        `Enviar correo (${selectedParticipants.length})`
+                      )}
+                    </button>
                   </div>
 
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-4 py-4 text-center">
-                            <input
-                              type="checkbox"
-                              checked={allSelected}
-                              onChange={e => handleSelectAll(e.target.checked)}
-                              aria-label="Seleccionar todos"
-                            />
-                          </th>
-                          <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Participante</th>
-                          <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
-                          <th className="px-8 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Estado</th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-100">
-                        {event.participants && event.participants.length > 0 ? (
-                          event.participants.map((participant, index) => (
-                            <tr key={participant.id} className="hover:bg-gray-50 transition-colors">
-                              <td className="px-4 py-6 text-center">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedParticipants.includes(participant.id)}
-                                  onChange={e => handleSelectParticipant(participant.id, e.target.checked)}
-                                  aria-label={`Seleccionar ${participant.name}`}
-                                />
-                              </td>
-                              <td className="px-8 py-6 whitespace-nowrap">
-                                <div className="flex items-center gap-4">
-                                  <div className={`w-10 h-10 rounded-full ${participant.color || 'bg-gradient-to-r from-blue-500 to-indigo-500'} flex items-center justify-center text-white font-semibold shadow-lg`}>
-                                    {participant.initials || participant.name?.substring(0, 2).toUpperCase()}
+                  {/* Participants Table */}
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
+                          <tr>
+                            <th className="px-6 py-4 text-center w-16">
+                              <input
+                                type="checkbox"
+                                checked={allSelected}
+                                onChange={e => handleSelectAll(e.target.checked)}
+                                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                aria-label="Seleccionar todos"
+                              />
+                            </th>
+                            <th className="px-8 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Participante</th>
+                            <th className="px-8 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Email</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-100">
+                          {event.participants && event.participants.length > 0 ? (
+                            event.participants.map((participant, index) => (
+                              <tr key={participant.id} className="hover:bg-blue-50 transition-colors group">
+                                <td className="px-6 py-6 text-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedParticipants.includes(participant.id)}
+                                    onChange={e => handleSelectParticipant(participant.id, e.target.checked)}
+                                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                    aria-label={`Seleccionar ${participant.name}`}
+                                  />
+                                </td>
+                                <td className="px-8 py-6 whitespace-nowrap">
+                                  <div className="flex items-center gap-4">
+                                    <div className={`w-12 h-12 rounded-full ${participant.color || 'bg-gradient-to-r from-blue-500 to-indigo-500'} flex items-center justify-center text-white font-bold shadow-lg group-hover:scale-110 transition-transform`}>
+                                      {participant.initials || participant.name?.substring(0, 2).toUpperCase()}
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-semibold text-gray-900">{participant.name}</p>
+                                      <p className="text-xs text-gray-500">Participante #{index + 1}</p>
+                                    </div>
                                   </div>
-                                  <div>
-                                    <p className="text-sm font-semibold text-gray-900">{participant.name}</p>
-                                    <p className="text-xs text-gray-500">Participante #{index + 1}</p>
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="px-8 py-6 whitespace-nowrap">
-                                <p className="text-sm text-gray-600">{participant.email}</p>
-                              </td>
-                              <td className="px-8 py-6 whitespace-nowrap">
-                                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-                                  <CheckCircle className="w-3 h-3" />
-                                  {participant.status || 'Activo'}
-                                </span>
+                                </td>
+                                <td className="px-8 py-6 whitespace-nowrap">
+                                  <p className="text-sm text-gray-600">{participant.email}</p>
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={3} className="px-8 py-16 text-center">
+                                <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                                <p className="text-gray-500 text-lg font-medium mb-2">Sin participantes</p>
+                                <p className="text-gray-400 text-sm">No hay participantes asignados a este evento</p>
                               </td>
                             </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan={4} className="px-8 py-12 text-center">
-                              <Users className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                              <p className="text-gray-500 text-lg font-medium mb-2">Sin participantes</p>
-                              <p className="text-gray-400 text-sm">No hay participantes asignados a este evento</p>
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               </>
