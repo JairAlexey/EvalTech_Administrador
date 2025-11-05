@@ -5,59 +5,11 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
-import jwt
-import datetime
-from django.conf import settings
 from .models import UserRole, CustomUser
 import hashlib
 from events.models import Event
-from .utils import jwt_required
+from .utils import jwt_required, generate_token, verify_token, get_user_data
 from django.views.decorators.http import require_http_methods
-
-# Clave secreta para JWT
-JWT_SECRET = getattr(settings, "SECRET_KEY", "django-insecure-token")
-JWT_ALGORITHM = "HS256"
-JWT_EXP_DELTA_SECONDS = 1800  # 30 minutos (1800 segundos)
-
-
-def generate_token(user):
-    """Genera un token JWT para el usuario"""
-    payload = {
-        "user_id": user.id,
-        "email": user.email,  # Cambiar de username a email
-        "exp": datetime.datetime.utcnow()
-        + datetime.timedelta(seconds=JWT_EXP_DELTA_SECONDS),
-    }
-    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-    return token
-
-
-def verify_token(token):
-    """Verifica un token JWT y devuelve el payload si es válido"""
-    try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        return payload
-    except jwt.ExpiredSignatureError:
-        return None
-    except jwt.InvalidTokenError:
-        return None
-
-
-def get_user_data(user):
-    """Helper function to get user data with role"""
-    try:
-        user_role = UserRole.objects.get(user=user)
-        role = user_role.role
-    except UserRole.DoesNotExist:
-        role = "sin_rol"
-
-    return {
-        "id": user.id,
-        "email": user.email,
-        "firstName": user.first_name,
-        "lastName": user.last_name,
-        "role": role,
-    }
 
 
 @csrf_exempt
