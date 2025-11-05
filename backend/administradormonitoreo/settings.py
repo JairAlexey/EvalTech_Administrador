@@ -178,5 +178,5 @@ CORS_ALLOW_HEADERS = [
     "x-requested-with",
 ]
 
-BASE_URL = "http://127.0.0.1:8000/api"
-ADMINISTRADORMONITOREO_API_LOG_HTTP_REQUEST = "/logging/http-request"
+BASE_URL = "http://127.0.0.1:8000"
+ADMINISTRADORMONITOREO_API_LOG_HTTP_REQUEST = "/events/api/logging/http-request"

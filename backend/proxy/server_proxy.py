@@ -6,8 +6,8 @@ from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
 import requests
 from administradormonitoreo import settings
-from .models import AssignedPort, Participant
-from events.models import BlockedHost
+from .models import AssignedPort
+from events.models import BlockedHost, ParticipantEvent, Participant
 
 logger = logging.getLogger(__name__)
 
@@ -100,47 +100,58 @@ class DynamicProxyManager:
 
     def _validate_event_key(self, event_key):
         try:
-            return Participant.objects.get(
-                event_key=event_key,
+            participant_event = ParticipantEvent.objects.select_related('participant', 'event').get(
+                event_key=event_key
             )
+            return participant_event.participant
         except ObjectDoesNotExist:
             logger.warning(f"Invalid event key: {event_key}")
             return None
 
     def _assign_dynamic_port(self, participant):
         with transaction.atomic():
-            # Limpieza de puertos antiguos
-            AssignedPort.objects.filter(
-                participant=participant,
-                is_active=False
-            ).delete()
-            
-            # Buscar puerto disponible
-            used_ports = set(AssignedPort.objects.values_list('port', flat=True))
-            available_ports = [
-                p for p in range(*self.PORT_RANGE)
-                if p not in used_ports
-            ]
-            
-            if not available_ports:
-                raise RuntimeError("No available ports")
-            
-            new_port = available_ports[0]
-            
-            # Crear asignación
-            AssignedPort.objects.update_or_create(
-                participant=participant,
-                defaults={
-                    'port': new_port,
-                    'is_active': True
-                }
-            )
-            
-            # Marcar el participante como activo
-            participant.is_active = True
-            participant.save(update_fields=['is_active'])
-            
-            return new_port
+            # Obtener el ParticipantEvent del participante
+            try:
+                participant_event = ParticipantEvent.objects.get(
+                    participant=participant,
+                    event__status__in=['programado', 'en_progreso']
+                )
+            except ParticipantEvent.DoesNotExist:
+                logger.error(f"No active event found for participant {participant.id}")
+                return None
+
+            # Verificar si ya tiene un puerto asignado (activo o inactivo)
+            try:
+                assigned_port = AssignedPort.objects.get(
+                    participant_event=participant_event
+                )
+                if not assigned_port.is_active:
+                    # Reactivar el puerto existente
+                    assigned_port.activate()
+                return assigned_port.port
+            except AssignedPort.DoesNotExist:
+                # Buscar puerto disponible para nueva asignación
+                used_ports = set(AssignedPort.objects.values_list('port', flat=True))
+                available_ports = [
+                    p for p in range(*self.PORT_RANGE)
+                    if p not in used_ports
+                ]
+
+                if not available_ports:
+                    raise RuntimeError("No available ports")
+
+                new_port = available_ports[0]
+
+                # Crear nueva asignación
+                assigned_port = AssignedPort.objects.create(
+                    participant_event=participant_event,
+                    port=new_port,
+                    is_active=False,  # Crear como inactivo
+                    total_duration=0
+                )
+                # Activar después de crear
+                assigned_port.activate()
+                return new_port
 
     def _start_proxy_instance(self, port):
         if port not in self.active_proxies:
@@ -163,14 +174,19 @@ class ProxyInstance:
         self.event_key = None
         self.default_blocked_hosts = ["chatgpt.com", "deepseek.com", "gemini.google.com"]  
         try:
-            assigned_port = AssignedPort.objects.get(port=self.port, is_active=True)
-            participant = assigned_port.participant
-            self.event_key = participant.event_key
+            self.assigned_port = AssignedPort.objects.select_related(
+                'participant_event__participant',
+                'participant_event__event'
+            ).get(port=self.port, is_active=True)
+            participant_event = self.assigned_port.participant_event
+            self.event_key = participant_event.event_key
             # Obtener hosts bloqueados del evento relacionado
             self.blocked_hosts = list(
-                BlockedHost.objects.filter(event=participant.event)
-                .values_list('hostname', flat=True)
+                BlockedHost.objects.filter(event=participant_event.event)
+                .values_list('website__hostname', flat=True)
             )
+            # Iniciar comprobación periódica de tiempo
+            self._start_time_check()
             # Si no hay hosts bloqueados, deja la lista vacía
         except AssignedPort.DoesNotExist:
             logger.error(f"Assigned port not found for port {self.port}")
@@ -300,12 +316,21 @@ class ProxyInstance:
 
     def _relay_traffic(self, client, server):
         def forward(source, dest, direction):
+            from django.utils import timezone
+            last_activity = timezone.now()
             try:
                 while True:
                     data = source.recv(4096)
                     if not data:
                         break
                     dest.sendall(data)
+                    # Actualizar last_activity en la base de datos cada 5 minutos
+                    now = timezone.now()
+                    if (now - last_activity).total_seconds() > 300:  # 5 minutos
+                        if hasattr(self, 'assigned_port'):
+                            self.assigned_port.last_activity = now
+                            self.assigned_port.save(update_fields=['last_activity'])
+                        last_activity = now
             except (ConnectionResetError, BrokenPipeError, OSError) as e:
                 logger.debug(f"Relay error ({direction}): {str(e)}") 
             except Exception as e:
@@ -319,6 +344,20 @@ class ProxyInstance:
                     dest.close()
                 except:
                     pass
+                # Finalizar sesión al cerrar la conexión
+                if direction == "Client->Server" and hasattr(self, 'assigned_port'):
+                    try:
+                        # Verificar que el assigned_port aún existe en la base de datos
+                        from proxy.models import AssignedPort
+                        AssignedPort.objects.get(id=self.assigned_port.id)
+                        self.assigned_port.refresh_from_db()
+                        if self.assigned_port.is_active:
+                            self.assigned_port.deactivate()
+                    except AssignedPort.DoesNotExist:
+                        logger.debug(f"AssignedPort for port {self.port} no longer exists")
+                    except Exception as e:
+                        logger.error(f"Error deactivating on connection close: {str(e)}")
+
         threads = [
             threading.Thread(
                 target=forward,
@@ -338,8 +377,44 @@ class ProxyInstance:
         for t in threads:
             t.join()
 
+    def _start_time_check(self):
+        """Inicia la comprobación periódica de tiempo"""
+        def check_time():
+            while self.running:
+                try:
+                    # Refrescar el objeto assigned_port desde la base de datos
+                    self.assigned_port.refresh_from_db()
+                    
+                    if not self.assigned_port.has_time_remaining():
+                        logger.warning(f"Time limit exceeded for port {self.port}")
+                        self.stop()
+                        break
+                except Exception as e:
+                    logger.error(f"Error checking time: {str(e)}")
+                    break
+                import time
+                time.sleep(60)  # Comprobar cada minuto
+
+        self.time_check_thread = threading.Thread(
+            target=check_time,
+            daemon=True
+        )
+        self.time_check_thread.start()
+
     def stop(self):
         self.running = False
+        if hasattr(self, 'assigned_port'):
+            try:
+                # Verificar que el assigned_port aún existe en la base de datos
+                from proxy.models import AssignedPort
+                AssignedPort.objects.get(id=self.assigned_port.id)
+                self.assigned_port.refresh_from_db()
+                if self.assigned_port.is_active:
+                    self.assigned_port.deactivate()
+            except AssignedPort.DoesNotExist:
+                logger.debug(f"AssignedPort for port {self.port} no longer exists")
+            except Exception as e:
+                logger.error(f"Error deactivating port: {str(e)}")
         if self.socket:
             self.socket.close()
         logger.info(f"Proxy on port {self.port} stopped")
