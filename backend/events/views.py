@@ -11,6 +11,7 @@ from .models import (
     BlockedHost,
     ParticipantEvent,
 )
+from proxy.models import AssignedPort
 from django.views.decorators.csrf import csrf_exempt
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Q
@@ -51,27 +52,45 @@ def verify_event_key(request):
 
     event_key = authorization.split(" ")[1]
     try:
-        participant = Participant.objects.select_related("event").get(
+        participant_event = ParticipantEvent.objects.select_related("participant", "event").get(
             event_key=event_key
         )
-        event = participant.event
+        participant = participant_event.participant
+        event = participant_event.event
         dateIsValid = check_event_time(event)
+
+        # Obtener información del tiempo de conexión
+        connection_info = {
+            "totalTime": 0,  # Tiempo total acumulado en minutos
+            "isActive": False,  # Si está actualmente conectado
+            "eventDuration": event.duration  # Duración total permitida
+        }
+
+        try:
+            assigned_port = AssignedPort.objects.get(participant_event=participant_event)
+            connection_info["totalTime"] = assigned_port.get_total_time()
+            connection_info["isActive"] = assigned_port.is_active
+        except AssignedPort.DoesNotExist:
+            pass
+
         return JsonResponse(
             {
                 "isValid": True,
                 "dateIsValid": dateIsValid,
                 "participant": {"name": participant.name, "email": participant.email},
                 "event": {"name": event.name, "id": event.id},
+                "connectionInfo": connection_info
             }
         )
-    except Participant.DoesNotExist:
+    except ParticipantEvent.DoesNotExist:
         return JsonResponse({"isValid": False}, status=404)
 
 
 def get_participant(event_key):
     try:
-        return Participant.objects.get(event_key=event_key)
-    except Participant.DoesNotExist:
+        participant_event = ParticipantEvent.objects.select_related('participant').get(event_key=event_key)
+        return participant_event.participant
+    except ParticipantEvent.DoesNotExist:
         return None
 
 
@@ -1668,3 +1687,173 @@ def event_blocked_hosts(request, event_id):
         return JsonResponse({"blocked_website_ids": blocked_website_ids})
 
     return JsonResponse({"error": "Método no permitido"}, status=405)
+
+@csrf_exempt
+def participant_logs(request, participant_id):
+    """Endpoint para obtener todos los logs de un participante específico"""
+    if request.method != "GET":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    try:
+        participant = Participant.objects.get(id=participant_id)
+        logs = ParticipantLog.objects.filter(participant=participant).order_by('-id')
+        
+        logs_data = []
+        for log in logs:
+            log_data = {
+                'id': log.id,
+                'name': log.name,
+                'message': log.message,
+                'created_at': log.id,  # Using id as timestamp since there's no created_at field
+                'has_file': bool(log.file),
+                'file_url': log.file.url if log.file else None
+            }
+            logs_data.append(log_data)
+            
+        return JsonResponse({
+            'participant': {
+                'id': participant.id,
+                'name': participant.name,
+                'email': participant.email
+            },
+            'logs': logs_data,
+            'total': len(logs_data)
+        })
+        
+    except Participant.DoesNotExist:
+        return JsonResponse({"error": "Participant not found"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+def participant_logs_by_type(request, participant_id, log_type):
+    """Endpoint para obtener logs de un participante filtrados por tipo"""
+    if request.method != "GET":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    try:
+        participant = Participant.objects.get(id=participant_id)
+        logs = ParticipantLog.objects.filter(
+            participant=participant, 
+            name=log_type
+        ).order_by('-id')
+        
+        logs_data = []
+        for log in logs:
+            log_data = {
+                'id': log.id,
+                'name': log.name,
+                'message': log.message,
+                'created_at': log.id,
+                'has_file': bool(log.file),
+                'file_url': log.file.url if log.file else None
+            }
+            logs_data.append(log_data)
+            
+        return JsonResponse({
+            'participant': {
+                'id': participant.id,
+                'name': participant.name,
+                'email': participant.email
+            },
+            'log_type': log_type,
+            'logs': logs_data,
+            'total': len(logs_data)
+        })
+        
+    except Participant.DoesNotExist:
+        return JsonResponse({"error": "Participant not found"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+def event_participant_logs(request, event_id):
+    """Endpoint para obtener todos los logs de participantes de un evento específico"""
+    if request.method != "GET":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    try:
+        event = Event.objects.get(id=event_id)
+        participant_events = ParticipantEvent.objects.filter(event=event).select_related('participant')
+        participants = [pe.participant for pe in participant_events]
+        
+        logs = ParticipantLog.objects.filter(participant__in=participants).order_by('-id')
+        
+        logs_data = []
+        for log in logs:
+            log_data = {
+                'id': log.id,
+                'name': log.name,
+                'message': log.message,
+                'created_at': log.id,
+                'has_file': bool(log.file),
+                'file_url': log.file.url if log.file else None,
+                'participant': {
+                    'id': log.participant.id,
+                    'name': log.participant.name,
+                    'email': log.participant.email
+                }
+            }
+            logs_data.append(log_data)
+            
+        return JsonResponse({
+            'event': {
+                'id': event.id,
+                'name': event.name
+            },
+            'logs': logs_data,
+            'total': len(logs_data)
+        })
+        
+    except Event.DoesNotExist:
+        return JsonResponse({"error": "Event not found"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt  
+def participant_connection_stats(request, participant_id):
+    """Endpoint para obtener estadísticas de conexión de un participante"""
+    if request.method != "GET":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    try:
+        from proxy.models import AssignedPort
+        
+        participant = Participant.objects.get(id=participant_id)
+        
+        # Buscar el ParticipantEvent activo del participante
+        participant_event = ParticipantEvent.objects.filter(participant=participant).first()
+        
+        connection_data = {
+            'participant': {
+                'id': participant.id,
+                'name': participant.name,
+                'email': participant.email
+            },
+            'total_time_minutes': 0,
+            'is_active': False,
+            'last_activity': None,
+            'port': None
+        }
+        
+        if participant_event:
+            try:
+                assigned_port = AssignedPort.objects.get(participant_event=participant_event)
+                connection_data.update({
+                    'total_time_minutes': assigned_port.get_total_time(),
+                    'is_active': assigned_port.is_active,
+                    'last_activity': assigned_port.last_activity,
+                    'port': assigned_port.port
+                })
+            except AssignedPort.DoesNotExist:
+                pass
+                
+        return JsonResponse(connection_data)
+        
+    except Participant.DoesNotExist:
+        return JsonResponse({"error": "Participant not found"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
