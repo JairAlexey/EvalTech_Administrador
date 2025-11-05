@@ -11,6 +11,8 @@ from django.conf import settings
 from .models import UserRole, CustomUser
 import hashlib
 from events.models import Event
+from .utils import jwt_required
+from django.views.decorators.http import require_http_methods
 
 # Clave secreta para JWT
 JWT_SECRET = getattr(settings, "SECRET_KEY", "django-insecure-token")
@@ -122,118 +124,48 @@ def verify_token_view(request):
 
 
 @csrf_exempt
+@jwt_required()
 @require_GET
 def user_info_view(request):
     """Vista para obtener información del usuario autenticado mediante token JWT"""
-    # Obtener el token de los headers de la petición
-    auth_header = request.headers.get("Authorization", "")
 
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse(
-            {"error": "Encabezado de autorización inválido"}, status=401
-        )
-
-    token = auth_header.split(" ")[1]
-    payload = verify_token(token)
-
-    if not payload:
-        return JsonResponse({"error": "Token inválido o expirado"}, status=401)
-
-    # Obtener el usuario
-    try:
-        user = CustomUser.objects.get(id=payload["user_id"])
-        return JsonResponse(get_user_data(user))
-    except CustomUser.DoesNotExist:
-        return JsonResponse({"error": "Usuario no encontrado"}, status=404)
+    user = request.user
+    return JsonResponse(get_user_data(user))
 
 
 @csrf_exempt
+@jwt_required(role="superadmin")
+@require_GET
 def role_management_view(request):
-    """Vista para gestionar los roles de usuario"""
-    auth_header = request.headers.get("Authorization", "")
+    """Vista para gestionar los roles de usuario (solo superadmin)"""
+    users = CustomUser.objects.all()
+    user_list = []
 
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse(
-            {"error": "Encabezado de autorización inválido"}, status=401
-        )
-
-    token = auth_header.split(" ")[1]
-    payload = verify_token(token)
-
-    if not payload:
-        return JsonResponse({"error": "Token inválido o expirado"}, status=401)
-
-    # Verificar que el usuario sea superadmin (solo superadmin puede gestionar roles)
-    try:
-        admin_user = CustomUser.objects.get(id=payload["user_id"])
+    for user in users:
+        user_data = {
+            "id": user.id,
+            "email": user.email,
+            "firstName": user.first_name,
+            "lastName": user.last_name,
+        }
         try:
-            admin_role = UserRole.objects.get(user=admin_user)
-            if admin_role.role != "superadmin":
-                return JsonResponse(
-                    {"error": "No tienes permisos para gestionar roles"}, status=403
-                )
+            user_role = UserRole.objects.get(user=user)
+            user_data["role"] = user_role.role
+            user_data["roleName"] = user_role.get_role_display()
         except UserRole.DoesNotExist:
-            return JsonResponse({"error": "No tienes un rol asignado"}, status=403)
+            user_data["role"] = "sin_rol"
+            user_data["roleName"] = "Sin rol asignado"
 
-    except CustomUser.DoesNotExist:
-        return JsonResponse({"error": "Usuario no encontrado"}, status=404)
+        user_list.append(user_data)
 
-    # Ahora procesamos la solicitud
-    if request.method == "GET":
-        # Obtener la lista de usuarios con sus roles
-        users = CustomUser.objects.all()
-        user_list = []
-
-        for user in users:
-            user_data = {
-                "id": user.id,
-                "email": user.email,
-                "firstName": user.first_name,
-                "lastName": user.last_name,
-            }
-
-            try:
-                user_role = UserRole.objects.get(user=user)
-                user_data["role"] = user_role.role
-                user_data["roleName"] = user_role.get_role_display()
-            except UserRole.DoesNotExist:
-                user_data["role"] = "sin_rol"
-                user_data["roleName"] = "Sin rol asignado"
-
-            user_list.append(user_data)
-
-        return JsonResponse({"users": user_list})
-
-    else:
-        return JsonResponse({"error": "Método no permitido"}, status=405)
+    return JsonResponse({"users": user_list})
 
 
 @csrf_exempt
+@jwt_required(role="superadmin")
 @require_POST
 def create_user_view(request):
     """Vista para crear un nuevo usuario con rol asignado (solo superadmin)"""
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse(
-            {"error": "Encabezado de autorización inválido"}, status=401
-        )
-
-    token = auth_header.split(" ")[1]
-    payload = verify_token(token)
-    if not payload:
-        return JsonResponse({"error": "Token inválido o expirado"}, status=401)
-
-    # Verificar que el usuario sea superadmin
-    try:
-        admin_user = CustomUser.objects.get(id=payload["user_id"])
-        admin_role = UserRole.objects.get(user=admin_user)
-        if admin_role.role != "superadmin":
-            return JsonResponse(
-                {"error": "No tienes permisos para crear usuarios"}, status=403
-            )
-    except (CustomUser.DoesNotExist, UserRole.DoesNotExist):
-        return JsonResponse({"error": "No tienes permisos"}, status=403)
-
     try:
         data = json.loads(request.body)
         email = data.get("email")
@@ -301,35 +233,13 @@ def create_user_view(request):
 
 
 @csrf_exempt
+@jwt_required(role="superadmin")
+@require_http_methods(["DELETE"])
 def delete_user_view(request, user_id):
     """Endpoint para eliminar un usuario (solo superadmin)"""
-    if request.method != "DELETE":
-        return JsonResponse({"error": "Método no permitido"}, status=405)
-
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse(
-            {"error": "Encabezado de autorización inválido"}, status=401
-        )
-
-    token = auth_header.split(" ")[1]
-    payload = verify_token(token)
-    if not payload:
-        return JsonResponse({"error": "Token inválido o expirado"}, status=401)
-
-    # Verificar permisos de superadmin
-    try:
-        admin_user = CustomUser.objects.get(id=payload["user_id"])
-        admin_role = UserRole.objects.get(user=admin_user)
-        if admin_role.role != "superadmin":
-            return JsonResponse(
-                {"error": "No tienes permisos para eliminar usuarios"}, status=403
-            )
-    except (CustomUser.DoesNotExist, UserRole.DoesNotExist):
-        return JsonResponse({"error": "No tienes permisos"}, status=403)
 
     # No permitir que el superadmin se elimine a sí mismo
-    if admin_user.id == user_id:
+    if request.user.id == user_id:
         return JsonResponse({"error": "No puedes eliminarte a ti mismo"}, status=400)
 
     try:
@@ -355,29 +265,9 @@ def delete_user_view(request, user_id):
 
 
 @csrf_exempt
+@jwt_required(role="superadmin")
 @require_POST
 def edit_user_view(request, user_id):
-    """Endpoint para editar datos de usuario (solo superadmin)"""
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse(
-            {"error": "Encabezado de autorización inválido"}, status=401
-        )
-    token = auth_header.split(" ")[1]
-    payload = verify_token(token)
-    if not payload:
-        return JsonResponse({"error": "Token inválido o expirado"}, status=401)
-
-    # Verificar permisos de superadmin
-    try:
-        admin_user = CustomUser.objects.get(id=payload["user_id"])
-        admin_role = UserRole.objects.get(user=admin_user)
-        if admin_role.role != "superadmin":
-            return JsonResponse(
-                {"error": "No tienes permisos para editar usuarios"}, status=403
-            )
-    except (CustomUser.DoesNotExist, UserRole.DoesNotExist):
-        return JsonResponse({"error": "No tienes permisos"}, status=403)
 
     try:
         user = CustomUser.objects.get(id=user_id)
@@ -477,38 +367,29 @@ def edit_user_view(request, user_id):
 
 
 @csrf_exempt
+@jwt_required()
+@require_GET
 def evaluator_users(request):
-    if request.method == "GET":
-        evaluators = UserRole.objects.filter(role="evaluator")
-        users = [
-            {
-                "id": str(er.user.id),
-                "name": f"{er.user.first_name} {er.user.last_name}".strip()
-                or er.user.email,
-            }
-            for er in evaluators
-        ]
-        return JsonResponse({"users": users})
-    return JsonResponse({"error": "Método no permitido"}, status=405)
+    evaluators = UserRole.objects.filter(role="evaluator")
+    users = [
+        {
+            "id": str(er.user.id),
+            "name": f"{er.user.first_name} {er.user.last_name}".strip()
+            or er.user.email,
+        }
+        for er in evaluators
+    ]
+    return JsonResponse({"users": users})
 
 
 @csrf_exempt
+@jwt_required()
 @require_POST
 def update_profile_view(request):
     """Vista para actualizar el perfil del usuario autenticado"""
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse(
-            {"error": "Encabezado de autorización inválido"}, status=401
-        )
-
-    token = auth_header.split(" ")[1]
-    payload = verify_token(token)
-    if not payload:
-        return JsonResponse({"error": "Token inválido o expirado"}, status=401)
 
     try:
-        user = CustomUser.objects.get(id=payload["user_id"])
+        user = request.user
         data = json.loads(request.body)
 
         first_name = data.get("firstName")
@@ -572,7 +453,7 @@ def update_profile_view(request):
 
             user.set_password(new_password)
 
-        # Actualizar datos básicos
+        # Actualizar datos
         user.first_name = first_name
         user.last_name = last_name
         user.email = email
@@ -609,8 +490,10 @@ def refresh_token_view(request):
         if not payload:
             # Token expirado o inválido - no se puede renovar
             return JsonResponse(
-                {"error": "Token inválido o expirado. Por favor, inicia sesión nuevamente."},
-                status=401
+                {
+                    "error": "Token inválido o expirado. Por favor, inicia sesión nuevamente."
+                },
+                status=401,
             )
 
         # Si el token es válido, buscar el usuario y generar un nuevo token
