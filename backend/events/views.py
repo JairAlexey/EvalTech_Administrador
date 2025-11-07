@@ -1253,6 +1253,10 @@ def event_detail(request, event_id):
                 "evaluator": "evaluador",
                 "duration": "duración",
             }
+            # Si es un evaluador, no exigir el campo "evaluator" en el payload
+            if user_role == "evaluator":
+                field_names.pop("evaluator", None)
+
             for field in field_names:
                 if not data.get(field):
                     return JsonResponse(
@@ -1356,17 +1360,19 @@ def event_detail(request, event_id):
             start_local = timezone.make_aware(start_naive, user_tz)
             close_local = timezone.make_aware(close_naive, user_tz)
 
-            # Validar que la fecha/hora de inicio sea mayor a la actual en la zona del usuario
-            now_local = timezone.localtime(timezone.now(), user_tz).replace(
-                second=0, microsecond=0
-            )
-            if start_local <= now_local:
-                return JsonResponse(
-                    {
-                        "error": "La fecha y hora de inicio deben ser mayor a la fecha y hora actual"
-                    },
-                    status=400,
+            # Validar que la fecha/hora de inicio sea posterior a ahora
+            # OMITIR esta validación si el evento está en progreso (no se permite cambiar inicio, pero sí otros campos)
+            if event.status != "en_progreso":
+                now_local = timezone.localtime(timezone.now(), user_tz).replace(
+                    second=0, microsecond=0
                 )
+                if start_local <= now_local:
+                    return JsonResponse(
+                        {
+                            "error": "La fecha y hora de inicio deben ser mayor a la fecha y hora actual"
+                        },
+                        status=400,
+                    )
 
             # Validar que la hora de cierre sea al menos 5 minutos después de la hora de inicio
             min_close_local = start_local + timedelta(minutes=5)
@@ -1389,20 +1395,29 @@ def event_detail(request, event_id):
             # Convertir a UTC para guardar en la BD
             start_utc = start_local.astimezone(ZoneInfo("UTC"))
             close_utc = close_local.astimezone(ZoneInfo("UTC"))
-
-            # Calcular end_date (closeTime + duración en minutos)
             end_utc = close_utc + timedelta(minutes=duration_minutes)
 
             # Evaluador
             evaluator_id = data.get("evaluator", "")
-            try:
-                evaluator_instance = CustomUser.objects.get(id=evaluator_id)
-            except CustomUser.DoesNotExist:
-                return JsonResponse(
-                    {"error": "El evaluador seleccionado no existe"}, status=400
-                )
+            if user_role == "evaluator":
+                # Un evaluador no puede cambiar el evaluador asignado
+                if evaluator_id and str(evaluator_id) != str(event.evaluator_id):
+                    return JsonResponse(
+                        {
+                            "error": "No tienes permiso para cambiar el evaluador del evento"
+                        },
+                        status=403,
+                    )
+                evaluator_instance = event.evaluator
+            else:
+                try:
+                    evaluator_instance = CustomUser.objects.get(id=evaluator_id)
+                except CustomUser.DoesNotExist:
+                    return JsonResponse(
+                        {"error": "El evaluador seleccionado no existe"}, status=400
+                    )
 
-            # Validar que el evaluador no tenga eventos solapados (por rango de fechas), excluyendo el actual
+            # Validar que el evaluador no tenga eventos solapados (excluyendo el actual)
             overlapping_events = Event.objects.filter(
                 evaluator=evaluator_instance,
                 start_date__lt=end_utc,
@@ -1446,7 +1461,7 @@ def event_detail(request, event_id):
                     status=400,
                 )
 
-            # Actualización de campos (sin duración ni tipo)
+            # Actualización de campos
             changed = False
             if event.name != event_name:
                 event.name = event_name
@@ -1460,6 +1475,7 @@ def event_detail(request, event_id):
             if getattr(event, "close_date", None) != close_utc:
                 event.close_date = close_utc
                 changed = True
+            # El evaluador solo puede ser cambiado por admin/superadmin
             if event.evaluator != evaluator_instance:
                 event.evaluator = evaluator_instance
                 changed = True
@@ -1664,6 +1680,59 @@ def event_blocked_hosts(request, event_id):
     blocked_website_ids = [str(bh.website.id) for bh in blocked_hosts]
 
     return JsonResponse({"blocked_website_ids": blocked_website_ids})
+
+
+@csrf_exempt
+@jwt_required()
+@require_GET
+def evaluaciones(request):
+    """
+    Endpoint para listar evaluaciones (eventos en progreso y completados).
+    Admin/superadmin ven todas, evaluadores solo las suyas.
+    """
+    user = request.user
+    try:
+        user_role = UserRole.objects.get(user=user).role
+    except UserRole.DoesNotExist:
+        user_role = None
+
+    # Filtrar eventos por estado
+    estados = ["en_progreso", "completado"]
+    if user_role in ("admin", "superadmin"):
+        eventos = Event.objects.filter(status__in=estados).order_by("start_date")
+    elif user_role == "evaluator":
+        eventos = Event.objects.filter(
+            status__in=estados, evaluator__id=user.id
+        ).order_by("start_date")
+    else:
+        eventos = Event.objects.filter(status__in=estados).order_by("start_date")
+
+    eventos_data = []
+    for evento in eventos:
+        participant_count = Participant.objects.filter(events=evento).count()
+        eventos_data.append(
+            {
+                "id": evento.id,
+                "name": evento.name,
+                "startDate": (
+                    evento.start_date.strftime("%d/%m/%Y") if evento.start_date else ""
+                ),
+                "startTime": (
+                    evento.start_date.strftime("%H:%M %p") if evento.start_date else ""
+                ),
+                "duration": evento.duration,
+                "endDate": (
+                    evento.end_date.strftime("%d/%m/%Y") if evento.end_date else ""
+                ),
+                "endTime": (
+                    evento.end_date.strftime("%H:%M %p") if evento.end_date else ""
+                ),
+                "participants": participant_count,
+                "status": evento.status,
+            }
+        )
+
+    return JsonResponse({"evaluaciones": eventos_data})
 
 
 @csrf_exempt

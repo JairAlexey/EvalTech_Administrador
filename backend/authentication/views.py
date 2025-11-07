@@ -220,31 +220,8 @@ def delete_user_view(request, user_id):
 @jwt_required(roles=["superadmin"])
 @require_POST
 def edit_user_view(request, user_id):
-
     try:
         user = CustomUser.objects.get(id=user_id)
-
-        try:
-            # No permitir editar a un superadmin
-            user_role = UserRole.objects.get(user=user)
-            if user_role.role == "superadmin":
-                return JsonResponse(
-                    {"error": "No puedes editar un usuario superadmin"}, status=400
-                )
-
-            # No permitir editar a un evaluador con eventos
-            if user_role.role == "evaluator":
-                if Event.objects.filter(evaluator=user).exists():
-                    return JsonResponse(
-                        {
-                            "error": "No puedes editar un usuario evaluador que tiene eventos asignados."
-                        },
-                        status=400,
-                    )
-        except UserRole.DoesNotExist:
-            pass
-
-        # Datos enviados
         data = json.loads(request.body)
         first_name = data.get("firstName")
         last_name = data.get("lastName")
@@ -291,6 +268,29 @@ def edit_user_view(request, user_id):
         if CustomUser.objects.filter(email=email).exclude(id=user_id).exists():
             return JsonResponse({"error": "El email ya está registrado"}, status=400)
 
+        # No permitir editar a un superadmin
+        try:
+            user_role = UserRole.objects.get(user=user)
+            if user_role.role == "superadmin":
+                return JsonResponse(
+                    {"error": "No puedes editar un usuario superadmin"}, status=400
+                )
+
+            # Si es evaluador y tiene eventos, solo bloquear cambio de rol
+            if (
+                user_role.role == "evaluator"
+                and Event.objects.filter(evaluator=user).exists()
+            ):
+                if role != user_role.role:
+                    return JsonResponse(
+                        {
+                            "error": "No puedes cambiar el rol de un usuario evaluador que tiene eventos asignados."
+                        },
+                        status=400,
+                    )
+        except UserRole.DoesNotExist:
+            pass
+
         # Actualizar solo si el valor cambia
         if user.first_name != first_name:
             user.first_name = first_name
@@ -302,10 +302,14 @@ def edit_user_view(request, user_id):
             user.set_password(password)
         user.save()
 
-        # Actualizar el rol si corresponde
+        # Actualizar el rol si corresponde y está permitido
         try:
             user_role = UserRole.objects.get(user=user)
-            if user_role.role != role:
+            # Si es evaluador con eventos, ya se bloqueó arriba el cambio de rol
+            if user_role.role != role and not (
+                user_role.role == "evaluator"
+                and Event.objects.filter(evaluator=user).exists()
+            ):
                 user_role.role = role
                 user_role.save()
         except UserRole.DoesNotExist:
