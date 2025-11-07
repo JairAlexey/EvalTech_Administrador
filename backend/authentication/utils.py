@@ -51,7 +51,7 @@ def get_user_data(user):
     }
 
 
-def jwt_required(role=None):
+def jwt_required(roles=None):
     def decorator(view_func):
         @wraps(view_func)
         def _wrapped_view(request, *args, **kwargs):
@@ -66,13 +66,16 @@ def jwt_required(role=None):
                 return JsonResponse({"error": "Token inválido o expirado"}, status=401)
             try:
                 user = CustomUser.objects.get(id=payload["user_id"])
-                if role:
+                if roles:
                     user_role = UserRole.objects.get(user=user)
-                    if user_role.role != role:
+                    if user_role.role not in roles:
                         return JsonResponse(
-                            {"error": f"Se requiere rol {role}"}, status=403
+                            {
+                                "error": f"Se requiere uno de los roles: {', '.join(roles)}"
+                            },
+                            status=403,
                         )
-                request.user = user  # Puedes usar esto en la vista
+                request.user = user
             except (CustomUser.DoesNotExist, UserRole.DoesNotExist):
                 return JsonResponse(
                     {"error": "Usuario o rol no encontrado"}, status=403
