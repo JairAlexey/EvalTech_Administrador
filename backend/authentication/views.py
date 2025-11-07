@@ -86,7 +86,7 @@ def user_info_view(request):
 
 
 @csrf_exempt
-@jwt_required(role="superadmin")
+@jwt_required(roles=["superadmin"])
 @require_GET
 def role_management_view(request):
     """Vista para gestionar los roles de usuario (solo superadmin)"""
@@ -114,7 +114,7 @@ def role_management_view(request):
 
 
 @csrf_exempt
-@jwt_required(role="superadmin")
+@jwt_required(roles=["superadmin"])
 @require_POST
 def create_user_view(request):
     """Vista para crear un nuevo usuario con rol asignado (solo superadmin)"""
@@ -185,7 +185,7 @@ def create_user_view(request):
 
 
 @csrf_exempt
-@jwt_required(role="superadmin")
+@jwt_required(roles=["superadmin"])
 @require_http_methods(["DELETE"])
 def delete_user_view(request, user_id):
     """Endpoint para eliminar un usuario (solo superadmin)"""
@@ -217,7 +217,7 @@ def delete_user_view(request, user_id):
 
 
 @csrf_exempt
-@jwt_required(role="superadmin")
+@jwt_required(roles=["superadmin"])
 @require_POST
 def edit_user_view(request, user_id):
 
