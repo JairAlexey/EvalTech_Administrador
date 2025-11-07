@@ -62,14 +62,17 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
       case 'programado':
         bgColor = 'bg-gradient-to-r from-blue-500 to-blue-600 text-white';
         icon = <Calendar className="w-4 h-4" />;
+        status = 'Programado';
         break;
-      case 'en progreso':
-        bgColor = 'bg-gradient-to-r from-amber-500 to-orange-500 text-white';
+      case 'en_progreso':
+        bgColor = 'bg-gradient-to-r from-yellow-400 to-orange-500 text-white';
         icon = <Play className="w-4 h-4" />;
+        status = 'En progreso';
         break;
       case 'completado':
         bgColor = 'bg-gradient-to-r from-green-500 to-emerald-500 text-white';
         icon = <CheckCircle className="w-4 h-4" />;
+        status = 'Completado';
         break;
     }
     return (
@@ -424,7 +427,7 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
                                 </td>
                                 <td className="px-8 py-6 whitespace-nowrap">
                                   <div className="flex items-center gap-4">
-                                    <div className={`w-12 h-12 rounded-full ${participant.color || 'bg-gradient-to-r from-blue-500 to-indigo-500'} flex items-center justify-center text-white font-bold shadow-lg group-hover:scale-110 transition-transform`}>
+                                    <div className={`w-12 h-12 rounded-full ${participant.color || 'bg-gradient-to-r from-blue-500 to-indigo-500'} flex items-center justify-center text-black font-bold shadow-lg group-hover:scale-110 transition-transform`}>
                                       {participant.initials || participant.name?.substring(0, 2).toUpperCase()}
                                     </div>
                                     <div>
