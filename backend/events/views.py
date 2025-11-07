@@ -28,6 +28,10 @@ from openpyxl import load_workbook
 from openpyxl.workbook import Workbook
 from io import BytesIO
 from django.http import HttpResponse
+from authentication.utils import jwt_required
+from django.views.decorators.http import require_POST, require_GET
+
+# Funciones
 
 
 def check_event_time(event):
@@ -52,9 +56,9 @@ def verify_event_key(request):
 
     event_key = authorization.split(" ")[1]
     try:
-        participant_event = ParticipantEvent.objects.select_related("participant", "event").get(
-            event_key=event_key
-        )
+        participant_event = ParticipantEvent.objects.select_related(
+            "participant", "event"
+        ).get(event_key=event_key)
         participant = participant_event.participant
         event = participant_event.event
         dateIsValid = check_event_time(event)
@@ -63,11 +67,13 @@ def verify_event_key(request):
         connection_info = {
             "totalTime": 0,  # Tiempo total acumulado en minutos
             "isActive": False,  # Si está actualmente conectado
-            "eventDuration": event.duration  # Duración total permitida
+            "eventDuration": event.duration,  # Duración total permitida
         }
 
         try:
-            assigned_port = AssignedPort.objects.get(participant_event=participant_event)
+            assigned_port = AssignedPort.objects.get(
+                participant_event=participant_event
+            )
             connection_info["totalTime"] = assigned_port.get_total_time()
             connection_info["isActive"] = assigned_port.is_active
         except AssignedPort.DoesNotExist:
@@ -79,7 +85,7 @@ def verify_event_key(request):
                 "dateIsValid": dateIsValid,
                 "participant": {"name": participant.name, "email": participant.email},
                 "event": {"name": event.name, "id": event.id},
-                "connectionInfo": connection_info
+                "connectionInfo": connection_info,
             }
         )
     except ParticipantEvent.DoesNotExist:
@@ -88,15 +94,125 @@ def verify_event_key(request):
 
 def get_participant(event_key):
     try:
-        participant_event = ParticipantEvent.objects.select_related('participant').get(event_key=event_key)
+        participant_event = ParticipantEvent.objects.select_related("participant").get(
+            event_key=event_key
+        )
         return participant_event.participant
     except ParticipantEvent.DoesNotExist:
         return None
 
 
+def _validate_participant_fields(
+    first_name: str, last_name: str, email: str, seen_emails: set
+):
+    errors = []
+    fn = (first_name or "").strip()
+    ln = (last_name or "").strip()
+    em = (email or "").strip().lower()
+
+    if not fn:
+        errors.append("Nombre requerido")
+    if not ln:
+        errors.append("Apellidos requeridos")
+    if not em:
+        errors.append("Email requerido")
+    else:
+        try:
+            validate_email(em)
+        except ValidationError:
+            errors.append("Email inválido")
+
+    # Duplicado dentro del archivo (o del payload)
+    if em:
+        if em in seen_emails:
+            errors.append("Email duplicado en el archivo")
+        else:
+            seen_emails.add(em)
+
+    # Duplicado en BD
+    if em and Participant.objects.filter(email__iexact=em).exists():
+        errors.append("Email ya existe en el sistema")
+
+    return fn, ln, em, errors
+
+
+def handle_event_participants(event, participants_payload):
+    """
+    Sin crear ni eliminar objetos Participant.
+    Solo sincroniza la relación M2M Event <-> Participant
+    en base a los items del payload con selected=True.
+
+    participants_payload: lista de dicts del tipo:
+        { "email": "a@b.com", "name": "...", "selected": true/false }
+    """
+
+    # Normalizar correos del payload
+    def _norm(email):
+        return (email or "").strip().lower()
+
+    selected_emails = {
+        _norm(item.get("email"))
+        for item in (participants_payload or [])
+        if item.get("selected", False) and item.get("email")
+    }
+
+    # Estado actual en BD
+    current_participants = list(event.participants.all())
+    current_emails = {p.email.lower() for p in current_participants}
+
+    # A quién agregar / quitar (solo por email existente en BD)
+    emails_to_add = selected_emails - current_emails
+    emails_to_remove = current_emails - selected_emails
+
+    # Traer solo los Participant existentes que corresponden a emails_to_add
+    participants_to_add = list(
+        Participant.objects.filter(email__in=list(emails_to_add))
+    )
+
+    # Map rápido por email
+    current_by_email = {p.email.lower(): p for p in current_participants}
+
+    with transaction.atomic():
+        # Agregar asociaciones nuevas
+        for participant in participants_to_add:
+            ParticipantEvent.objects.get_or_create(event=event, participant=participant)
+
+        # Quitar asociaciones eliminando el registro intermedio
+        for email in emails_to_remove:
+            participant = current_by_email.get(email)
+            if participant:
+                ParticipantEvent.objects.filter(
+                    event=event, participant=participant
+                ).delete()
+
+    # Métricas útiles para logs/debug
+    added_count = len(participants_to_add)
+    removed_count = len(emails_to_remove)
+    skipped_emails = sorted(
+        selected_emails
+        - {p.email.lower() for p in participants_to_add}
+        - current_emails
+    )
+    # `skipped_emails` = correos marcados como selected que NO existen en Participant,
+    # y por política no se crean aquí.
+
+    print(
+        f"[handle_event_participants] Added: {added_count}, Removed: {removed_count}, "
+        f"Skipped (not found in Participant): {len(skipped_emails)} -> {skipped_emails}"
+    )
+
+    return {
+        "added": added_count,
+        "removed": removed_count,
+        "skipped_not_found": skipped_emails,
+    }
+
+
+# Endpoints app escritorio
+
+
+@require_POST
 def log_participant_http_event(request: HttpRequest):
-    if request.method != "POST":
-        return JsonResponse({"error": "Method not allowed"}, status=405)
 
     try:
         data = json.loads(request.body)
@@ -115,9 +231,8 @@ def log_participant_http_event(request: HttpRequest):
         return JsonResponse({"error": str(e)}, status=400)
 
 
+@require_POST
 def log_participant_keylogger_event(request: HttpRequest):
-    if request.method != "POST":
-        return JsonResponse({"error": "Method not allowed"}, status=405)
 
     try:
         data = json.loads(request.body)
@@ -136,9 +251,8 @@ def log_participant_keylogger_event(request: HttpRequest):
         return JsonResponse({"error": str(e)}, status=400)
 
 
+@require_POST
 def log_participant_screen_event(request: HttpRequest):
-    if request.method != "POST":
-        return JsonResponse({"error": "Method not allowed"}, status=405)
 
     try:
         event_key = request.headers.get("Authorization").split()[1]
@@ -160,9 +274,8 @@ def log_participant_screen_event(request: HttpRequest):
         return JsonResponse({"error": str(e)}, status=400)
 
 
+@require_POST
 def log_participant_audio_video_event(request: HttpRequest):
-    if request.method != "POST":
-        return JsonResponse({"error": "Method not allowed"}, status=405)
 
     try:
         event_key = request.headers.get("Authorization").split()[1]
@@ -184,69 +297,59 @@ def log_participant_audio_video_event(request: HttpRequest):
         return JsonResponse({"error": str(e)}, status=400)
 
 
+# Endpoints app web
+
+
 @csrf_exempt
+@jwt_required()
+@require_POST
 def send_key_emails(request, event_id):
-    if request.method == "POST":
+    try:
+        # Obtener participantIds del body
         try:
-            # --- Validar token desde headers y obtener usuario ---
-            auth_header = request.headers.get("Authorization", "")
-            if not auth_header.startswith("Bearer "):
-                return JsonResponse(
-                    {"error": "Encabezado de autorización inválido"}, status=401
-                )
-            token = auth_header.split(" ")[1]
-            payload = verify_token(token)
-            if not payload:
-                return JsonResponse({"error": "Token inválido o expirado"}, status=401)
+            data = json.loads(request.body.decode("utf-8"))
+            participant_ids = data.get("participantIds", [])
+        except Exception:
+            participant_ids = []
 
-            user_id = payload.get("user_id")
+        user = request.user
+        try:
+            user_role = UserRole.objects.get(user=user)
+        except UserRole.DoesNotExist:
+            return JsonResponse({"error": "Usuario no encontrado"}, status=404)
 
-            # Obtener participantIds del body (el body ya no debe contener userId)
-            try:
-                data = json.loads(request.body.decode("utf-8"))
-                participant_ids = data.get("participantIds", [])
-            except Exception:
-                participant_ids = []
+        # Verificar que el evento existe
+        try:
+            event = Event.objects.get(id=event_id)
+        except Event.DoesNotExist:
+            return JsonResponse({"error": "Evento no encontrado"}, status=404)
 
-            # Verificar que el usuario existe y obtener su rol
-            try:
-                user = CustomUser.objects.get(id=user_id)
-                user_role = UserRole.objects.get(user=user)
-            except (CustomUser.DoesNotExist, UserRole.DoesNotExist):
-                return JsonResponse({"error": "Usuario no encontrado"}, status=404)
+        # Permitir solo si es evaluador del evento, admin o superadmin
+        if str(event.evaluator_id) != str(user.id) and user_role.role not in [
+            "superadmin",
+            "admin",
+        ]:
+            return JsonResponse(
+                {
+                    "error": "Solo el evaluador asignado o administrador puede enviar correos"
+                },
+                status=403,
+            )
 
-            # Verificar que el evento existe
-            try:
-                event = Event.objects.get(id=event_id)
-            except Event.DoesNotExist:
-                return JsonResponse({"error": "Evento no encontrado"}, status=404)
+        # Llamar a la función de envío de correos
+        result = send_emails(event_id, participant_ids if participant_ids else None)
 
-            # Permitir solo si es evaluador del evento o superadmin
-            if not user_id or (
-                str(event.evaluator_id) != str(user_id)
-                and user_role.role != "superadmin"
-            ):
-                return JsonResponse(
-                    {
-                        "error": "Solo el evaluador asignado o superadmin puede enviar correos"
-                    },
-                    status=403,
-                )
+        if result["success"]:
+            return JsonResponse({"success": True, "sent": result["sent"]})
+        else:
+            return JsonResponse({"error": result["error"]}, status=400)
 
-            # Llamar a la función de envío de correos
-            result = send_emails(event_id, participant_ids if participant_ids else None)
-
-            if result["success"]:
-                return JsonResponse({"success": True, "sent": result["sent"]})
-            else:
-                return JsonResponse({"error": result["error"]}, status=400)
-
-        except Exception as e:
-            return JsonResponse({"error": str(e)}, status=400)
-    return JsonResponse({"error": "Método no permitido"}, status=405)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
 
 
 @csrf_exempt
+@jwt_required()
 def participants(request):
     """Endpoint para listar y crear participantes"""
 
@@ -359,10 +462,10 @@ def participants(request):
 
 
 @csrf_exempt
+@jwt_required()
+@require_GET
 def participants_template(request):
     """Devuelve una plantilla Excel con columnas requeridas: Nombre, Apellidos, Email"""
-    if request.method != "GET":
-        return JsonResponse({"error": "Método no permitido"}, status=405)
 
     wb = Workbook()
     ws = wb.active
@@ -385,50 +488,15 @@ def participants_template(request):
     return response
 
 
-def _validate_participant_fields(
-    first_name: str, last_name: str, email: str, seen_emails: set
-):
-    errors = []
-    fn = (first_name or "").strip()
-    ln = (last_name or "").strip()
-    em = (email or "").strip().lower()
-
-    if not fn:
-        errors.append("Nombre requerido")
-    if not ln:
-        errors.append("Apellidos requeridos")
-    if not em:
-        errors.append("Email requerido")
-    else:
-        try:
-            validate_email(em)
-        except ValidationError:
-            errors.append("Email inválido")
-
-    # Duplicado dentro del archivo (o del payload)
-    if em:
-        if em in seen_emails:
-            errors.append("Email duplicado en el archivo")
-        else:
-            seen_emails.add(em)
-
-    # Duplicado en BD
-    if em and Participant.objects.filter(email__iexact=em).exists():
-        errors.append("Email ya existe en el sistema")
-
-    return fn, ln, em, errors
-
-
 @csrf_exempt
+@jwt_required()
+@require_POST
 def import_participants(request):
-    """Importa participantes desde Excel (modo previsualización o creación) o desde JSON corregido.
+    """Importa participantes desde Excel (modo previsualización o creación) .
 
     - POST multipart/form-data con campo 'file': parsea Excel y devuelve filas validadas (no crea si dry_run=1).
     - POST application/json con 'rows': valida y crea participantes, devolviendo resumen.
     """
-
-    if request.method != "POST":
-        return JsonResponse({"error": "Método no permitido"}, status=405)
 
     # Determinar dry_run
     dry_raw = request.GET.get("dry_run") or request.POST.get("dry_run")
@@ -512,7 +580,7 @@ def import_participants(request):
                 }
             )
 
-    # Modo JSON (commit de filas corregidas)
+    # Modo JSON
     try:
         data = json.loads(request.body or b"{}")
     except Exception:
@@ -578,6 +646,7 @@ def import_participants(request):
 
 
 @csrf_exempt
+@jwt_required(roles=["admin", "superadmin"])
 def participant_detail(request, participant_id):
     """Endpoint para obtener, actualizar o eliminar un participante específico"""
     try:
@@ -691,34 +760,22 @@ def participant_detail(request, participant_id):
 
 
 @csrf_exempt
+@jwt_required()
 def events(request):
 
-    # --- Obtener role/usuario a partir del token (si se envía) ---
-    auth_header = request.headers.get("Authorization", "")
-    user_role = None
-    user_data = None
-    if auth_header.startswith("Bearer "):
-        token = auth_header.split(" ")[1]
-        payload = verify_token(token)
-        if payload:
-            try:
-                user = CustomUser.objects.get(id=payload.get("user_id"))
-                user_data = get_user_data(
-                    user
-                )  # devuelve dict con 'role', 'id', 'email', ...
-                user_role = user_data.get("role")
-            except CustomUser.DoesNotExist:
-                user_role = None
+    user = request.user
+    try:
+        user_role = UserRole.objects.get(user=user).role
+    except UserRole.DoesNotExist:
+        user_role = None
 
     if request.method == "GET":
 
         # Filtrar eventos según rol: admin/superadmin -> todos, evaluator -> solo sus eventos
         if user_role in ("admin", "superadmin"):
             events = Event.objects.all().order_by("start_date")
-        elif user_role == "evaluator" and user_data:
-            events = Event.objects.filter(evaluator__id=user_data.get("id")).order_by(
-                "start_date"
-            )
+        elif user_role == "evaluator":
+            events = Event.objects.filter(evaluator__id=user.id).order_by("start_date")
         else:
             # Comportamiento por defecto (sin token o rol desconocido): listar todos
             events = Event.objects.all().order_by("start_date")
@@ -1048,21 +1105,14 @@ def events(request):
 
 
 @csrf_exempt
+@jwt_required()
 def event_detail(request, event_id):
 
-    auth_header = request.headers.get("Authorization", "")
-    user_role = None
-    user_data = None
-    if auth_header.startswith("Bearer "):
-        token = auth_header.split(" ")[1]
-        payload = verify_token(token)
-        if payload:
-            try:
-                user = CustomUser.objects.get(id=payload.get("user_id"))
-                user_data = get_user_data(user)
-                user_role = user_data.get("role")
-            except CustomUser.DoesNotExist:
-                user_role = None
+    user = request.user
+    try:
+        user_role = UserRole.objects.get(user=user).role
+    except UserRole.DoesNotExist:
+        user_role = None
 
     try:
         event = Event.objects.get(id=event_id)
@@ -1492,79 +1542,8 @@ def event_detail(request, event_id):
     return JsonResponse({"error": "Método no permitido"}, status=405)
 
 
-def handle_event_participants(event, participants_payload):
-    """
-    Sin crear ni eliminar objetos Participant.
-    Solo sincroniza la relación M2M Event <-> Participant
-    en base a los items del payload con selected=True.
-
-    participants_payload: lista de dicts del tipo:
-        { "email": "a@b.com", "name": "...", "selected": true/false }
-    """
-
-    # Normalizar correos del payload
-    def _norm(email):
-        return (email or "").strip().lower()
-
-    selected_emails = {
-        _norm(item.get("email"))
-        for item in (participants_payload or [])
-        if item.get("selected", False) and item.get("email")
-    }
-
-    # Estado actual en BD
-    current_participants = list(event.participants.all())
-    current_emails = {p.email.lower() for p in current_participants}
-
-    # A quién agregar / quitar (solo por email existente en BD)
-    emails_to_add = selected_emails - current_emails
-    emails_to_remove = current_emails - selected_emails
-
-    # Traer solo los Participant existentes que corresponden a emails_to_add
-    participants_to_add = list(
-        Participant.objects.filter(email__in=list(emails_to_add))
-    )
-
-    # Map rápido por email
-    current_by_email = {p.email.lower(): p for p in current_participants}
-
-    with transaction.atomic():
-        # Agregar asociaciones nuevas
-        for participant in participants_to_add:
-            ParticipantEvent.objects.get_or_create(event=event, participant=participant)
-
-        # Quitar asociaciones eliminando el registro intermedio
-        for email in emails_to_remove:
-            participant = current_by_email.get(email)
-            if participant:
-                ParticipantEvent.objects.filter(
-                    event=event, participant=participant
-                ).delete()
-
-    # Métricas útiles para logs/debug
-    added_count = len(participants_to_add)
-    removed_count = len(emails_to_remove)
-    skipped_emails = sorted(
-        selected_emails
-        - {p.email.lower() for p in participants_to_add}
-        - current_emails
-    )
-    # `skipped_emails` = correos marcados como selected que NO existen en Participant,
-    # y por política no se crean aquí.
-
-    print(
-        f"[handle_event_participants] Added: {added_count}, Removed: {removed_count}, "
-        f"Skipped (not found in Participant): {len(skipped_emails)} -> {skipped_emails}"
-    )
-
-    return {
-        "added": added_count,
-        "removed": removed_count,
-        "skipped_not_found": skipped_emails,
-    }
-
-
 @csrf_exempt
+@jwt_required()
 def websites(request):
     """Endpoint para listar y crear sitios web (páginas bloqueables)"""
 
@@ -1612,6 +1591,7 @@ def websites(request):
 
 
 @csrf_exempt
+@jwt_required()
 def website_detail(request, website_id):
     """Endpoint para actualizar o eliminar un sitio web"""
 
@@ -1670,6 +1650,8 @@ def website_detail(request, website_id):
 
 
 @csrf_exempt
+@jwt_required()
+@require_GET
 def event_blocked_hosts(request, event_id):
     """Endpoint para obtener los hosts bloqueados de un evento"""
 
@@ -1678,15 +1660,11 @@ def event_blocked_hosts(request, event_id):
     except Event.DoesNotExist:
         return JsonResponse({"error": "Evento no encontrado"}, status=404)
 
-    if request.method == "GET":
-        blocked_hosts = BlockedHost.objects.filter(event=event).select_related(
-            "website"
-        )
-        blocked_website_ids = [str(bh.website.id) for bh in blocked_hosts]
+    blocked_hosts = BlockedHost.objects.filter(event=event).select_related("website")
+    blocked_website_ids = [str(bh.website.id) for bh in blocked_hosts]
 
-        return JsonResponse({"blocked_website_ids": blocked_website_ids})
+    return JsonResponse({"blocked_website_ids": blocked_website_ids})
 
-    return JsonResponse({"error": "Método no permitido"}, status=405)
 
 @csrf_exempt
 def participant_logs(request, participant_id):
@@ -1696,30 +1674,32 @@ def participant_logs(request, participant_id):
 
     try:
         participant = Participant.objects.get(id=participant_id)
-        logs = ParticipantLog.objects.filter(participant=participant).order_by('-id')
-        
+        logs = ParticipantLog.objects.filter(participant=participant).order_by("-id")
+
         logs_data = []
         for log in logs:
             log_data = {
-                'id': log.id,
-                'name': log.name,
-                'message': log.message,
-                'created_at': log.id,  # Using id as timestamp since there's no created_at field
-                'has_file': bool(log.file),
-                'file_url': log.file.url if log.file else None
+                "id": log.id,
+                "name": log.name,
+                "message": log.message,
+                "created_at": log.id,  # Using id as timestamp since there's no created_at field
+                "has_file": bool(log.file),
+                "file_url": log.file.url if log.file else None,
             }
             logs_data.append(log_data)
-            
-        return JsonResponse({
-            'participant': {
-                'id': participant.id,
-                'name': participant.name,
-                'email': participant.email
-            },
-            'logs': logs_data,
-            'total': len(logs_data)
-        })
-        
+
+        return JsonResponse(
+            {
+                "participant": {
+                    "id": participant.id,
+                    "name": participant.name,
+                    "email": participant.email,
+                },
+                "logs": logs_data,
+                "total": len(logs_data),
+            }
+        )
+
     except Participant.DoesNotExist:
         return JsonResponse({"error": "Participant not found"}, status=404)
     except Exception as e:
@@ -1735,33 +1715,34 @@ def participant_logs_by_type(request, participant_id, log_type):
     try:
         participant = Participant.objects.get(id=participant_id)
         logs = ParticipantLog.objects.filter(
-            participant=participant, 
-            name=log_type
-        ).order_by('-id')
-        
+            participant=participant, name=log_type
+        ).order_by("-id")
+
         logs_data = []
         for log in logs:
             log_data = {
-                'id': log.id,
-                'name': log.name,
-                'message': log.message,
-                'created_at': log.id,
-                'has_file': bool(log.file),
-                'file_url': log.file.url if log.file else None
+                "id": log.id,
+                "name": log.name,
+                "message": log.message,
+                "created_at": log.id,
+                "has_file": bool(log.file),
+                "file_url": log.file.url if log.file else None,
             }
             logs_data.append(log_data)
-            
-        return JsonResponse({
-            'participant': {
-                'id': participant.id,
-                'name': participant.name,
-                'email': participant.email
-            },
-            'log_type': log_type,
-            'logs': logs_data,
-            'total': len(logs_data)
-        })
-        
+
+        return JsonResponse(
+            {
+                "participant": {
+                    "id": participant.id,
+                    "name": participant.name,
+                    "email": participant.email,
+                },
+                "log_type": log_type,
+                "logs": logs_data,
+                "total": len(logs_data),
+            }
+        )
+
     except Participant.DoesNotExist:
         return JsonResponse({"error": "Participant not found"}, status=404)
     except Exception as e:
@@ -1776,44 +1757,47 @@ def event_participant_logs(request, event_id):
 
     try:
         event = Event.objects.get(id=event_id)
-        participant_events = ParticipantEvent.objects.filter(event=event).select_related('participant')
+        participant_events = ParticipantEvent.objects.filter(
+            event=event
+        ).select_related("participant")
         participants = [pe.participant for pe in participant_events]
-        
-        logs = ParticipantLog.objects.filter(participant__in=participants).order_by('-id')
-        
+
+        logs = ParticipantLog.objects.filter(participant__in=participants).order_by(
+            "-id"
+        )
+
         logs_data = []
         for log in logs:
             log_data = {
-                'id': log.id,
-                'name': log.name,
-                'message': log.message,
-                'created_at': log.id,
-                'has_file': bool(log.file),
-                'file_url': log.file.url if log.file else None,
-                'participant': {
-                    'id': log.participant.id,
-                    'name': log.participant.name,
-                    'email': log.participant.email
-                }
+                "id": log.id,
+                "name": log.name,
+                "message": log.message,
+                "created_at": log.id,
+                "has_file": bool(log.file),
+                "file_url": log.file.url if log.file else None,
+                "participant": {
+                    "id": log.participant.id,
+                    "name": log.participant.name,
+                    "email": log.participant.email,
+                },
             }
             logs_data.append(log_data)
-            
-        return JsonResponse({
-            'event': {
-                'id': event.id,
-                'name': event.name
-            },
-            'logs': logs_data,
-            'total': len(logs_data)
-        })
-        
+
+        return JsonResponse(
+            {
+                "event": {"id": event.id, "name": event.name},
+                "logs": logs_data,
+                "total": len(logs_data),
+            }
+        )
+
     except Event.DoesNotExist:
         return JsonResponse({"error": "Event not found"}, status=404)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
 
-@csrf_exempt  
+@csrf_exempt
 def participant_connection_stats(request, participant_id):
     """Endpoint para obtener estadísticas de conexión de un participante"""
     if request.method != "GET":
@@ -1821,38 +1805,44 @@ def participant_connection_stats(request, participant_id):
 
     try:
         from proxy.models import AssignedPort
-        
+
         participant = Participant.objects.get(id=participant_id)
-        
+
         # Buscar el ParticipantEvent activo del participante
-        participant_event = ParticipantEvent.objects.filter(participant=participant).first()
-        
+        participant_event = ParticipantEvent.objects.filter(
+            participant=participant
+        ).first()
+
         connection_data = {
-            'participant': {
-                'id': participant.id,
-                'name': participant.name,
-                'email': participant.email
+            "participant": {
+                "id": participant.id,
+                "name": participant.name,
+                "email": participant.email,
             },
-            'total_time_minutes': 0,
-            'is_active': False,
-            'last_activity': None,
-            'port': None
+            "total_time_minutes": 0,
+            "is_active": False,
+            "last_activity": None,
+            "port": None,
         }
-        
+
         if participant_event:
             try:
-                assigned_port = AssignedPort.objects.get(participant_event=participant_event)
-                connection_data.update({
-                    'total_time_minutes': assigned_port.get_total_time(),
-                    'is_active': assigned_port.is_active,
-                    'last_activity': assigned_port.last_activity,
-                    'port': assigned_port.port
-                })
+                assigned_port = AssignedPort.objects.get(
+                    participant_event=participant_event
+                )
+                connection_data.update(
+                    {
+                        "total_time_minutes": assigned_port.get_total_time(),
+                        "is_active": assigned_port.is_active,
+                        "last_activity": assigned_port.last_activity,
+                        "port": assigned_port.port,
+                    }
+                )
             except AssignedPort.DoesNotExist:
                 pass
-                
+
         return JsonResponse(connection_data)
-        
+
     except Participant.DoesNotExist:
         return JsonResponse({"error": "Participant not found"}, status=404)
     except Exception as e:
