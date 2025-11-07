@@ -10,8 +10,14 @@ urlpatterns = [
     path("api/verify-event-key", views.verify_event_key),
     # Rutas para consultar logs de participantes
     path("api/participants/<int:participant_id>/logs/", views.participant_logs),
-    path("api/participants/<int:participant_id>/logs/<str:log_type>/", views.participant_logs_by_type),
-    path("api/participants/<int:participant_id>/connection-stats/", views.participant_connection_stats),
+    path(
+        "api/participants/<int:participant_id>/logs/<str:log_type>/",
+        views.participant_logs_by_type,
+    ),
+    path(
+        "api/participants/<int:participant_id>/connection-stats/",
+        views.participant_connection_stats,
+    ),
     path("api/events/<int:event_id>/logs/", views.event_participant_logs),
     # Rutas para la gestión de eventos
     path("api/events", views.events),
@@ -21,8 +27,14 @@ urlpatterns = [
     path("api/participants", views.participants),
     path("api/participants/<int:participant_id>", views.participant_detail),
     # Importación masiva de participantes y plantilla
-    path("api/participants/import", views.import_participants, name="participants_import"),
-    path("api/participants/template", views.participants_template, name="participants_template"),
+    path(
+        "api/participants/import", views.import_participants, name="participants_import"
+    ),
+    path(
+        "api/participants/template",
+        views.participants_template,
+        name="participants_template",
+    ),
     # Rutas para paginas
     path("api/websites/", views.websites, name="websites"),
     path("api/websites/<int:website_id>/", views.website_detail, name="website_detail"),
@@ -32,4 +44,6 @@ urlpatterns = [
         views.event_blocked_hosts,
         name="event_blocked_hosts",
     ),
+    # Rutas para evaluaciones
+    path("api/evaluations", views.evaluaciones, name="evaluaciones"),
 ]
