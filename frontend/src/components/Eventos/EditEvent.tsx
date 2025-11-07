@@ -6,6 +6,7 @@ import participantService from '../../services/participantService';
 import evaluatorService from '../../services/evaluatorService';
 import BlockedPagesModal from './BlockedPagesModal';
 import blockedPagesService from '../../services/blockedPagesService';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface EditEventProps {
   onBack?: () => void;
@@ -39,6 +40,9 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
   const [evaluators, setEvaluators] = useState<{ id: string; name: string }[]>([]);
   const [showBlockedPagesModal, setShowBlockedPagesModal] = useState(false);
   const [selectedBlockedWebsites, setSelectedBlockedWebsites] = useState<string[]>([]);
+
+  const { user } = useAuth();
+  const isEvaluatorUser = user?.role === 'evaluator';
 
   // Utilidad para convertir UTC a local
   function formatUTCToLocalInput(dateStr?: string, timeStr?: string) {
@@ -389,7 +393,7 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
                       id="evaluator"
                       value={evaluator}
                       onChange={(e) => setEvaluator(e.target.value)}
-                      disabled={isFieldDisabled}
+                      disabled={isFieldDisabled || isEvaluatorUser}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm bg-white disabled:bg-gray-100 disabled:cursor-not-allowed"
                     >
                       <option value="">Seleccionar evaluador...</option>
