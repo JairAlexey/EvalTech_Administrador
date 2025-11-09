@@ -9,16 +9,11 @@ urlpatterns = [
     path("api/logging/media/capture", views.log_participant_audio_video_event),
     path("api/verify-event-key", views.verify_event_key),
     # Rutas para consultar logs de participantes
-    path("api/participants/<int:participant_id>/logs/", views.participant_logs),
-    path(
-        "api/participants/<int:participant_id>/logs/<str:log_type>/",
-        views.participant_logs_by_type,
-    ),
     path(
         "api/participants/<int:participant_id>/connection-stats/",
         views.participant_connection_stats,
     ),
-    path("api/events/<int:event_id>/logs/", views.event_participant_logs),
+    path("api/events/<int:event_id>/participants/<int:participant_id>/logs/", views.event_participant_logs),
     # Rutas para la gestión de eventos
     path("api/events", views.events),
     path("api/events/<int:event_id>", views.event_detail),
@@ -46,4 +41,9 @@ urlpatterns = [
     ),
     # Rutas para evaluaciones
     path("api/evaluations", views.evaluaciones, name="evaluaciones"),
+    path(
+        "api/evaluations/<int:evaluation_id>",
+        views.evaluation_detail,
+        name="evaluation_detail",
+    ),
 ]
