@@ -1736,104 +1736,76 @@ def evaluaciones(request):
 
 
 @csrf_exempt
-def participant_logs(request, participant_id):
-    """Endpoint para obtener todos los logs de un participante específico"""
-    if request.method != "GET":
-        return JsonResponse({"error": "Method not allowed"}, status=405)
-
+@jwt_required()
+@require_GET
+def evaluation_detail(request, evaluation_id):
+    """
+    Endpoint para obtener el detalle de una evaluación (evento).
+    Devuelve los datos en el formato de EvaluationDetail.
+    """
     try:
-        participant = Participant.objects.get(id=participant_id)
-        logs = ParticipantLog.objects.filter(participant=participant).order_by("-id")
+        event = Event.objects.get(id=evaluation_id)
+    except Event.DoesNotExist:
+        return JsonResponse({"error": "Evaluación no encontrada"}, status=404)
 
-        logs_data = []
-        for log in logs:
-            log_data = {
-                "id": log.id,
-                "name": log.name,
-                "message": log.message,
-                "created_at": log.id,  # Using id as timestamp since there's no created_at field
-                "has_file": bool(log.file),
-                "file_url": log.file.url if log.file else None,
-            }
-            logs_data.append(log_data)
+    participants = Participant.objects.filter(events=event)
+    participants_data = [
+        {
+            "id": str(p.id),
+            "name": p.name,
+            "initials": p.get_initials() if hasattr(p, "get_initials") else "",
+            "status": "activo",  # Puedes ajustar el status según tu lógica
+            "color": f"bg-{['blue', 'green', 'purple', 'red', 'yellow', 'indigo', 'pink'][p.id % 7]}-200",
+        }
+        for p in participants
+    ]
 
-        return JsonResponse(
-            {
-                "participant": {
-                    "id": participant.id,
-                    "name": participant.name,
-                    "email": participant.email,
-                },
-                "logs": logs_data,
-                "total": len(logs_data),
-            }
-        )
+    evaluator_name = None
+    if event.evaluator:
+        evaluator_name = f"{event.evaluator.first_name} {event.evaluator.last_name}"
 
-    except Participant.DoesNotExist:
-        return JsonResponse({"error": "Participant not found"}, status=404)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
+    detail = {
+        "id": str(event.id),
+        "name": event.name,
+        "description": event.description,
+        "startDate": event.start_date.strftime("%Y-%m-%d") if event.start_date else "",
+        "startTime": event.start_date.strftime("%H:%M") if event.start_date else "",
+        "duration": event.duration,
+        "endDate": event.end_date.strftime("%Y-%m-%d") if event.end_date else "",
+        "endTime": event.end_date.strftime("%H:%M") if event.end_date else "",
+        "status": event.status,
+        "participants": participants_data,
+        "evaluator": evaluator_name,
+    }
+
+    return JsonResponse({"event": detail})
+
+
+# Logs
 
 
 @csrf_exempt
-def participant_logs_by_type(request, participant_id, log_type):
-    """Endpoint para obtener logs de un participante filtrados por tipo"""
-    if request.method != "GET":
-        return JsonResponse({"error": "Method not allowed"}, status=405)
-
-    try:
-        participant = Participant.objects.get(id=participant_id)
-        logs = ParticipantLog.objects.filter(
-            participant=participant, name=log_type
-        ).order_by("-id")
-
-        logs_data = []
-        for log in logs:
-            log_data = {
-                "id": log.id,
-                "name": log.name,
-                "message": log.message,
-                "created_at": log.id,
-                "has_file": bool(log.file),
-                "file_url": log.file.url if log.file else None,
-            }
-            logs_data.append(log_data)
-
-        return JsonResponse(
-            {
-                "participant": {
-                    "id": participant.id,
-                    "name": participant.name,
-                    "email": participant.email,
-                },
-                "log_type": log_type,
-                "logs": logs_data,
-                "total": len(logs_data),
-            }
-        )
-
-    except Participant.DoesNotExist:
-        return JsonResponse({"error": "Participant not found"}, status=404)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
-
-
-@csrf_exempt
-def event_participant_logs(request, event_id):
-    """Endpoint para obtener todos los logs de participantes de un evento específico"""
-    if request.method != "GET":
-        return JsonResponse({"error": "Method not allowed"}, status=405)
-
+@require_GET
+def event_participant_logs(request, event_id, participant_id):
+    """Endpoint para obtener todos los logs de un participante específico de un evento"""
     try:
         event = Event.objects.get(id=event_id)
-        participant_events = ParticipantEvent.objects.filter(
-            event=event
-        ).select_related("participant")
-        participants = [pe.participant for pe in participant_events]
+        participant = Participant.objects.get(id=participant_id)
+        
+        # Obtener el ParticipantEvent específico
+        participant_event = ParticipantEvent.objects.filter(
+            event=event,
+            participant=participant
+        ).first()
+        
+        if not participant_event:
+            return JsonResponse(
+                {"error": "Participant not found in this event"}, 
+                status=404
+            )
 
-        logs = ParticipantLog.objects.filter(participant__in=participants).order_by(
-            "-id"
-        )
+        # Filtrar logs solo del participante específico
+        logs = ParticipantLog.objects.filter(participant_event=participant_event)
 
         logs_data = []
         for log in logs:
@@ -1844,11 +1816,6 @@ def event_participant_logs(request, event_id):
                 "created_at": log.id,
                 "has_file": bool(log.file),
                 "file_url": log.file.url if log.file else None,
-                "participant": {
-                    "id": log.participant.id,
-                    "name": log.participant.name,
-                    "email": log.participant.email,
-                },
             }
             logs_data.append(log_data)
 
@@ -1862,6 +1829,8 @@ def event_participant_logs(request, event_id):
 
     except Event.DoesNotExist:
         return JsonResponse({"error": "Event not found"}, status=404)
+    except Participant.DoesNotExist:
+        return JsonResponse({"error": "Participant not found"}, status=404)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 

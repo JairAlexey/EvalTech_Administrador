@@ -10,6 +10,7 @@ import Dashboard from './components/Dashboard';
 import Home from './components/Home';
 import EvaluationsList from './components/Evaluaciones/EvaluationsList';
 import EvaluationDetails from './components/Evaluaciones/EvaluationDetails';
+import MonitoringPage from './components/Evaluaciones/MonitoringPage';
 import UserRoleManagement from './components/Roles/UserRoleManagement';
 import { useAuth } from './contexts/AuthContext';
 import CreateParticipant from './components/Participantes/CreateParticipant';
@@ -17,7 +18,7 @@ import Profile from './components/Perfil/Profile';
 import AccessDeniedPage from './components/utils/AccessDenied';
 import NotFoundPage from './components/utils/NotFound';
 
-type Page = 'home' | 'login' | 'dashboard' | 'eventos' | 'create-event' | 'event-details' | 'edit-event' | 'participants' | 'edit-participant' | 'create-participant' | 'evaluaciones' | 'evaluation-details' | 'estadisticas' | 'exportar' | 'cuenta' | 'roles';
+type Page = 'home' | 'login' | 'dashboard' | 'eventos' | 'create-event' | 'event-details' | 'edit-event' | 'participants' | 'edit-participant' | 'create-participant' | 'evaluaciones' | 'evaluation-details' | 'monitoring' | 'estadisticas' | 'exportar' | 'cuenta' | 'roles';
 
 function App() {
     // Recuperar el estado guardado de localStorage o usar valores por defecto
@@ -110,6 +111,7 @@ function App() {
             'edit-event',
             'evaluaciones',
             'evaluation-details',
+            'monitoring',
             'estadisticas',
             'exportar',
             'cuenta'
@@ -127,6 +129,7 @@ function App() {
             'create-participant',
             'evaluaciones',
             'evaluation-details',
+            'monitoring',
             'estadisticas',
             'exportar',
             'cuenta'
@@ -173,11 +176,17 @@ function App() {
         handleNavigate('edit-event');
     };
 
-    // Controladores de evaluaciones
-    const handleViewEvaluationDetails = (participantId: string, eventId: string) => {
-        setSelectedParticipantId(participantId);
-        setSelectedEventId(eventId);
+    // Controlador de detalle de eventos
+    const handleViewEvaluationDetails = (evaluationId: string) => {
+        setSelectedEventId(evaluationId);
+        setSelectedParticipantId(null);
         handleNavigate('evaluation-details');
+    };
+
+    // Controlador de monitorización
+    const handleViewMonitoring = (participantId: string) => {
+        setSelectedParticipantId(participantId);
+        handleNavigate('monitoring');
     };
 
     // Controladores de regreso
@@ -366,11 +375,34 @@ function App() {
                 );
 
             case 'evaluation-details':
+                if (!selectedEventId) {
+                    handleNavigate('evaluaciones');
+                    return null;
+                }
                 return (
                     <EvaluationDetails
                         onBack={handleBackToEvaluations}
-                        participantId={selectedParticipantId || undefined}
-                        eventId={selectedEventId || undefined}
+                        evaluationId={selectedEventId}
+                        onNavigate={handleNavigate}
+                        onViewMonitoring={handleViewMonitoring}
+                    />
+                );
+
+            case 'monitoring':
+                if (!selectedEventId || !selectedParticipantId) {
+                    handleNavigate('evaluaciones');
+                    return null;
+                }
+                return (
+                    <MonitoringPage
+                        eventId={selectedEventId}
+                        participantId={selectedParticipantId}
+                        onBack={() => {
+                            setSelectedParticipantId(null);
+                            localStorage.removeItem('selectedParticipantId');
+                            setCurrentPage('evaluation-details');
+                            localStorage.setItem('currentPage', 'evaluation-details');
+                        }}
                         onNavigate={handleNavigate}
                     />
                 );
