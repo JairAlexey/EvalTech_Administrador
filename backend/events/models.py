@@ -104,7 +104,9 @@ class ParticipantLog(models.Model):
     name = models.CharField(max_length=200)
     file = models.FileField(upload_to="logs", null=True, blank=True)
     message = models.TextField()
-    participant = models.ForeignKey(Participant, on_delete=models.CASCADE, null=True)
+    participant_event = models.ForeignKey(
+        ParticipantEvent, on_delete=models.CASCADE, null=True
+    )
 
     class Meta:
         db_table = "logs_participantes"

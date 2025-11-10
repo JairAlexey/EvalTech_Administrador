@@ -86,7 +86,7 @@ export const evaluationService = {
         throw new Error('No hay token de autenticación');
       }
 
-      const response = await fetch(`${API_URL}/events/api/events/${evaluationId}`, {
+      const response = await fetch(`${API_URL}/events/api/evaluations/${evaluationId}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -94,13 +94,13 @@ export const evaluationService = {
 
       if (!response.ok) {
         console.error(`Error al obtener detalles de evaluación. Status: ${response.status}`);
+        const errorText = await response.text();
+        console.error(`Respuesta de error: ${errorText}`);
         throw new Error(`Error al obtener detalles: ${response.statusText}`);
       }
 
       const data = await response.json();
-      console.log("Detalles de evaluación:", data);
-      
-      return data.event || null;
+      return data?.event || null;
     } catch (error) {
       console.error('Error al obtener detalles de evaluación:', error);
       return null;
