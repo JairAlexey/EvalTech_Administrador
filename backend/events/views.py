@@ -102,6 +102,21 @@ def get_participant(event_key):
         return None
 
 
+def get_participant_event(event_key):
+    """Devuelve el ParticipantEvent asociado al event_key o None si no existe.
+
+    Mantener esta función separada de `get_participant` para no romper código
+    que pueda depender todavía en el objeto Participant.
+    """
+    try:
+        participant_event = ParticipantEvent.objects.select_related(
+            "participant", "event"
+        ).get(event_key=event_key)
+        return participant_event
+    except ParticipantEvent.DoesNotExist:
+        return None
+
+
 def _validate_participant_fields(
     first_name: str, last_name: str, email: str, seen_emails: set
 ):
@@ -217,13 +232,13 @@ def log_participant_http_event(request: HttpRequest):
     try:
         data = json.loads(request.body)
         event_key = request.headers.get("Authorization").split()[1]
-        participant = get_participant(event_key)
+        participant_event = get_participant_event(event_key)
 
-        if not participant:
-            return JsonResponse({"error": "Participant not found"}, status=404)
+        if not participant_event:
+            return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
 
         ParticipantLog.objects.create(
-            name="http", message=data["uri"], participant=participant
+            name="http", message=data["uri"], participant_event=participant_event
         )
         return JsonResponse({"status": "success"})
 
@@ -237,13 +252,13 @@ def log_participant_keylogger_event(request: HttpRequest):
     try:
         data = json.loads(request.body)
         event_key = request.headers.get("Authorization").split()[1]
-        participant = get_participant(event_key)
+        participant_event = get_participant_event(event_key)
 
-        if not participant:
-            return JsonResponse({"error": "Participant not found"}, status=404)
+        if not participant_event:
+            return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
 
         ParticipantLog.objects.create(
-            name="keylogger", message="\n".join(data["keys"]), participant=participant
+            name="keylogger", message="\n".join(data["keys"]), participant_event=participant_event
         )
         return JsonResponse({"status": "success"})
 
@@ -256,17 +271,17 @@ def log_participant_screen_event(request: HttpRequest):
 
     try:
         event_key = request.headers.get("Authorization").split()[1]
-        participant = get_participant(event_key)
+        participant_event = get_participant_event(event_key)
 
-        if not participant:
-            return JsonResponse({"error": "Participant not found"}, status=404)
+        if not participant_event:
+            return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
 
         file = request.FILES["screenshot"]
         ParticipantLog.objects.create(
             name="screen",
             file=file,
             message="Desktop Screenshot",
-            participant=participant,
+            participant_event=participant_event,
         )
         return JsonResponse({"status": "success"})
 
@@ -279,17 +294,17 @@ def log_participant_audio_video_event(request: HttpRequest):
 
     try:
         event_key = request.headers.get("Authorization").split()[1]
-        participant = get_participant(event_key)
+        participant_event = get_participant_event(event_key)
 
-        if not participant:
-            return JsonResponse({"error": "Participant not found"}, status=404)
+        if not participant_event:
+            return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
 
         file = request.FILES["media"]
         ParticipantLog.objects.create(
             name="audio/video",
             file=file,
             message="Media Capture",
-            participant=participant,
+            participant_event=participant_event,
         )
         return JsonResponse({"status": "success"})
 
@@ -1809,11 +1824,23 @@ def event_participant_logs(request, event_id, participant_id):
 
         logs_data = []
         for log in logs:
+            # Si el modelo ParticipantLog tuviera un campo created_at lo usamos,
+            # si no existe (compatibilidad) usamos el id como fallback para
+            # mantener un valor entero ordenable usado por el frontend.
+            created_ts = None
+            if hasattr(log, "created_at") and getattr(log, "created_at"):
+                try:
+                    created_ts = int(log.created_at.timestamp())
+                except Exception:
+                    created_ts = None
+            if created_ts is None:
+                created_ts = int(log.id)
+
             log_data = {
                 "id": log.id,
                 "name": log.name,
                 "message": log.message,
-                "created_at": log.id,
+                "created_at": created_ts,
                 "has_file": bool(log.file),
                 "file_url": log.file.url if log.file else None,
             }
