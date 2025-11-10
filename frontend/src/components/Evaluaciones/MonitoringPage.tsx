@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import monitoringService from '../../services/monitoringService';
+import { API_URL } from '../../services/authService';
 import type { ParticipantLog, ConnectionStats } from '../../services/monitoringService';
 import Sidebar from '../utils/Sidebar';
 
@@ -262,14 +263,34 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                                                     {log.has_file && log.file_url && (
-                                                        <a
-                                                            href={log.file_url}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="text-blue-600 hover:text-blue-800 underline"
-                                                        >
-                                                            Ver archivo
-                                                        </a>
+                                                        (() => {
+                                                            // Normalizar la URL del archivo hacia el backend (localhost:8000)
+                                                            let fileUrl = log.file_url;
+
+                                                            try {
+                                                                // Si la URL es relativa (comienza con /), prefijar con API_URL
+                                                                if (fileUrl.startsWith('/')) {
+                                                                    fileUrl = `${API_URL}${fileUrl}`;
+                                                                } else if (fileUrl.includes('localhost:5173')) {
+                                                                    // Reemplazar el host del frontend por el del backend
+                                                                    fileUrl = fileUrl.replace('localhost:5173', 'localhost:8000');
+                                                                }
+                                                            } catch (e) {
+                                                                // En caso de cualquier problema, usar la URL original
+                                                                console.error('Error normalizando file_url:', e);
+                                                            }
+
+                                                            return (
+                                                                <a
+                                                                    href={fileUrl}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="text-blue-600 hover:text-blue-800 underline"
+                                                                >
+                                                                    Ver archivo
+                                                                </a>
+                                                            );
+                                                        })()
                                                     )}
                                                 </td>
                                             </tr>

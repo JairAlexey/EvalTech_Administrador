@@ -62,9 +62,9 @@ class DynamicProxyManager:
             event_key = self._authenticate_client(client_socket)
             if not event_key:
                 return
-
             assigned_port = self._assign_dynamic_port(event_key)
-            self._start_proxy_instance(assigned_port)
+            # _assign_dynamic_port ahora programa el arranque del ProxyInstance
+            # usando transaction.on_commit para evitar condiciones de carrera.
             
             response = f"ASSIGNED_PORT:{assigned_port}"
             client_socket.send(response.encode('utf-8'))
@@ -126,8 +126,12 @@ class DynamicProxyManager:
                     participant_event=participant_event
                 )
                 if not assigned_port.is_active:
-                    # Reactivar el puerto existente
-                    assigned_port.activate()
+                    # Reactivar el puerto existente (persistir cambio)
+                    assigned_port.is_active = True
+                    assigned_port.save(update_fields=['is_active'])
+
+                # Agendar arranque del proxy tras commit para evitar leer antes de persistir
+                transaction.on_commit(lambda: self._start_proxy_instance(assigned_port.port))
                 return assigned_port.port
             except AssignedPort.DoesNotExist:
                 # Buscar puerto disponible para nueva asignación
@@ -146,11 +150,13 @@ class DynamicProxyManager:
                 assigned_port = AssignedPort.objects.create(
                     participant_event=participant_event,
                     port=new_port,
-                    is_active=False,  # Crear como inactivo
+                    # Crear como activo inmediatamente para evitar condiciones de carrera
+                    is_active=True,
                     total_duration=0
                 )
-                # Activar después de crear
-                assigned_port.activate()
+
+                # Agendar arranque del proxy tras commit para asegurar visibilidad en DB
+                transaction.on_commit(lambda: self._start_proxy_instance(assigned_port.port))
                 return new_port
 
     def _start_proxy_instance(self, port):
@@ -174,10 +180,24 @@ class ProxyInstance:
         self.event_key = None
         self.default_blocked_hosts = ["chatgpt.com", "deepseek.com", "gemini.google.com"]  
         try:
-            self.assigned_port = AssignedPort.objects.select_related(
-                'participant_event__participant',
-                'participant_event__event'
-            ).get(port=self.port, is_active=True)
+            # Intentar obtener el AssignedPort que ya esté activo
+            try:
+                self.assigned_port = AssignedPort.objects.select_related(
+                    'participant_event__participant',
+                    'participant_event__event'
+                ).get(port=self.port, is_active=True)
+            except AssignedPort.DoesNotExist:
+                # Si no existe como activo (posible condición de carrera), obtener por puerto
+                # y activarlo para que la instancia del proxy tenga siempre referencia.
+                self.assigned_port = AssignedPort.objects.select_related(
+                    'participant_event__participant',
+                    'participant_event__event'
+                ).get(port=self.port)
+                if not self.assigned_port.is_active:
+                    # Activar y persistir
+                    self.assigned_port.is_active = True
+                    self.assigned_port.save(update_fields=['is_active'])
+
             participant_event = self.assigned_port.participant_event
             self.event_key = participant_event.event_key
             # Obtener hosts bloqueados del evento relacionado
@@ -258,9 +278,18 @@ class ProxyInstance:
                 status_msg = f"{method} {target_host}"
                 
                 # Enviar log a la API si la conexión está bloqueada
-                if self.event_key:
-                    self._send_log_to_api(self.event_key, f"⛔ Blocked URL: {clean_url}")
-                    logger.info(f"⛔ | Blocked URL logged: {clean_url}")
+                # Solo enviar al API si el participante está en modo monitoreo
+                try:
+                    is_mon = False
+                    if hasattr(self, 'assigned_port') and self.assigned_port:
+                        is_mon = getattr(self.assigned_port.participant_event, 'is_monitoring', False)
+                    if self.event_key and is_mon:
+                        self._send_log_to_api(self.event_key, f"⛔ Blocked URL: {clean_url}")
+                        logger.info(f"⛔ | Blocked URL logged: {clean_url}")
+                    else:
+                        logger.debug(f"Blocked URL detected but participant not monitoring; skipping API log: {clean_url}")
+                except Exception as e:
+                    logger.error(f"Error checking monitoring state for blocked-host logging: {e}")
                 
                 client_socket.send(b'HTTP/1.1 403 Forbidden\r\n\r\n')
                 client_socket.close()
@@ -295,6 +324,16 @@ class ProxyInstance:
 
     def _send_log_to_api(self, event_key, uri):
         try:
+            # Evitar enviar logs al API si el participante no está en modo monitoreo
+            try:
+                if hasattr(self, 'assigned_port') and self.assigned_port:
+                    if not getattr(self.assigned_port.participant_event, 'is_monitoring', False):
+                        logger.debug("Skipping log send because participant is not monitoring")
+                        return
+            except Exception:
+                # Si falla la comprobación, continuar y dejar que el servidor decida
+                pass
+
             api_url = f"{settings.BASE_URL}{settings.ADMINISTRADORMONITOREO_API_LOG_HTTP_REQUEST}"
             headers = {
                 "Authorization": f"Bearer {event_key}",
