@@ -29,10 +29,12 @@ class AssignedPort(models.Model):
     def activate(self):
         """Activa el puerto y registra el tiempo de inicio"""
         from django.utils import timezone
+        # Activar proxy/puerto, pero NO iniciar el contador de monitoreo aquí.
+        # El contador de monitoreo debe iniciarse únicamente cuando el participante
+        # pulsa "Empezar monitoreo" (participant_event.is_monitoring = True).
         self.is_active = True
-        self.current_session_time = timezone.now()
-        self.save(update_fields=['is_active', 'current_session_time'])
-        print(f"[DEBUG] Port {self.port} activated at {self.current_session_time}")
+        self.save(update_fields=['is_active'])
+        print(f"[DEBUG] Port {self.port} activated (proxy connection) at {timezone.now()}")
 
     def deactivate(self):
         """Desactiva el puerto y actualiza el tiempo de conexión"""
