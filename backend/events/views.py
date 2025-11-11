@@ -83,8 +83,12 @@ def verify_event_key(request):
             # como indicador principal de "Estado" en la UI (si el participante
             # inició realmente el monitoreo). Mantener totalTime desde AssignedPort.
             connection_info["totalTime"] = assigned_port.get_total_time()
-            connection_info["isActive"] = bool(getattr(participant_event, "is_monitoring", False))
-            connection_info["monitoringAllowed"] = getattr(participant_event, "is_monitoring", False)
+            connection_info["isActive"] = bool(
+                getattr(participant_event, "is_monitoring", False)
+            )
+            connection_info["monitoringAllowed"] = getattr(
+                participant_event, "is_monitoring", False
+            )
         except AssignedPort.DoesNotExist:
             pass
 
@@ -279,7 +283,9 @@ def log_participant_keylogger_event(request: HttpRequest):
             return JsonResponse({"error": "Monitoring not started"}, status=403)
 
         ParticipantLog.objects.create(
-            name="keylogger", message="\n".join(data["keys"]), participant_event=participant_event
+            name="keylogger",
+            message="\n".join(data["keys"]),
+            participant_event=participant_event,
         )
         return JsonResponse({"status": "success"})
 
@@ -1797,16 +1803,41 @@ def evaluation_detail(request, evaluation_id):
         return JsonResponse({"error": "Evaluación no encontrada"}, status=404)
 
     participants = Participant.objects.filter(events=event)
-    participants_data = [
-        {
-            "id": str(p.id),
-            "name": p.name,
-            "initials": p.get_initials() if hasattr(p, "get_initials") else "",
-            "status": "activo",  # Puedes ajustar el status según tu lógica
-            "color": f"bg-{['blue', 'green', 'purple', 'red', 'yellow', 'indigo', 'pink'][p.id % 7]}-200",
-        }
-        for p in participants
-    ]
+    participants_data = []
+
+    for p in participants:
+        # Obtener estados de proxy y monitoreo
+        proxy_status = False
+        monitoring_status = False
+
+        try:
+            participant_event = ParticipantEvent.objects.get(event=event, participant=p)
+
+            # Estado de monitoreo
+            monitoring_status = getattr(participant_event, "is_monitoring", False)
+
+            # Estado de proxy
+            try:
+                assigned_port = AssignedPort.objects.get(
+                    participant_event=participant_event
+                )
+                proxy_status = assigned_port.is_active
+            except AssignedPort.DoesNotExist:
+                proxy_status = False
+
+        except ParticipantEvent.DoesNotExist:
+            pass
+
+        participants_data.append(
+            {
+                "id": str(p.id),
+                "name": p.name,
+                "initials": p.get_initials() if hasattr(p, "get_initials") else "",
+                "proxy_is_active": proxy_status,
+                "monitoring_is_active": monitoring_status,
+                "color": f"bg-{['blue', 'green', 'purple', 'red', 'yellow', 'indigo', 'pink'][p.id % 7]}-200",
+            }
+        )
 
     evaluator_name = None
     if event.evaluator:
@@ -1833,23 +1864,22 @@ def evaluation_detail(request, evaluation_id):
 
 
 @csrf_exempt
+@jwt_required()
 @require_GET
 def event_participant_logs(request, event_id, participant_id):
     """Endpoint para obtener todos los logs de un participante específico de un evento"""
     try:
         event = Event.objects.get(id=event_id)
         participant = Participant.objects.get(id=participant_id)
-        
+
         # Obtener el ParticipantEvent específico
         participant_event = ParticipantEvent.objects.filter(
-            event=event,
-            participant=participant
+            event=event, participant=participant
         ).first()
-        
+
         if not participant_event:
             return JsonResponse(
-                {"error": "Participant not found in this event"}, 
-                status=404
+                {"error": "Participant not found in this event"}, status=404
             )
 
         # Filtrar logs solo del participante específico
@@ -1896,10 +1926,10 @@ def event_participant_logs(request, event_id, participant_id):
 
 
 @csrf_exempt
+@jwt_required()
+@require_GET
 def participant_connection_stats(request, participant_id):
     """Endpoint para obtener estadísticas de conexión de un participante"""
-    if request.method != "GET":
-        return JsonResponse({"error": "Method not allowed"}, status=405)
 
     try:
         from proxy.models import AssignedPort
@@ -1918,27 +1948,29 @@ def participant_connection_stats(request, participant_id):
                 "email": participant.email,
             },
             "total_time_minutes": 0,
-            "is_active": False,
+            "proxy_is_active": False,
+            "monitoring_is_active": False,
             "last_activity": None,
             "port": None,
         }
 
         if participant_event:
+            # Estado de monitoreo desde ParticipantEvent
+            connection_data["monitoring_is_active"] = getattr(
+                participant_event, "is_monitoring", False
+            )
+
             try:
                 assigned_port = AssignedPort.objects.get(
                     participant_event=participant_event
                 )
-                # Solo reportar tiempo/activo si el participante ya pulsó "Empezar monitoreo"
-                # Reportar siempre los valores reales del AssignedPort (tiempo total y estado),
-                # pero proveer un flag `monitoringAllowed` para indicar si el participante
-                # pulsó "Empezar monitoreo" y por tanto si se permiten envíos de logs.
+                # Estado de proxy desde AssignedPort
                 connection_data.update(
                     {
                         "total_time_minutes": assigned_port.get_total_time(),
-                        "is_active": bool(getattr(participant_event, "is_monitoring", False)),
+                        "proxy_is_active": assigned_port.is_active,
                         "last_activity": assigned_port.last_activity,
                         "port": assigned_port.port,
-                        "monitoringAllowed": getattr(participant_event, "is_monitoring", False),
                     }
                 )
             except AssignedPort.DoesNotExist:
