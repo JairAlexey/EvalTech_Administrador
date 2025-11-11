@@ -81,3 +81,81 @@ def release_port(request):
     except Exception as e:
         logger.error(f"Error in release-port: {str(e)}", exc_info=True)
         return JsonResponse({"error": "Internal server error"}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def start_monitoring(request):
+    """Mark participant_event.is_monitoring = True for the event_key in Authorization header"""
+    auth_header = request.headers.get("Authorization", "")
+    parts = auth_header.split(" ", 1)
+    if len(parts) != 2 or not parts[1]:
+        return JsonResponse({"error": "Invalid format authorization"}, status=401)
+    event_key = parts[1]
+
+    from django.utils import timezone
+    try:
+        pe = ParticipantEvent.objects.get(event_key=event_key)
+        pe.is_monitoring = True
+        pe.save(update_fields=["is_monitoring"])
+        logger.info(f"start_monitoring called for event_key={event_key}; participant_event id={pe.id}")
+
+        # Si existe AssignedPort asociado, iniciar current_session_time para comenzar
+        # a contar el tiempo de monitoreo (si no estaba ya iniciado).
+        try:
+            assigned_port = AssignedPort.objects.get(participant_event=pe)
+            if assigned_port.current_session_time is None:
+                assigned_port.current_session_time = timezone.now()
+                assigned_port.save(update_fields=["current_session_time"])
+        except AssignedPort.DoesNotExist:
+            # No hay puerto asignado aún, no hay nada más que hacer
+            logger.info(f"start_monitoring: no AssignedPort found for participant_event id={pe.id}")
+            pass
+
+        return JsonResponse({"status": "monitoring_started"})
+    except ParticipantEvent.DoesNotExist:
+        return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
+    except Exception as e:
+        logger.error(f"Error in start_monitoring: {e}")
+        return JsonResponse({"error": "Internal server error"}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def stop_monitoring(request):
+    """Mark participant_event.is_monitoring = False for the event_key in Authorization header"""
+    auth_header = request.headers.get("Authorization", "")
+    parts = auth_header.split(" ", 1)
+    if len(parts) != 2 or not parts[1]:
+        return JsonResponse({"error": "Invalid format authorization"}, status=401)
+    event_key = parts[1]
+
+    from django.utils import timezone
+    try:
+        pe = ParticipantEvent.objects.get(event_key=event_key)
+        pe.is_monitoring = False
+        pe.save(update_fields=["is_monitoring"])
+        logger.info(f"stop_monitoring called for event_key={event_key}; participant_event id={pe.id}")
+
+        # Si existe AssignedPort asociado, terminar la sesión actual (sin desactivar el puerto)
+        try:
+            assigned_port = AssignedPort.objects.get(participant_event=pe)
+            if assigned_port.current_session_time:
+                now = timezone.now()
+                start_time = assigned_port.current_session_time
+                session_seconds = int((now - start_time).total_seconds())
+                if assigned_port.total_duration is None:
+                    assigned_port.total_duration = 0
+                assigned_port.total_duration += session_seconds
+                assigned_port.current_session_time = None
+                assigned_port.save(update_fields=["total_duration", "current_session_time"])
+        except AssignedPort.DoesNotExist:
+            logger.info(f"stop_monitoring: no AssignedPort found for participant_event id={pe.id}")
+            pass
+
+        return JsonResponse({"status": "monitoring_stopped"})
+    except ParticipantEvent.DoesNotExist:
+        return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
+    except Exception as e:
+        logger.error(f"Error in stop_monitoring: {e}")
+        return JsonResponse({"error": "Internal server error"}, status=500)

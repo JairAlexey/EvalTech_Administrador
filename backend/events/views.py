@@ -53,8 +53,11 @@ def verify_event_key(request):
 
     if not authorization.startswith("Bearer "):
         return JsonResponse({"error": "Invalid format authorization"}, status=401)
+    parts = authorization.split(" ", 1)
+    if len(parts) != 2 or not parts[1]:
+        return JsonResponse({"error": "Invalid format authorization"}, status=401)
 
-    event_key = authorization.split(" ")[1]
+    event_key = parts[1]
     try:
         participant_event = ParticipantEvent.objects.select_related(
             "participant", "event"
@@ -68,14 +71,24 @@ def verify_event_key(request):
             "totalTime": 0,  # Tiempo total acumulado en minutos
             "isActive": False,  # Si está actualmente conectado
             "eventDuration": event.duration,  # Duración total permitida
+            # Indica si el participante ha pulsado 'Empezar monitoreo' (permite logs)
+            "monitoringAllowed": False,
         }
 
         try:
             assigned_port = AssignedPort.objects.get(
                 participant_event=participant_event
             )
+            # Reportar el tiempo real y el puerto, pero usar `is_monitoring`
+            # como indicador principal de "Estado" en la UI (si el participante
+            # inició realmente el monitoreo). Mantener totalTime desde AssignedPort.
             connection_info["totalTime"] = assigned_port.get_total_time()
-            connection_info["isActive"] = assigned_port.is_active
+            connection_info["isActive"] = bool(
+                getattr(participant_event, "is_monitoring", False)
+            )
+            connection_info["monitoringAllowed"] = getattr(
+                participant_event, "is_monitoring", False
+            )
         except AssignedPort.DoesNotExist:
             pass
 
@@ -98,6 +111,21 @@ def get_participant(event_key):
             event_key=event_key
         )
         return participant_event.participant
+    except ParticipantEvent.DoesNotExist:
+        return None
+
+
+def get_participant_event(event_key):
+    """Devuelve el ParticipantEvent asociado al event_key o None si no existe.
+
+    Mantener esta función separada de `get_participant` para no romper código
+    que pueda depender todavía en el objeto Participant.
+    """
+    try:
+        participant_event = ParticipantEvent.objects.select_related(
+            "participant", "event"
+        ).get(event_key=event_key)
+        return participant_event
     except ParticipantEvent.DoesNotExist:
         return None
 
@@ -216,14 +244,20 @@ def log_participant_http_event(request: HttpRequest):
 
     try:
         data = json.loads(request.body)
-        event_key = request.headers.get("Authorization").split()[1]
-        participant = get_participant(event_key)
+        auth = request.headers.get("Authorization", "")
+        parts = auth.split(" ", 1)
+        if len(parts) != 2 or not parts[1]:
+            return JsonResponse({"error": "Invalid format authorization"}, status=401)
+        event_key = parts[1]
+        participant_event = get_participant_event(event_key)
+        if not participant_event:
+            return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
 
-        if not participant:
-            return JsonResponse({"error": "Participant not found"}, status=404)
+        if not getattr(participant_event, "is_monitoring", False):
+            return JsonResponse({"error": "Monitoring not started"}, status=403)
 
         ParticipantLog.objects.create(
-            name="http", message=data["uri"], participant=participant
+            name="http", message=data["uri"], participant_event=participant_event
         )
         return JsonResponse({"status": "success"})
 
@@ -236,14 +270,22 @@ def log_participant_keylogger_event(request: HttpRequest):
 
     try:
         data = json.loads(request.body)
-        event_key = request.headers.get("Authorization").split()[1]
-        participant = get_participant(event_key)
+        auth = request.headers.get("Authorization", "")
+        parts = auth.split(" ", 1)
+        if len(parts) != 2 or not parts[1]:
+            return JsonResponse({"error": "Invalid format authorization"}, status=401)
+        event_key = parts[1]
+        participant_event = get_participant_event(event_key)
+        if not participant_event:
+            return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
 
-        if not participant:
-            return JsonResponse({"error": "Participant not found"}, status=404)
+        if not getattr(participant_event, "is_monitoring", False):
+            return JsonResponse({"error": "Monitoring not started"}, status=403)
 
         ParticipantLog.objects.create(
-            name="keylogger", message="\n".join(data["keys"]), participant=participant
+            name="keylogger",
+            message="\n".join(data["keys"]),
+            participant_event=participant_event,
         )
         return JsonResponse({"status": "success"})
 
@@ -255,18 +297,24 @@ def log_participant_keylogger_event(request: HttpRequest):
 def log_participant_screen_event(request: HttpRequest):
 
     try:
-        event_key = request.headers.get("Authorization").split()[1]
-        participant = get_participant(event_key)
+        auth = request.headers.get("Authorization", "")
+        parts = auth.split(" ", 1)
+        if len(parts) != 2 or not parts[1]:
+            return JsonResponse({"error": "Invalid format authorization"}, status=401)
+        event_key = parts[1]
+        participant_event = get_participant_event(event_key)
+        if not participant_event:
+            return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
 
-        if not participant:
-            return JsonResponse({"error": "Participant not found"}, status=404)
+        if not getattr(participant_event, "is_monitoring", False):
+            return JsonResponse({"error": "Monitoring not started"}, status=403)
 
         file = request.FILES["screenshot"]
         ParticipantLog.objects.create(
             name="screen",
             file=file,
             message="Desktop Screenshot",
-            participant=participant,
+            participant_event=participant_event,
         )
         return JsonResponse({"status": "success"})
 
@@ -278,18 +326,24 @@ def log_participant_screen_event(request: HttpRequest):
 def log_participant_audio_video_event(request: HttpRequest):
 
     try:
-        event_key = request.headers.get("Authorization").split()[1]
-        participant = get_participant(event_key)
+        auth = request.headers.get("Authorization", "")
+        parts = auth.split(" ", 1)
+        if len(parts) != 2 or not parts[1]:
+            return JsonResponse({"error": "Invalid format authorization"}, status=401)
+        event_key = parts[1]
+        participant_event = get_participant_event(event_key)
+        if not participant_event:
+            return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
 
-        if not participant:
-            return JsonResponse({"error": "Participant not found"}, status=404)
+        if not getattr(participant_event, "is_monitoring", False):
+            return JsonResponse({"error": "Monitoring not started"}, status=403)
 
         file = request.FILES["media"]
         ParticipantLog.objects.create(
             name="audio/video",
             file=file,
             message="Media Capture",
-            participant=participant,
+            participant_event=participant_event,
         )
         return JsonResponse({"status": "success"})
 
@@ -1749,16 +1803,41 @@ def evaluation_detail(request, evaluation_id):
         return JsonResponse({"error": "Evaluación no encontrada"}, status=404)
 
     participants = Participant.objects.filter(events=event)
-    participants_data = [
-        {
-            "id": str(p.id),
-            "name": p.name,
-            "initials": p.get_initials() if hasattr(p, "get_initials") else "",
-            "status": "activo",  # Puedes ajustar el status según tu lógica
-            "color": f"bg-{['blue', 'green', 'purple', 'red', 'yellow', 'indigo', 'pink'][p.id % 7]}-200",
-        }
-        for p in participants
-    ]
+    participants_data = []
+
+    for p in participants:
+        # Obtener estados de proxy y monitoreo
+        proxy_status = False
+        monitoring_status = False
+
+        try:
+            participant_event = ParticipantEvent.objects.get(event=event, participant=p)
+
+            # Estado de monitoreo
+            monitoring_status = getattr(participant_event, "is_monitoring", False)
+
+            # Estado de proxy
+            try:
+                assigned_port = AssignedPort.objects.get(
+                    participant_event=participant_event
+                )
+                proxy_status = assigned_port.is_active
+            except AssignedPort.DoesNotExist:
+                proxy_status = False
+
+        except ParticipantEvent.DoesNotExist:
+            pass
+
+        participants_data.append(
+            {
+                "id": str(p.id),
+                "name": p.name,
+                "initials": p.get_initials() if hasattr(p, "get_initials") else "",
+                "proxy_is_active": proxy_status,
+                "monitoring_is_active": monitoring_status,
+                "color": f"bg-{['blue', 'green', 'purple', 'red', 'yellow', 'indigo', 'pink'][p.id % 7]}-200",
+            }
+        )
 
     evaluator_name = None
     if event.evaluator:
@@ -1785,23 +1864,22 @@ def evaluation_detail(request, evaluation_id):
 
 
 @csrf_exempt
+@jwt_required()
 @require_GET
 def event_participant_logs(request, event_id, participant_id):
     """Endpoint para obtener todos los logs de un participante específico de un evento"""
     try:
         event = Event.objects.get(id=event_id)
         participant = Participant.objects.get(id=participant_id)
-        
+
         # Obtener el ParticipantEvent específico
         participant_event = ParticipantEvent.objects.filter(
-            event=event,
-            participant=participant
+            event=event, participant=participant
         ).first()
-        
+
         if not participant_event:
             return JsonResponse(
-                {"error": "Participant not found in this event"}, 
-                status=404
+                {"error": "Participant not found in this event"}, status=404
             )
 
         # Filtrar logs solo del participante específico
@@ -1809,11 +1887,23 @@ def event_participant_logs(request, event_id, participant_id):
 
         logs_data = []
         for log in logs:
+            # Si el modelo ParticipantLog tuviera un campo created_at lo usamos,
+            # si no existe (compatibilidad) usamos el id como fallback para
+            # mantener un valor entero ordenable usado por el frontend.
+            created_ts = None
+            if hasattr(log, "created_at") and getattr(log, "created_at"):
+                try:
+                    created_ts = int(log.created_at.timestamp())
+                except Exception:
+                    created_ts = None
+            if created_ts is None:
+                created_ts = int(log.id)
+
             log_data = {
                 "id": log.id,
                 "name": log.name,
                 "message": log.message,
-                "created_at": log.id,
+                "created_at": created_ts,
                 "has_file": bool(log.file),
                 "file_url": log.file.url if log.file else None,
             }
@@ -1836,10 +1926,10 @@ def event_participant_logs(request, event_id, participant_id):
 
 
 @csrf_exempt
+@jwt_required()
+@require_GET
 def participant_connection_stats(request, participant_id):
     """Endpoint para obtener estadísticas de conexión de un participante"""
-    if request.method != "GET":
-        return JsonResponse({"error": "Method not allowed"}, status=405)
 
     try:
         from proxy.models import AssignedPort
@@ -1858,20 +1948,27 @@ def participant_connection_stats(request, participant_id):
                 "email": participant.email,
             },
             "total_time_minutes": 0,
-            "is_active": False,
+            "proxy_is_active": False,
+            "monitoring_is_active": False,
             "last_activity": None,
             "port": None,
         }
 
         if participant_event:
+            # Estado de monitoreo desde ParticipantEvent
+            connection_data["monitoring_is_active"] = getattr(
+                participant_event, "is_monitoring", False
+            )
+
             try:
                 assigned_port = AssignedPort.objects.get(
                     participant_event=participant_event
                 )
+                # Estado de proxy desde AssignedPort
                 connection_data.update(
                     {
                         "total_time_minutes": assigned_port.get_total_time(),
-                        "is_active": assigned_port.is_active,
+                        "proxy_is_active": assigned_port.is_active,
                         "last_activity": assigned_port.last_activity,
                         "port": assigned_port.port,
                     }
