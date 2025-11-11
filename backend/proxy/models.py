@@ -1,6 +1,8 @@
 from uuid import uuid4
 from django.db import models
 from events.models import Participant
+import logging
+import traceback
 
 
 def generate_session_key():
@@ -21,6 +23,8 @@ class AssignedPort(models.Model):
         default=0, help_text="Duración total en segundos", null=True, blank=True
     )
     current_session_time = models.DateTimeField(null=True, blank=True)
+    # Momento del último cambio de estado de monitoreo (start/stop)
+    monitoring_last_change = models.DateTimeField(null=True, blank=True)
     last_activity = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -34,47 +38,49 @@ class AssignedPort(models.Model):
         # pulsa "Empezar monitoreo" (participant_event.is_monitoring = True).
         self.is_active = True
         self.save(update_fields=['is_active'])
-        print(f"[DEBUG] Port {self.port} activated (proxy connection) at {timezone.now()}")
+        logger = logging.getLogger(__name__)
+        logger.debug(f"Port {self.port} activated (proxy connection) at {timezone.now()}")
 
     def deactivate(self):
-        """Desactiva el puerto y actualiza el tiempo de conexión"""
-        from django.utils import timezone
-        if self.is_active:
-            now = timezone.now()
-            
-            # Usar current_session_time si está disponible, sino last_activity
-            start_time = self.current_session_time if self.current_session_time else self.last_activity
-            
-            if start_time:
-                # Calcular tiempo de sesión en segundos
-                session_duration_seconds = int((now - start_time).total_seconds())
-                
-                # Actualizar total_duration (en segundos)
-                if self.total_duration is None:
-                    self.total_duration = 0
-                self.total_duration += session_duration_seconds
-                
-                print(f"[DEBUG] Session duration: {session_duration_seconds} seconds")
-                print(f"[DEBUG] Total duration: {self.total_duration} seconds")
-            
-            # Desactivar y limpiar
-            self.is_active = False
-            self.current_session_time = None
-            self.save(update_fields=['total_duration', 'is_active', 'current_session_time'])
+        """Desactiva el puerto (NO sumar duración aquí)."""
+        from django.db import transaction
+        logger = logging.getLogger(__name__)
+
+        # Hacer la operación idempotente y protegida contra concurrencia
+        with transaction.atomic():
+            ap = AssignedPort.objects.select_for_update().get(pk=self.pk)
+            if not ap.is_active:
+                logger.debug(f"AssignedPort.deactivate called but port {ap.port} already inactive")
+                return
+
+            # Registrar stack trace ligero para ayudar a identificar quién llama deactivate
+            try:
+                stack = ''.join(traceback.format_stack(limit=5))
+                logger.info(f"AssignedPort.deactivate called for port={ap.port}\nCaller stack (truncated):\n{stack}")
+            except Exception:
+                logger.debug("AssignedPort.deactivate: could not capture stack")
+
+            # No sumar duración aquí: solo marcar como inactivo y limpiar current_session_time
+            ap.is_active = False
+            ap.current_session_time = None
+            ap.save(update_fields=['is_active', 'current_session_time'])
 
     def get_total_time(self):
         """Retorna el tiempo total en minutos, incluyendo el tiempo actual si está activo"""
         from django.utils import timezone
-        
         # Convertir total_duration de segundos a minutos
         total_minutes = (self.total_duration or 0) // 60
-        
-        # Si está activo, agregar el tiempo de la sesión actual
-        if self.is_active and self.current_session_time:
-            current_seconds = int((timezone.now() - self.current_session_time).total_seconds())
-            current_minutes = current_seconds // 60
-            total_minutes += current_minutes
-        
+
+        # Incluir la sesión en curso SOLO si el participante está en modo monitoreo
+        try:
+            if getattr(self.participant_event, 'is_monitoring', False) and self.current_session_time:
+                current_seconds = int((timezone.now() - self.current_session_time).total_seconds())
+                current_minutes = current_seconds // 60
+                total_minutes += current_minutes
+        except Exception:
+            # En caso de error, no sumar tiempo adicional
+            pass
+
         return total_minutes
 
     def has_time_remaining(self):
