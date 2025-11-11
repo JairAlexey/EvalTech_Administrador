@@ -18,6 +18,10 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
     const [error, setError] = useState<string | null>(null);
     const [connectionStats, setConnectionStats] = useState<ConnectionStats | null>(null);
     const [filterType, setFilterType] = useState<string>('all');
+    const [currentPage, setCurrentPage] = useState<number>(1);
+    const [selectedImage, setSelectedImage] = useState<string | null>(null);
+    const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+    const LOGS_PER_PAGE = 4;
 
     // Cargar logs y estadísticas al montar o cambiar eventId/participantId
     useEffect(() => {
@@ -65,8 +69,39 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
         return matchesType;
     });
 
+    // Calcular paginación
+    const totalPages = Math.ceil(filteredLogs.length / LOGS_PER_PAGE);
+    const startIndex = (currentPage - 1) * LOGS_PER_PAGE;
+    const endIndex = startIndex + LOGS_PER_PAGE;
+    const paginatedLogs = filteredLogs.slice(startIndex, endIndex);
+
+    // Resetear a página 1 cuando cambian los filtros
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [filterType]);
+
     // Tipos de logs únicos
     const logTypes = Array.from(new Set(logs.map(log => log.name)));
+
+    const openImageModal = (fileUrl: string) => {
+        let normalizedUrl = fileUrl;
+        try {
+            if (normalizedUrl.startsWith('/')) {
+                normalizedUrl = `${API_URL}${normalizedUrl}`;
+            } else if (normalizedUrl.includes('localhost:5173')) {
+                normalizedUrl = normalizedUrl.replace('localhost:5173', 'localhost:8000');
+            }
+        } catch (e) {
+            console.error('Error normalizando file_url:', e);
+        }
+        setSelectedImage(normalizedUrl);
+        setIsModalOpen(true);
+    };
+
+    const closeModal = () => {
+        setIsModalOpen(false);
+        setSelectedImage(null);
+    };
 
     return (
         <div className="flex min-h-screen bg-gray-100">
@@ -132,19 +167,30 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                         <h2 className="text-xl font-semibold text-gray-900 mb-4">
                             Estadísticas de Conexión
                         </h2>
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                             <div className="bg-blue-50 p-4 rounded-lg">
                                 <p className="text-sm text-gray-600">Tiempo Total</p>
                                 <p className="text-2xl font-bold text-blue-600">
                                     {connectionStats.total_time_minutes} min
                                 </p>
                             </div>
-                            <div className={`p-4 rounded-lg ${connectionStats.is_active ? 'bg-green-50' : 'bg-red-50'}`}>
-                                <p className="text-sm text-gray-600">Estado</p>
-                                <p className={`text-2xl font-bold ${connectionStats.is_active ? 'text-green-600' : 'text-red-600'}`}>
-                                    {connectionStats.is_active ? 'Activo' : 'Inactivo'}
+
+                            {/* Estado del Proxy */}
+                            <div className={`p-4 rounded-lg ${connectionStats.proxy_is_active ? 'bg-green-50' : 'bg-red-50'}`}>
+                                <p className="text-sm text-gray-600">Proxy</p>
+                                <p className={`text-2xl font-bold ${connectionStats.proxy_is_active ? 'text-green-600' : 'text-red-600'}`}>
+                                    {connectionStats.proxy_is_active ? 'Conectado' : 'Desconectado'}
                                 </p>
                             </div>
+
+                            {/* Estado del Monitoreo */}
+                            <div className={`p-4 rounded-lg ${connectionStats.monitoring_is_active ? 'bg-green-50' : 'bg-red-50'}`}>
+                                <p className="text-sm text-gray-600">Monitoreo</p>
+                                <p className={`text-2xl font-bold ${connectionStats.monitoring_is_active ? 'text-green-600' : 'text-red-600'}`}>
+                                    {connectionStats.monitoring_is_active ? 'Activo' : 'Inactivo'}
+                                </p>
+                            </div>
+
                             <div className="bg-purple-50 p-4 rounded-lg">
                                 <p className="text-sm text-gray-600">Puerto</p>
                                 <p className="text-2xl font-bold text-purple-600">
@@ -183,6 +229,42 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                     </div>
                 )}
 
+                {/* Modal para visualizar imagen */}
+                {isModalOpen && selectedImage && (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={closeModal}>
+                        <div className="bg-white rounded-lg p-6 max-w-4xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-xl font-semibold text-gray-900">Vista Previa</h3>
+                                <div className="flex items-center space-x-2">
+                                    <a
+                                        href={selectedImage}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                                        title="Abrir en nueva pestaña"
+                                    >
+                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                        </svg>
+                                    </a>
+                                    <button
+                                        onClick={closeModal}
+                                        className="p-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+                                        title="Cerrar"
+                                    >
+                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="flex justify-center">
+                                <img src={selectedImage} alt="Vista previa" className="max-w-full h-auto rounded-lg" />
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Logs table */}
                 {!loading && !error && (
                     <div className="bg-white rounded-lg shadow-md overflow-hidden">
@@ -214,90 +296,102 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                                 No hay logs disponibles con los filtros seleccionados
                             </div>
                         ) : (
-                            <div className="overflow-x-auto">
-                                <table className="min-w-full divide-y divide-gray-200">
-                                    <thead className="bg-gray-50">
-                                        <tr>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                ID
-                                            </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Tipo
-                                            </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Mensaje
-                                            </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Archivo
-                                            </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Acciones
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="bg-white divide-y divide-gray-200">
-                                        {filteredLogs.map((log) => (
-                                            <tr key={log.id} className="hover:bg-gray-50">
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                    {log.id}
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                    <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
-                                                        {log.name}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 text-sm text-gray-600">
-                                                    {log.message}
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                                    {log.has_file ? (
-                                                        <span className="text-green-600 flex items-center">
-                                                            <svg className="w-5 h-5 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                                                <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
-                                                            </svg>
-                                                            Sí
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-gray-400">No</span>
-                                                    )}
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                                    {log.has_file && log.file_url && (
-                                                        (() => {
-                                                            // Normalizar la URL del archivo hacia el backend (localhost:8000)
-                                                            let fileUrl = log.file_url;
-
-                                                            try {
-                                                                // Si la URL es relativa (comienza con /), prefijar con API_URL
-                                                                if (fileUrl.startsWith('/')) {
-                                                                    fileUrl = `${API_URL}${fileUrl}`;
-                                                                } else if (fileUrl.includes('localhost:5173')) {
-                                                                    // Reemplazar el host del frontend por el del backend
-                                                                    fileUrl = fileUrl.replace('localhost:5173', 'localhost:8000');
-                                                                }
-                                                            } catch (e) {
-                                                                // En caso de cualquier problema, usar la URL original
-                                                                console.error('Error normalizando file_url:', e);
-                                                            }
-
-                                                            return (
-                                                                <a
-                                                                    href={fileUrl}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    className="text-blue-600 hover:text-blue-800 underline"
-                                                                >
-                                                                    Ver archivo
-                                                                </a>
-                                                            );
-                                                        })()
-                                                    )}
-                                                </td>
+                            <>
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-full divide-y divide-gray-200">
+                                        <thead className="bg-gray-50">
+                                            <tr>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    ID
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    Tipo
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    Mensaje
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    Archivo
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    Acciones
+                                                </th>
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
+                                        </thead>
+                                        <tbody className="bg-white divide-y divide-gray-200">
+                                            {paginatedLogs.map((log) => (
+                                                <tr key={log.id} className="hover:bg-gray-50">
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                        {log.id}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                                                            {log.name}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-sm text-gray-600">
+                                                        {log.message}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                        {log.has_file ? (
+                                                            <span className="text-green-600 flex items-center">
+                                                                <svg className="w-5 h-5 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                                                    <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                                                                </svg>
+                                                                Sí
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-gray-400">No</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                        {log.has_file && log.file_url && (
+                                                            <button
+                                                                onClick={() => log.file_url && openImageModal(log.file_url)}
+                                                                className="text-blue-600 hover:text-blue-800 p-2 hover:bg-blue-50 rounded-full transition-colors"
+                                                                title="Ver archivo"
+                                                            >
+                                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                                </svg>
+                                                            </button>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                {/* Controles de paginación */}
+                                {totalPages > 1 && (
+                                    <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+                                        <div className="text-sm text-gray-700">
+                                            Mostrando {startIndex + 1} a {Math.min(endIndex, filteredLogs.length)} de {filteredLogs.length} logs
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                            <button
+                                                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                                                disabled={currentPage === 1}
+                                                className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                Anterior
+                                            </button>
+                                            <span className="text-sm text-gray-700">
+                                                Página {currentPage} de {totalPages}
+                                            </span>
+                                            <button
+                                                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                                                disabled={currentPage === totalPages}
+                                                className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                Siguiente
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
                 )}
