@@ -26,7 +26,8 @@ export interface ConnectionStats {
     email: string;
   };
   total_time_minutes: number;
-  is_active: boolean;
+  proxy_is_active: boolean;
+  monitoring_is_active: boolean;
   last_activity: string | null;
   port: number | null;
 }

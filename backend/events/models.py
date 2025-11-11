@@ -77,6 +77,9 @@ class ParticipantEvent(models.Model):
         Event, on_delete=models.CASCADE, related_name="participant_events"
     )
     event_key = models.CharField(max_length=128, blank=True, null=True, unique=True)
+    # Indica si el participante pulsó "Empezar monitoreo" y por tanto las capturas/logs
+    # deben contarse y mostrarse como activo
+    is_monitoring = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
