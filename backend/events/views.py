@@ -1970,6 +1970,7 @@ def participant_connection_stats(request, participant_id):
                         "total_time_minutes": assigned_port.get_total_time(),
                         "proxy_is_active": assigned_port.is_active,
                         "last_activity": assigned_port.last_activity,
+                        "monitoring_last_change": getattr(assigned_port, 'monitoring_last_change', None),
                         "port": assigned_port.port,
                     }
                 )

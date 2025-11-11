@@ -198,10 +198,10 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                                 </p>
                             </div>
                             <div className="bg-yellow-50 p-4 rounded-lg">
-                                <p className="text-sm text-gray-600">Última Actividad</p>
+                                <p className="text-sm text-gray-600">Último cambio monitoreo</p>
                                 <p className="text-sm font-semibold text-yellow-700">
-                                    {connectionStats.last_activity
-                                        ? new Date(connectionStats.last_activity).toLocaleString('es-ES')
+                                    {connectionStats.monitoring_last_change
+                                        ? new Date(connectionStats.monitoring_last_change).toLocaleString('es-ES')
                                         : 'N/A'}
                                 </p>
                             </div>

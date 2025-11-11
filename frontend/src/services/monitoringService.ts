@@ -28,7 +28,7 @@ export interface ConnectionStats {
   total_time_minutes: number;
   proxy_is_active: boolean;
   monitoring_is_active: boolean;
-  last_activity: string | null;
+  monitoring_last_change: string | null;
   port: number | null;
 }
 

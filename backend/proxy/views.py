@@ -101,12 +101,16 @@ def start_monitoring(request):
         logger.info(f"start_monitoring called for event_key={event_key}; participant_event id={pe.id}")
 
         # Si existe AssignedPort asociado, iniciar current_session_time para comenzar
-        # a contar el tiempo de monitoreo (si no estaba ya iniciado).
+        # a contar el tiempo de monitoreo (si no estaba ya iniciado). Proteger con
+        # transacción y select_for_update para evitar condiciones de carrera.
         try:
-            assigned_port = AssignedPort.objects.get(participant_event=pe)
-            if assigned_port.current_session_time is None:
-                assigned_port.current_session_time = timezone.now()
-                assigned_port.save(update_fields=["current_session_time"])
+            with transaction.atomic():
+                ap = AssignedPort.objects.select_for_update().get(participant_event=pe)
+                if ap.current_session_time is None:
+                    now = timezone.now()
+                    ap.current_session_time = now
+                    ap.monitoring_last_change = now
+                    ap.save(update_fields=["current_session_time", "monitoring_last_change"])
         except AssignedPort.DoesNotExist:
             # No hay puerto asignado aún, no hay nada más que hacer
             logger.info(f"start_monitoring: no AssignedPort found for participant_event id={pe.id}")
@@ -138,17 +142,21 @@ def stop_monitoring(request):
         logger.info(f"stop_monitoring called for event_key={event_key}; participant_event id={pe.id}")
 
         # Si existe AssignedPort asociado, terminar la sesión actual (sin desactivar el puerto)
+        # y sumar la duración de forma transaccional para evitar dobles contados.
         try:
-            assigned_port = AssignedPort.objects.get(participant_event=pe)
-            if assigned_port.current_session_time:
-                now = timezone.now()
-                start_time = assigned_port.current_session_time
-                session_seconds = int((now - start_time).total_seconds())
-                if assigned_port.total_duration is None:
-                    assigned_port.total_duration = 0
-                assigned_port.total_duration += session_seconds
-                assigned_port.current_session_time = None
-                assigned_port.save(update_fields=["total_duration", "current_session_time"])
+            from django.db import transaction
+            now = timezone.now()
+            with transaction.atomic():
+                ap = AssignedPort.objects.select_for_update().get(participant_event=pe)
+                if ap.current_session_time:
+                    start_time = ap.current_session_time
+                    session_seconds = int((now - start_time).total_seconds())
+                    if ap.total_duration is None:
+                        ap.total_duration = 0
+                    ap.total_duration += session_seconds
+                    ap.current_session_time = None
+                    ap.monitoring_last_change = now
+                    ap.save(update_fields=["total_duration", "current_session_time", "monitoring_last_change"])
         except AssignedPort.DoesNotExist:
             logger.info(f"stop_monitoring: no AssignedPort found for participant_event id={pe.id}")
             pass

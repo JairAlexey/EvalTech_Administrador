@@ -176,6 +176,10 @@ class ProxyInstance:
         self.port = port
         self.socket = None
         self.running = False
+        # Contador de conexiones activas manejadas por esta instancia
+        self._active_connections = 0
+        # Lock para proteger el contador en entornos multihilo
+        self._conn_lock = threading.Lock()
         self.blocked_hosts = []
         self.event_key = None
         self.default_blocked_hosts = ["chatgpt.com", "deepseek.com", "gemini.google.com"]  
@@ -282,7 +286,19 @@ class ProxyInstance:
                 try:
                     is_mon = False
                     if hasattr(self, 'assigned_port') and self.assigned_port:
-                        is_mon = getattr(self.assigned_port.participant_event, 'is_monitoring', False)
+                        try:
+                            # Refrescar assigned_port y participant_event desde la BD
+                            self.assigned_port.refresh_from_db()
+                            try:
+                                # refrescar el participante_event relacionado si existe
+                                if hasattr(self.assigned_port, 'participant_event') and self.assigned_port.participant_event:
+                                    self.assigned_port.participant_event.refresh_from_db()
+                            except Exception:
+                                # No fatal, solo seguir con la comprobación
+                                pass
+                            is_mon = getattr(self.assigned_port.participant_event, 'is_monitoring', False)
+                        except Exception as e:
+                            logger.debug(f"Could not refresh assigned_port before blocked-host log check: {e}")
                     if self.event_key and is_mon:
                         self._send_log_to_api(self.event_key, f"⛔ Blocked URL: {clean_url}")
                         logger.info(f"⛔ | Blocked URL logged: {clean_url}")
@@ -327,8 +343,19 @@ class ProxyInstance:
             # Evitar enviar logs al API si el participante no está en modo monitoreo
             try:
                 if hasattr(self, 'assigned_port') and self.assigned_port:
+                    try:
+                        # Refrescar assigned_port y participant_event antes de la comprobación
+                        self.assigned_port.refresh_from_db()
+                        try:
+                            if hasattr(self.assigned_port, 'participant_event') and self.assigned_port.participant_event:
+                                self.assigned_port.participant_event.refresh_from_db()
+                        except Exception:
+                            pass
+                    except Exception as e:
+                        logger.debug(f"Could not refresh assigned_port before sending log: {e}")
+
                     if not getattr(self.assigned_port.participant_event, 'is_monitoring', False):
-                        logger.debug("Skipping log send because participant is not monitoring")
+                        logger.debug("Skipping log send because participant is not monitoring (refreshed check)")
                         return
             except Exception:
                 # Si falla la comprobación, continuar y dejar que el servidor decida
@@ -340,12 +367,34 @@ class ProxyInstance:
                 "Content-Type": "application/json"
             }
             data = {"uri": uri}
-            
-            threading.Thread(
-                target=requests.post,
-                args=(api_url,),
-                kwargs={'headers': headers, 'json': data, 'timeout': 3}
-            ).start()
+
+            # Enviar en un hilo que haga reintentos y registre el resultado para mayor fiabilidad
+            def _do_send_log(api_url, headers, data):
+                import time
+                max_attempts = 3
+                timeout = 5
+                for attempt in range(1, max_attempts + 1):
+                    try:
+                        resp = requests.post(api_url, headers=headers, json=data, timeout=timeout)
+                        status = getattr(resp, 'status_code', None)
+                        if status and 200 <= status < 300:
+                            logger.debug(f"Successfully sent log to API (attempt {attempt}) status={status} uri={data.get('uri')}")
+                            return True
+                        else:
+                            # Registrar fallo pero intentar de nuevo
+                            body = getattr(resp, 'text', '') if resp is not None else ''
+                            logger.warning(f"Log send attempt {attempt} returned status={status} body={body}")
+                    except Exception as e:
+                        logger.warning(f"Log send attempt {attempt} failed: {e}")
+
+                    # Backoff simple antes del siguiente intento
+                    if attempt < max_attempts:
+                        time.sleep(attempt)
+
+                logger.error(f"Failed to send log after {max_attempts} attempts: uri={data.get('uri')}")
+                return False
+
+            threading.Thread(target=_do_send_log, args=(api_url, headers, data), daemon=True).start()
             
         except Exception as e:
             logger.error(f"Error sending log: {str(e)}")    
@@ -354,9 +403,45 @@ class ProxyInstance:
         return any(host == blocked or host.endswith(f".{blocked}") for blocked in self.blocked_hosts)
 
     def _relay_traffic(self, client, server):
+        def _inc_conn():
+            try:
+                with self._conn_lock:
+                    self._active_connections += 1
+                    logger.debug(f"Proxy {self.port} active connections ++ -> {self._active_connections}")
+            except Exception:
+                pass
+
+        def _dec_conn_and_maybe_deactivate():
+            try:
+                with self._conn_lock:
+                    if self._active_connections > 0:
+                        self._active_connections -= 1
+                    logger.debug(f"Proxy {self.port} active connections -- -> {self._active_connections}")
+
+                    # Sólo desactivar cuando no queden conexiones activas
+                    should_deactivate = self._active_connections == 0
+            except Exception as e:
+                logger.debug(f"Error decrementing connection counter: {e}")
+                should_deactivate = False
+
+            if should_deactivate and hasattr(self, 'assigned_port'):
+                    try:
+                        from proxy.models import AssignedPort
+                        AssignedPort.objects.get(id=self.assigned_port.id)
+                        self.assigned_port.refresh_from_db()
+                        if self.assigned_port.is_active:
+                            logger.info(f"Deactivating AssignedPort {self.assigned_port.port} because no active connections remain")
+                            self.assigned_port.deactivate()
+                    except AssignedPort.DoesNotExist:
+                        logger.debug(f"AssignedPort for port {self.port} no longer exists")
+                    except Exception as e:
+                        logger.error(f"Error deactivating on connection close: {str(e)}")
+
         def forward(source, dest, direction):
             from django.utils import timezone
             last_activity = timezone.now()
+            # Incrementar contador al iniciar el reenvío
+            _inc_conn()
             try:
                 while True:
                     data = source.recv(4096)
@@ -367,8 +452,11 @@ class ProxyInstance:
                     now = timezone.now()
                     if (now - last_activity).total_seconds() > 300:  # 5 minutos
                         if hasattr(self, 'assigned_port'):
-                            self.assigned_port.last_activity = now
-                            self.assigned_port.save(update_fields=['last_activity'])
+                            try:
+                                self.assigned_port.last_activity = now
+                                self.assigned_port.save(update_fields=['last_activity'])
+                            except Exception as e:
+                                logger.debug(f"Could not save last_activity for port {self.port}: {e}")
                         last_activity = now
             except (ConnectionResetError, BrokenPipeError, OSError) as e:
                 logger.debug(f"Relay error ({direction}): {str(e)}") 
@@ -383,19 +471,8 @@ class ProxyInstance:
                     dest.close()
                 except:
                     pass
-                # Finalizar sesión al cerrar la conexión
-                if direction == "Client->Server" and hasattr(self, 'assigned_port'):
-                    try:
-                        # Verificar que el assigned_port aún existe en la base de datos
-                        from proxy.models import AssignedPort
-                        AssignedPort.objects.get(id=self.assigned_port.id)
-                        self.assigned_port.refresh_from_db()
-                        if self.assigned_port.is_active:
-                            self.assigned_port.deactivate()
-                    except AssignedPort.DoesNotExist:
-                        logger.debug(f"AssignedPort for port {self.port} no longer exists")
-                    except Exception as e:
-                        logger.error(f"Error deactivating on connection close: {str(e)}")
+                # Reducir contador y tal vez desactivar (sólo cuando todas las conexiones cerradas)
+                _dec_conn_and_maybe_deactivate()
 
         threads = [
             threading.Thread(
