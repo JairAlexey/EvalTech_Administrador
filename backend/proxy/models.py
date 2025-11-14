@@ -25,6 +25,10 @@ class AssignedPort(models.Model):
     current_session_time = models.DateTimeField(null=True, blank=True)
     # Momento del último cambio de estado de monitoreo (start/stop)
     monitoring_last_change = models.DateTimeField(null=True, blank=True)
+    # Contador de veces que se inició monitoreo
+    monitoring_sessions_count = models.IntegerField(default=0, help_text="Número de veces que se inició monitoreo")
+    # Primera conexión al evento (para validaciones)
+    first_connection_time = models.DateTimeField(null=True, blank=True)
     last_activity = models.DateTimeField(auto_now=True)
 
     class Meta:

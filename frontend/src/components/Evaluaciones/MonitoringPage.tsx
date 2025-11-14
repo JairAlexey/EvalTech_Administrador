@@ -83,7 +83,21 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
     // Tipos de logs únicos
     const logTypes = Array.from(new Set(logs.map(log => log.name)));
 
-    const openImageModal = (fileUrl: string) => {
+    // Función para detectar si el archivo es un video
+    const isVideoFile = (url: string): boolean => {
+        const videoExtensions = ['.webm', '.mp4', '.avi', '.mov', '.mkv', '.m4v'];
+        const lowerUrl = url.toLowerCase();
+        return videoExtensions.some(ext => lowerUrl.includes(ext));
+    };
+
+    // Función para detectar si el archivo es una imagen
+    const isImageFile = (url: string): boolean => {
+        const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp'];
+        const lowerUrl = url.toLowerCase();
+        return imageExtensions.some(ext => lowerUrl.includes(ext));
+    };
+
+    const openMediaModal = (fileUrl: string) => {
         let normalizedUrl = fileUrl;
         try {
             if (normalizedUrl.startsWith('/')) {
@@ -229,12 +243,14 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                     </div>
                 )}
 
-                {/* Modal para visualizar imagen */}
+                {/* Modal para visualizar medios (imagen/video) */}
                 {isModalOpen && selectedImage && (
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={closeModal}>
                         <div className="bg-white rounded-lg p-6 max-w-4xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
                             <div className="flex justify-between items-center mb-4">
-                                <h3 className="text-xl font-semibold text-gray-900">Vista Previa</h3>
+                                <h3 className="text-xl font-semibold text-gray-900">
+                                    Vista Previa - {isVideoFile(selectedImage) ? 'Video' : 'Imagen'}
+                                </h3>
                                 <div className="flex items-center space-x-2">
                                     <a
                                         href={selectedImage}
@@ -259,7 +275,38 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                                 </div>
                             </div>
                             <div className="flex justify-center">
-                                <img src={selectedImage} alt="Vista previa" className="max-w-full h-auto rounded-lg" />
+                                {isVideoFile(selectedImage) ? (
+                                    <video 
+                                        src={selectedImage} 
+                                        controls 
+                                        className="max-w-full h-auto rounded-lg"
+                                        style={{ maxHeight: '70vh' }}
+                                        preload="metadata"
+                                        onError={(e) => {
+                                            console.error('Error cargando video:', e);
+                                            // Mostrar mensaje de error si no se puede cargar
+                                        }}
+                                    >
+                                        Tu navegador no soporta la reproducción de video.
+                                    </video>
+                                ) : isImageFile(selectedImage) ? (
+                                    <img 
+                                        src={selectedImage} 
+                                        alt="Vista previa" 
+                                        className="max-w-full h-auto rounded-lg"
+                                        onError={(e) => {
+                                            console.error('Error cargando imagen:', e);
+                                        }}
+                                    />
+                                ) : (
+                                    <div className="text-center text-gray-600 p-8">
+                                        <svg className="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        <p>Tipo de archivo no soportado para vista previa</p>
+                                        <p className="text-sm mt-2">Haz clic en "Abrir en nueva pestaña" para descargar</p>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -347,7 +394,7 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                                                         {log.has_file && log.file_url && (
                                                             <button
-                                                                onClick={() => log.file_url && openImageModal(log.file_url)}
+                                                                onClick={() => log.file_url && openMediaModal(log.file_url)}
                                                                 className="text-blue-600 hover:text-blue-800 p-2 hover:bg-blue-50 rounded-full transition-colors"
                                                                 title="Ver archivo"
                                                             >

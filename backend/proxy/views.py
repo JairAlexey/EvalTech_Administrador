@@ -5,6 +5,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.db import transaction
 from .models import AssignedPort
 from events.models import ParticipantEvent
+from events.views import validate_event_access  # NUEVO IMPORT
 from .server_proxy import DynamicProxyManager
 import logging
 
@@ -96,23 +97,36 @@ def start_monitoring(request):
     from django.utils import timezone
     try:
         pe = ParticipantEvent.objects.get(event_key=event_key)
+        
+        # Validar que aún se permita el monitoreo
+        now = timezone.now()
+        access_validation = validate_event_access(pe, now)
+        
+        if not access_validation["monitoring_allowed"]:
+            return JsonResponse({
+                "error": "Ya no se permite iniciar monitoreo en este evento"
+            }, status=403)
+        
         pe.is_monitoring = True
         pe.save(update_fields=["is_monitoring"])
         logger.info(f"start_monitoring called for event_key={event_key}; participant_event id={pe.id}")
 
-        # Si existe AssignedPort asociado, iniciar current_session_time para comenzar
-        # a contar el tiempo de monitoreo (si no estaba ya iniciado). Proteger con
-        # transacción y select_for_update para evitar condiciones de carrera.
+        # Actualizar AssignedPort e incrementar contador de sesiones
         try:
             with transaction.atomic():
                 ap = AssignedPort.objects.select_for_update().get(participant_event=pe)
                 if ap.current_session_time is None:
-                    now = timezone.now()
                     ap.current_session_time = now
                     ap.monitoring_last_change = now
-                    ap.save(update_fields=["current_session_time", "monitoring_last_change"])
+                    # Incrementar contador de sesiones
+                    ap.monitoring_sessions_count += 1
+                    ap.save(update_fields=[
+                        "current_session_time", 
+                        "monitoring_last_change", 
+                        "monitoring_sessions_count"
+                    ])
+                    logger.info(f"Started monitoring session #{ap.monitoring_sessions_count} for participant_event {pe.id}")
         except AssignedPort.DoesNotExist:
-            # No hay puerto asignado aún, no hay nada más que hacer
             logger.info(f"start_monitoring: no AssignedPort found for participant_event id={pe.id}")
             pass
 

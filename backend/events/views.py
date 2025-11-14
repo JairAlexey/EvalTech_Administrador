@@ -42,6 +42,65 @@ def check_event_time(event):
     return False
 
 
+def validate_event_access(participant_event, now):
+    """
+    Valida si un participante puede acceder al evento según las reglas de negocio
+    """
+    event = participant_event.event
+    
+    try:
+        assigned_port = AssignedPort.objects.get(participant_event=participant_event)
+        is_first_connection = assigned_port.first_connection_time is None
+        has_connected_before = not is_first_connection
+    except AssignedPort.DoesNotExist:
+        is_first_connection = True
+        has_connected_before = False
+    
+    # Regla 1: Nadie puede entrar después de end_date (fecha final absoluta)
+    if now > event.end_date:
+        return {
+            "allowed": False,
+            "reason": "El evento ha finalizado completamente.",
+            "monitoring_allowed": False,
+            "is_first_connection": is_first_connection
+        }
+    
+    # Regla 2: Primera conexión no permitida después de close_date
+    if is_first_connection and now > event.close_date:
+        return {
+            "allowed": False,
+            "reason": "El período de ingreso al evento ha terminado.",
+            "monitoring_allowed": False,
+            "is_first_connection": is_first_connection
+        }
+    
+    # Regla 3: Conexiones previas permitidas hasta end_date
+    if has_connected_before and now <= event.end_date:
+        return {
+            "allowed": True,
+            "reason": "Acceso permitido - participante previamente conectado",
+            "monitoring_allowed": now <= event.close_date,  # Monitoreo solo hasta close_date
+            "is_first_connection": is_first_connection
+        }
+    
+    # Regla 4: Primera conexión dentro del período normal
+    if is_first_connection and now <= event.close_date:
+        return {
+            "allowed": True,
+            "reason": "Acceso permitido - dentro del período de conexión",
+            "monitoring_allowed": True,
+            "is_first_connection": is_first_connection
+        }
+    
+    # Caso por defecto (no debería llegar aquí)
+    return {
+        "allowed": False,
+        "reason": "Acceso no permitido",
+        "monitoring_allowed": False,
+        "is_first_connection": is_first_connection
+    }
+
+
 def is_valid_domain(domain):
     # Expresión regular básica para dominios (no URLs completas)
     pattern = r"^(?!\-)([A-Za-z0-9\-]{1,63}(?<!\-)\.)+[A-Za-z]{2,}$"
@@ -64,31 +123,49 @@ def verify_event_key(request):
         ).get(event_key=event_key)
         participant = participant_event.participant
         event = participant_event.event
+        
+        from django.utils import timezone
+        now = timezone.now()
+        
+        # Validación básica de tiempo del evento (start_date - 1min hasta end_date)
         dateIsValid = check_event_time(event)
+        
+        # Validaciones avanzadas de acceso
+        access_validation = validate_event_access(participant_event, now)
+        
+        if not access_validation["allowed"]:
+            return JsonResponse({
+                "isValid": False,
+                "error": access_validation["reason"],
+                "dateIsValid": False,
+                "specificError": True  # Indica que es un error específico, no genérico
+            }, status=403)
 
         # Obtener información del tiempo de conexión
         connection_info = {
-            "totalTime": 0,  # Tiempo total acumulado en minutos
-            "isActive": False,  # Si está actualmente conectado
-            "eventDuration": event.duration,  # Duración total permitida
-            # Indica si el participante ha pulsado 'Empezar monitoreo' (permite logs)
-            "monitoringAllowed": False,
+            "totalTime": 0,
+            "isActive": False,
+            "eventDuration": event.duration,
+            "monitoringAllowed": access_validation["monitoring_allowed"],
+            "sessionCount": 0,  # NUEVO
+            "isFirstConnection": access_validation["is_first_connection"],  # NUEVO
         }
 
         try:
             assigned_port = AssignedPort.objects.get(
                 participant_event=participant_event
             )
-            # Reportar el tiempo real y el puerto, pero usar `is_monitoring`
-            # como indicador principal de "Estado" en la UI (si el participante
-            # inició realmente el monitoreo). Mantener totalTime desde AssignedPort.
             connection_info["totalTime"] = assigned_port.get_total_time()
             connection_info["isActive"] = bool(
                 getattr(participant_event, "is_monitoring", False)
             )
-            connection_info["monitoringAllowed"] = getattr(
-                participant_event, "is_monitoring", False
-            )
+            connection_info["sessionCount"] = assigned_port.monitoring_sessions_count
+            
+            # Si es primera conexión, registrarla
+            if access_validation["is_first_connection"]:
+                assigned_port.first_connection_time = now
+                assigned_port.save(update_fields=['first_connection_time'])
+                
         except AssignedPort.DoesNotExist:
             pass
 
