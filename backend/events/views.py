@@ -1982,3 +1982,99 @@ def participant_connection_stats(request, participant_id):
         return JsonResponse({"error": "Participant not found"}, status=404)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
+
+# =============================
+# Endpoints de estado de eventos
+# =============================
+
+
+@csrf_exempt
+@require_GET
+def pending_start_events(request):
+    """Eventos en estado 'programado' cuyo start_date ya pasó o es ahora.
+
+    Se usan para decidir qué eventos arrancar.
+    """
+    now = timezone.now()
+    qs = Event.objects.filter(status="programado", start_date__lte=now).order_by(
+        "start_date"
+    )
+    data = [
+        {
+            "id": e.id,
+            "start_date": e.start_date.isoformat() if e.start_date else None,
+        }
+        for e in qs
+    ]
+    return JsonResponse({"results": data})
+
+
+@csrf_exempt
+@require_GET
+def pending_finish_events(request):
+    """Eventos en estado 'en_progreso' cuyo end_date ya pasó o es ahora.
+
+    Sirve para decidir cuáles finalizar.
+    """
+    now = timezone.now()
+    qs = Event.objects.filter(status="en_progreso", end_date__lte=now).order_by(
+        "end_date"
+    )
+    data = [
+        {
+            "id": e.id,
+            "end_date": e.end_date.isoformat() if e.end_date else None,
+        }
+        for e in qs
+    ]
+    return JsonResponse({"results": data})
+
+
+# Eventos: actualizar estados (start/finish)
+@csrf_exempt
+@require_POST
+def start_event(request, event_id):
+    """
+    Cambia el estado de un evento de 'programado' a 'en_progreso'.
+    """
+    try:
+        try:
+            event = Event.objects.get(id=event_id)
+        except Event.DoesNotExist:
+            return JsonResponse({"error": "Evento no encontrado"}, status=404)
+
+        if event.status != "programado":
+            return JsonResponse(
+                {"error": "El evento no está en estado 'programado'"}, status=400
+            )
+
+        event.status = "en_progreso"
+        event.save()
+        return JsonResponse({"success": True, "status": event.status})
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+
+@csrf_exempt
+@require_POST
+def finish_event(request, event_id):
+    """
+    Cambia el estado de un evento de 'en_progreso' a 'completado'.
+    """
+    try:
+        try:
+            event = Event.objects.get(id=event_id)
+        except Event.DoesNotExist:
+            return JsonResponse({"error": "Evento no encontrado"}, status=404)
+
+        if event.status != "en_progreso":
+            return JsonResponse(
+                {"error": "El evento no está en estado 'en_progreso'"}, status=400
+            )
+
+        event.status = "completado"
+        event.save()
+        return JsonResponse({"success": True, "status": event.status})
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
