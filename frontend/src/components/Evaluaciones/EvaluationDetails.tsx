@@ -79,6 +79,46 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
     }
   };
 
+  // Conversión local
+  const parseEventDateTime = (
+    dateStr?: string,
+    timeStr?: string,
+    targetTimeZone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
+  ) => {
+    if (!dateStr || !timeStr) return { localDate: '', localTime: '' };
+    let y: number, m: number, d: number;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      const [Y, M, D] = dateStr.split('-'); y = +Y; m = +M; d = +D;
+    } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) {
+      const [D, M, Y] = dateStr.split('/'); y = +Y; m = +M; d = +D;
+    } else return { localDate: '', localTime: '' };
+    let [tPart, period] = timeStr.split(' ');
+    if (!tPart) return { localDate: '', localTime: '' };
+    const [hStr, minStr] = tPart.split(':'); if (!hStr || !minStr) return { localDate: '', localTime: '' };
+    let h = parseInt(hStr, 10); const mi = parseInt(minStr, 10);
+    if (period) {
+      const p = period.trim().toUpperCase();
+      if (p === 'PM' && h < 12) h += 12;
+      if (p === 'AM' && h === 12) h = 0;
+    }
+    const utcMs = Date.UTC(y, m - 1, d, h, mi);
+    const dt = new Date(utcMs);
+    if (isNaN(dt.getTime())) return { localDate: '', localTime: '' };
+    const fmt = new Intl.DateTimeFormat('es-EC', {
+      timeZone: targetTimeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false
+    });
+    const parts = fmt.formatToParts(dt);
+    const get = (type: Intl.DateTimeFormatPartTypes) => parts.find(p => p.type === type)?.value || '';
+    return { localDate: `${get('day')}/${get('month')}/${get('year')}`, localTime: `${get('hour')}:${get('minute')}` };
+  };
+
+  const localDateTimes = evaluation ? {
+    start: parseEventDateTime(evaluation.startDate, evaluation.startTime),
+    close: parseEventDateTime(evaluation.closeDate, evaluation.closeTime),
+    end: parseEventDateTime(evaluation.endDate, evaluation.endTime)
+  } : null;
+
   if (loading) {
     return (
       <div className="flex h-screen bg-gray-50">
@@ -145,11 +185,20 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Información General</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div className="flex items-start gap-3">
-                <Calendar className="w-5 h-5 text-blue-600 mt-0.5" />
+                <Calendar className="w-5 h-5 text-green-600 mt-0.5" />
                 <div>
                   <p className="text-sm text-gray-500">Fecha de inicio</p>
-                  <p className="text-sm font-medium text-gray-900">{evaluation.startDate}</p>
-                  <p className="text-xs text-gray-500">{evaluation.startTime}</p>
+                  <p className="text-sm font-medium text-gray-900">{localDateTimes?.start.localDate || evaluation.startDate}</p>
+                  <p className="text-xs text-gray-500">{localDateTimes?.start.localTime || evaluation.startTime}</p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <Calendar className="w-5 h-5 text-orange-600 mt-0.5" />
+                <div>
+                  <p className="text-sm text-gray-500">Fecha de cierre</p>
+                  <p className="text-sm font-medium text-gray-900">{localDateTimes?.close.localDate || evaluation.closeDate}</p>
+                  <p className="text-xs text-gray-500">{localDateTimes?.close.localTime || evaluation.closeTime}</p>
                 </div>
               </div>
 
@@ -162,14 +211,16 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
               </div>
 
               <div className="flex items-start gap-3">
-                <Calendar className="w-5 h-5 text-blue-600 mt-0.5" />
+                <Calendar className="w-5 h-5 text-red-600 mt-0.5" />
                 <div>
                   <p className="text-sm text-gray-500">Fecha de fin</p>
-                  <p className="text-sm font-medium text-gray-900">{evaluation.endDate}</p>
-                  <p className="text-xs text-gray-500">{evaluation.endTime}</p>
+                  <p className="text-sm font-medium text-gray-900">{localDateTimes?.end.localDate || evaluation.endDate}</p>
+                  <p className="text-xs text-gray-500">{localDateTimes?.end.localTime || evaluation.endTime}</p>
                 </div>
               </div>
+            </div>
 
+            <div className="mt-6 pt-6 border-t border-gray-200">
               <div className="flex items-start gap-3">
                 <User className="w-5 h-5 text-blue-600 mt-0.5" />
                 <div>
@@ -234,20 +285,18 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
                           </div>
                         </td>
                         <td className="px-6 py-4 text-center">
-                          <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${
-                            participant.proxy_is_active
-                              ? 'bg-green-100 text-green-700'
-                              : 'bg-red-100 text-red-700'
-                          }`}>
+                          <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${participant.proxy_is_active
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-red-100 text-red-700'
+                            }`}>
                             {participant.proxy_is_active ? 'Conectado' : 'Desconectado'}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-center">
-                          <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${
-                            participant.monitoring_is_active
-                              ? 'bg-green-100 text-green-700'
-                              : 'bg-red-100 text-red-700'
-                          }`}>
+                          <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${participant.monitoring_is_active
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-red-100 text-red-700'
+                            }`}>
                             {participant.monitoring_is_active ? 'Activo' : 'Inactivo'}
                           </span>
                         </td>
