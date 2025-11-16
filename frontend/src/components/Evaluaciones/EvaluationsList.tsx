@@ -108,6 +108,51 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation }: Evalua
     }
   };
 
+  // Conversión a hora local (acepta YYYY-MM-DD o DD/MM/YYYY y HH:MM o HH:MM AM/PM)
+  function parseEventDateTime(
+    dateStr?: string,
+    timeStr?: string,
+    targetTimeZone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
+  ) {
+    if (!dateStr || !timeStr) return { localDate: '', localTime: '' };
+
+    let year: number, month: number, day: number;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      const [y, m, d] = dateStr.split('-'); year = +y; month = +m; day = +d;
+    } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) {
+      const [d, m, y] = dateStr.split('/'); year = +y; month = +m; day = +d;
+    } else return { localDate: '', localTime: '' };
+
+    let [timePart, period] = timeStr.split(' ');
+    if (!timePart) return { localDate: '', localTime: '' };
+    const [hStr, mStr] = timePart.split(':');
+    if (!hStr || !mStr) return { localDate: '', localTime: '' };
+    let hour = parseInt(hStr, 10);
+    const minute = parseInt(mStr, 10);
+    if (period) {
+      const p = period.trim().toUpperCase();
+      if (p === 'PM' && hour < 12) hour += 12;
+      if (p === 'AM' && hour === 12) hour = 0;
+    }
+
+    const utcMs = Date.UTC(year, month - 1, day, hour, minute);
+    const utcDate = new Date(utcMs);
+    if (isNaN(utcDate.getTime())) return { localDate: '', localTime: '' };
+
+    const fmt = new Intl.DateTimeFormat('es-EC', {
+      timeZone: targetTimeZone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false
+    });
+    const parts = fmt.formatToParts(utcDate);
+    const get = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find(p => p.type === type)?.value || '';
+    return {
+      localDate: `${get('day')}/${get('month')}/${get('year')}`,
+      localTime: `${get('hour')}:${get('minute')}`
+    };
+  }
+
   return (
     <div className="flex h-screen bg-gray-50">
       <Sidebar currentPage="evaluaciones" onNavigate={onNavigate} />
@@ -178,6 +223,9 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation }: Evalua
                         Fecha de inicio
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                        Fecha de cierre
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                         Duración
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
@@ -197,7 +245,7 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation }: Evalua
                   <tbody className="bg-white divide-y divide-gray-200">
                     {paginatedEvaluations.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                        <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
                           {evaluations.length === 0 ?
                             'No hay evaluaciones disponibles.' :
                             'No se encontraron evaluaciones que coincidan con la búsqueda.'
@@ -205,45 +253,59 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation }: Evalua
                         </td>
                       </tr>
                     ) : (
-                      paginatedEvaluations.map((evaluation) => (
-                        <tr key={evaluation.id} className="hover:bg-gray-50 transition">
-                          <td className="px-6 py-4">
-                            <p className="text-sm font-medium text-gray-900">{evaluation.name}</p>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div>
-                              <p className="text-sm text-gray-900">{evaluation.startDate || '--'}</p>
-                              <p className="text-xs text-gray-500 mt-0.5">{evaluation.startTime || '--:--'}</p>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <p className="text-sm text-gray-900">{evaluation.duration ? `${evaluation.duration} min` : '--'}</p>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div>
-                              <p className="text-sm text-gray-900">{evaluation.endDate || '--'}</p>
-                              <p className="text-xs text-gray-500 mt-0.5">{evaluation.endTime || '--:--'}</p>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(evaluation.status)}`}>
-                              {getStatusLabel(evaluation.status)}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <p className="text-sm text-gray-900">{evaluation.participants} participantes</p>
-                          </td>
-                          <td className="px-6 py-4">
-                            <button
-                              onClick={(e) => handleViewEvaluation(e, evaluation.id)}
-                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition"
-                              title="Ver detalles"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
+                      paginatedEvaluations.map((evaluation) => {
+                        const { localDate: startLocalDate, localTime: startLocalTime } =
+                          parseEventDateTime(evaluation.startDate, evaluation.startTime);
+                        const { localDate: closeLocalDate, localTime: closeLocalTime } =
+                          parseEventDateTime(evaluation.closeDate, evaluation.closeTime);
+                        const { localDate: endLocalDate, localTime: endLocalTime } =
+                          parseEventDateTime(evaluation.endDate, evaluation.endTime);
+                        return (
+                          <tr key={evaluation.id} className="hover:bg-gray-50 transition">
+                            <td className="px-6 py-4">
+                              <p className="text-sm font-medium text-gray-900">{evaluation.name}</p>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div>
+                                <p className="text-sm text-gray-900">{startLocalDate || evaluation.startDate || '--'}</p>
+                                <p className="text-xs text-gray-500 mt-0.5">{startLocalTime || evaluation.startTime || '--:--'}</p>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div>
+                                <p className="text-sm text-gray-900">{closeLocalDate || evaluation.closeDate || '--'}</p>
+                                <p className="text-xs text-gray-500 mt-0.5">{closeLocalTime || evaluation.closeTime || '--:--'}</p>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <p className="text-sm text-gray-900">{evaluation.duration ? `${evaluation.duration} min` : '--'}</p>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div>
+                                <p className="text-sm text-gray-900">{endLocalDate || evaluation.endDate || '--'}</p>
+                                <p className="text-xs text-gray-500 mt-0.5">{endLocalTime || evaluation.endTime || '--:--'}</p>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(evaluation.status)}`}>
+                                {getStatusLabel(evaluation.status)}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <p className="text-sm text-gray-900">{evaluation.participants} participantes</p>
+                            </td>
+                            <td className="px-6 py-4">
+                              <button
+                                onClick={(e) => handleViewEvaluation(e, evaluation.id)}
+                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition"
+                                title="Ver detalles"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>

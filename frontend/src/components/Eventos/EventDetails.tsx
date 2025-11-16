@@ -94,6 +94,84 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
   };
   const formatTime = (timeStr?: string) => timeStr || '';
 
+  // =========================================
+  // Conversión a hora local
+  // Acepta fechas en formatos: YYYY-MM-DD o DD/MM/YYYY
+  // timeStr puede ser "HH:MM" o "HH:MM AM/PM"
+  // =========================================
+  const parseEventDateTime = (
+    dateStr?: string,
+    timeStr?: string,
+    targetTimeZone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
+  ) => {
+    if (!dateStr || !timeStr) return { localDate: '', localTime: '' };
+
+    let year: number, month: number, day: number;
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      // YYYY-MM-DD
+      const [y, m, d] = dateStr.split('-');
+      year = parseInt(y, 10);
+      month = parseInt(m, 10);
+      day = parseInt(d, 10);
+    } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) {
+      // DD/MM/YYYY
+      const [d, m, y] = dateStr.split('/');
+      year = parseInt(y, 10);
+      month = parseInt(m, 10);
+      day = parseInt(d, 10);
+    } else {
+      return { localDate: '', localTime: '' };
+    }
+
+    // timeStr "HH:MM" o "HH:MM AM/PM"
+    let [timePart, period] = timeStr.split(' ');
+    if (!timePart) return { localDate: '', localTime: '' };
+    let [hStr, mStr] = timePart.split(':');
+    if (!hStr || !mStr) return { localDate: '', localTime: '' };
+
+    let hour = parseInt(hStr, 10);
+    const minute = parseInt(mStr, 10);
+
+    if (period) {
+      const p = period.trim().toUpperCase();
+      if (p === 'PM' && hour < 12) hour += 12;
+      if (p === 'AM' && hour === 12) hour = 0;
+    }
+
+    const utcMs = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+    const utcDate = new Date(utcMs);
+    if (isNaN(utcDate.getTime())) return { localDate: '', localTime: '' };
+
+    const fmt = new Intl.DateTimeFormat('es-EC', {
+      timeZone: targetTimeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+
+    const parts = fmt.formatToParts(utcDate);
+    const get = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find(p => p.type === type)?.value ?? '';
+
+    const localDate = `${get('day')}/${get('month')}/${get('year')}`;
+    const localTime = `${get('hour')}:${get('minute')}`;
+
+    return { localDate, localTime };
+  };
+
+  // Precalcular valores locales (solo cuando hay evento)
+  const localDateTimes = event
+    ? {
+        start: parseEventDateTime(event.startDate, event.startTime),
+        close: parseEventDateTime(event.startDate, event.closeTime), // misma fecha que inicio
+        end: parseEventDateTime(event.endDate, event.endTime)
+      }
+    : null;
+
   // Selección de participantes
   const handleSelectAll = (checked: boolean) => {
     if (checked && event?.participants) {
@@ -254,21 +332,27 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
                             <Calendar className="w-5 h-5 text-gray-400 mt-0.5" />
                             <div>
                               <p className="text-xs text-gray-500 uppercase tracking-wide">Fecha</p>
-                              <p className="text-base font-semibold text-gray-900">{formatDate(event.startDate) || 'No definida'}</p>
+                              <p className="text-base font-semibold text-gray-900">
+                                {localDateTimes?.start.localDate || formatDate(event.startDate) || 'No definida'}
+                              </p>
                             </div>
                           </div>
                           <div className="flex items-start gap-3">
                             <Clock className="w-5 h-5 text-gray-400 mt-0.5" />
                             <div>
                               <p className="text-xs text-gray-500 uppercase tracking-wide">Hora de inicio</p>
-                              <p className="text-base font-semibold text-gray-900">{formatTime(event.startTime) || 'No definida'}</p>
+                              <p className="text-base font-semibold text-gray-900">
+                                {localDateTimes?.start.localTime || formatTime(event.startTime) || 'No definida'}
+                              </p>
                             </div>
                           </div>
                           <div className="flex items-start gap-3">
                             <Clock className="w-5 h-5 text-gray-400 mt-0.5" />
                             <div>
                               <p className="text-xs text-gray-500 uppercase tracking-wide">Hora de cierre</p>
-                              <p className="text-base font-semibold text-gray-900">{formatTime(event.closeTime) || 'No definida'}</p>
+                              <p className="text-base font-semibold text-gray-900">
+                                {localDateTimes?.close.localTime || formatTime(event.closeTime) || 'No definida'}
+                              </p>
                             </div>
                           </div>
                         </div>
@@ -285,14 +369,18 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
                             <Calendar className="w-5 h-5 text-gray-400 mt-0.5" />
                             <div>
                               <p className="text-xs text-gray-500 uppercase tracking-wide">Fecha</p>
-                              <p className="text-base font-semibold text-gray-900">{formatDate(event.endDate) || 'No definida'}</p>
+                              <p className="text-base font-semibold text-gray-900">
+                                {localDateTimes?.end.localDate || formatDate(event.endDate) || 'No definida'}
+                              </p>
                             </div>
                           </div>
                           <div className="flex items-start gap-3">
                             <Clock className="w-5 h-5 text-gray-400 mt-0.5" />
                             <div>
                               <p className="text-xs text-gray-500 uppercase tracking-wide">Hora de fin</p>
-                              <p className="text-base font-semibold text-gray-900">{formatTime(event.endTime) || 'No definida'}</p>
+                              <p className="text-base font-semibold text-gray-900">
+                                {localDateTimes?.end.localTime || formatTime(event.endTime) || 'No definida'}
+                              </p>
                             </div>
                           </div>
                           <div className="flex items-start gap-3">
