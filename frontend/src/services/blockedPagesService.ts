@@ -120,6 +120,27 @@ const blockedPagesService = {
       throw new Error(error.error || 'Error al eliminar el sitio web');
     }
   },
+
+  async notifyProxyUpdate(eventId: string): Promise<void> {
+    const token = localStorage.getItem('auth_token');
+
+    if (!token) {
+      throw new Error('No hay token de autenticación');
+    }
+
+    const response = await fetch(`${API_URL}/events/api/${eventId}/notify-proxy-update/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Error al notificar al proxy');
+    }
+  },
 };
 
 export default blockedPagesService;

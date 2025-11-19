@@ -4,7 +4,6 @@ from events import views
 urlpatterns = [
     # Rutas para el registro de eventos de los participantes
     path("api/logging/http-request", views.log_participant_http_event),
-    path("api/logging/batch-key-presses", views.log_participant_keylogger_event),
     path("api/logging/screen/capture", views.log_participant_screen_event),
     path("api/logging/media/capture", views.log_participant_audio_video_event),
     path("api/verify-event-key", views.verify_event_key),
@@ -41,6 +40,11 @@ urlpatterns = [
         "api/<int:event_id>/blocked-hosts/",
         views.event_blocked_hosts,
         name="event_blocked_hosts",
+    ),
+    path(
+        "api/<int:event_id>/notify-proxy-update/",
+        views.notify_proxy_blocked_hosts_update,
+        name="notify_proxy_blocked_hosts_update",
     ),
     # Rutas para evaluaciones
     path("api/evaluations", views.evaluaciones, name="evaluaciones"),

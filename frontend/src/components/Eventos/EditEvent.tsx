@@ -232,6 +232,16 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
       };
 
       await eventService.updateEvent(eventId, eventData);
+      
+      // Notificar al proxy sobre la actualización de hosts bloqueados si hubo cambios
+      try {
+        await blockedPagesService.notifyProxyUpdate(eventId);
+        console.log('✅ Proxy notificado sobre actualización de hosts bloqueados');
+      } catch (proxyError) {
+        console.warn('⚠️  Error notificando al proxy (no crítico):', proxyError);
+        // No mostramos este error al usuario ya que el evento se guardó correctamente
+      }
+      
       onBack && onBack();
 
     } catch (err) {
@@ -548,6 +558,7 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
         onClose={() => setShowBlockedPagesModal(false)}
         selectedWebsites={selectedBlockedWebsites}
         onSave={(ids) => setSelectedBlockedWebsites(ids)}
+        eventId={eventId}
       />
     </div>
   );
