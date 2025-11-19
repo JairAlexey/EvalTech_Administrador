@@ -7,13 +7,15 @@ interface BlockedPagesModalProps {
     onClose: () => void;
     selectedWebsites?: string[];
     onSave?: (selectedIds: string[]) => void;
+    eventId?: string; // Para notificar al proxy en tiempo real
 }
 
 export default function BlockedPagesModal({
     isOpen,
     onClose,
     selectedWebsites = [],
-    onSave
+    onSave,
+    eventId
 }: BlockedPagesModalProps) {
     const [websites, setWebsites] = useState<BlockedPage[]>([]);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(selectedWebsites));
@@ -25,6 +27,18 @@ export default function BlockedPagesModal({
     const [errorMessage, setErrorMessage] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
     const [search, setSearch] = useState('');
+
+    // Función auxiliar para notificar al proxy cuando sea necesario
+    const notifyProxyIfNeeded = async () => {
+        if (eventId) {
+            try {
+                await blockedPagesService.notifyProxyUpdate(eventId);
+                console.log('✅ Proxy notificado sobre cambios en hosts bloqueados');
+            } catch (error) {
+                console.warn('⚠️  Error notificando al proxy (no crítico):', error);
+            }
+        }
+    };
 
     // Limpiar mensajes de éxito/error al abrir modal o cambiar selectedWebsites
     useEffect(() => {
@@ -71,6 +85,9 @@ export default function BlockedPagesModal({
             setIsCreating(false);
             setErrorMessage('');
             setSuccessMessage('Sitio web creado exitosamente');
+            
+            // Notificar al proxy si hay un evento activo
+            await notifyProxyIfNeeded();
         } catch (error: any) {
             setErrorMessage(error.message || 'Error al crear el sitio web');
             setSuccessMessage('');
@@ -91,6 +108,9 @@ export default function BlockedPagesModal({
             setEditHostname('');
             setErrorMessage('');
             setSuccessMessage('Sitio web actualizado exitosamente');
+            
+            // Notificar al proxy si hay un evento activo
+            await notifyProxyIfNeeded();
         } catch (error: any) {
             setErrorMessage(error.message || 'Error al actualizar el sitio web');
             setSuccessMessage('');
@@ -109,6 +129,9 @@ export default function BlockedPagesModal({
                 return newSet;
             });
             setErrorMessage('');
+            
+            // Notificar al proxy si hay un evento activo
+            await notifyProxyIfNeeded();
         } catch (error: any) {
             setErrorMessage(error.message || 'Error al eliminar el sitio web');
         }

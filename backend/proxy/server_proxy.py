@@ -1,13 +1,16 @@
 import socket
 import threading
 import logging
+import os
+import json
+import time
 from urllib.parse import urlparse
 from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
 import requests
 from administradormonitoreo import settings
 from .models import AssignedPort
-from events.models import BlockedHost, ParticipantEvent, Participant
+from events.models import BlockedHost, ParticipantEvent, Participant, ProxyUpdateSignal
 
 logger = logging.getLogger(__name__)
 
@@ -30,13 +33,17 @@ class DynamicProxyManager:
             self.gateway_socket.bind((host, port))
             self.gateway_socket.listen(10)
             self.gateway_running = True
-            logger.info(f"🌐 | Gateway listening on {host}:{port}")      
+            print(f"🌐 | Gateway listening on {host}:{port}")
+            logger.info(f"🌐 | Gateway listening on {host}:{port}")
 
             gateway_thread = threading.Thread(
                 target=self._gateway_loop,
                 daemon=True
             )
             gateway_thread.start()
+            
+            # Iniciar monitor de señales para comunicación entre procesos
+            self._start_signal_monitor()
             
         except Exception as e:
             logger.error(f"Failed to start gateway: {str(e)}")
@@ -165,6 +172,178 @@ class DynamicProxyManager:
             proxy.start()
             self.active_proxies[port] = proxy
 
+    def update_blocked_hosts_for_event(self, event_id):
+        """Actualiza los hosts bloqueados para todas las instancias de proxy activas de un evento"""
+        print(f"🔍 | STARTING update_blocked_hosts_for_event for event {event_id}")
+        logger.info(f"🔍 | STARTING update_blocked_hosts_for_event for event {event_id}")
+        try:
+            # Obtener todos los participant_events del evento
+            participant_events = ParticipantEvent.objects.filter(event_id=event_id)
+            print(f"🔍 | Found {len(participant_events)} participant_events for event {event_id}")
+            logger.info(f"🔍 | Found {len(participant_events)} participant_events for event {event_id}")
+            
+            # Obtener puertos asignados activos para este evento
+            active_ports = AssignedPort.objects.filter(
+                participant_event__in=participant_events,
+                is_active=True
+            ).values_list('port', flat=True)
+            
+            # Obtener la nueva lista de hosts bloqueados
+            new_blocked_hosts = list(
+                BlockedHost.objects.filter(event_id=event_id)
+                .values_list('website__hostname', flat=True)
+            )
+            
+            print(f"🔍 | Event {event_id}: Active ports: {list(active_ports)}")
+            print(f"🔍 | Event {event_id}: New blocked hosts from DB: {new_blocked_hosts}")
+            print(f"🔍 | Event {event_id}: Available proxy instances: {list(self.active_proxies.keys())}")
+            logger.info(f"🔍 | Event {event_id}: Active ports: {list(active_ports)}")
+            logger.info(f"🔍 | Event {event_id}: New blocked hosts from DB: {new_blocked_hosts}")
+            logger.info(f"🔍 | Event {event_id}: Available proxy instances: {list(self.active_proxies.keys())}")
+            
+            updated_count = 0
+            for port in active_ports:
+                if port in self.active_proxies:
+                    proxy_instance = self.active_proxies[port]
+                    old_blocked_hosts = proxy_instance.blocked_hosts[:]
+                    print(f"🔍 | Port {port} - Before update: {old_blocked_hosts}")
+                    logger.info(f"🔍 | Port {port} - Before update: {old_blocked_hosts}")
+                    proxy_instance.refresh_blocked_hosts(new_blocked_hosts)
+                    print(f"🔍 | Port {port} - After update: {proxy_instance.blocked_hosts}")
+                    logger.info(f"🔍 | Port {port} - After update: {proxy_instance.blocked_hosts}")
+                    updated_count += 1
+                else:
+                    logger.warning(f"⚠️ | Port {port} not found in active_proxies: {list(self.active_proxies.keys())}")
+            
+            logger.info(f"🔄 | Updated blocked hosts for {updated_count} active proxy instances (event {event_id})")
+            return updated_count
+            
+        except Exception as e:
+            logger.error(f"❌ | Error updating blocked hosts for event {event_id}: {str(e)}")
+            logger.error(f"❌ | Exception type: {type(e).__name__}")
+            import traceback
+            logger.error(f"❌ | Traceback: {traceback.format_exc()}")
+            return 0
+    
+    def _create_update_signal_db(self, event_id):
+        """Crea señal en base de datos para comunicación entre procesos"""
+        try:
+            signal = ProxyUpdateSignal.objects.create(
+                event_id=event_id,
+                action='update_blocked_hosts'
+            )
+            print(f"📁 | Created DB signal for event {event_id} (ID: {signal.id})")
+            logger.info(f"📁 | Created DB signal for event {event_id}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ | Error creating DB signal for event {event_id}: {str(e)}")
+            logger.error(f"Error creating DB signal for event {event_id}: {str(e)}")
+            return False
+    
+    def _check_update_signals(self):
+        """Verifica señales en base de datos para actualizaciones pendientes"""
+        try:
+            # Obtener señales no procesadas
+            try:
+                pending_signals = ProxyUpdateSignal.objects.filter(processed=False).order_by('created_at')
+                signal_count = len(pending_signals)
+                
+                if signal_count > 0:
+                    print(f"📁 | [CHECK] Found {signal_count} pending signals to process")
+                    logger.info(f"📁 | Found {signal_count} pending signals to process")
+            except Exception as db_error:
+                logger.error(f"❌ | Database query failed: {db_error}")
+                import traceback
+                logger.error(f"❌ | DB query traceback: {traceback.format_exc()}")
+                return
+            
+            print(f"📁 | [FOR-LOOP] About to iterate over {signal_count} signals, list: {list(pending_signals)}")
+            for signal in pending_signals:
+                print(f"📁 | [FOR-LOOP] Processing signal ID {signal.id}")
+                try:
+                    print(f"📁 | [PROCESS] Starting to process signal ID {signal.id} for event {signal.event_id}")
+                    logger.info(f"📁 | Processing DB signal ID {signal.id} for event {signal.event_id}...")
+                    
+                    # Procesar la actualización
+                    print(f"📁 | [PROCESS] About to call update_blocked_hosts_for_event({signal.event_id})")
+                    logger.info(f"📁 | About to call update_blocked_hosts_for_event({signal.event_id})")
+                    updated_count = self.update_blocked_hosts_for_event(signal.event_id)
+                    print(f"📁 | [PROCESS] update_blocked_hosts_for_event returned: {updated_count}")
+                    logger.info(f"📁 | Processed signal for event {signal.event_id}: {updated_count} instances updated")
+                    
+                    # Marcar como procesada
+                    signal.processed = True
+                    signal.save()
+                    
+                    logger.info(f"📁 | Processed signal for event {signal.event_id}: {updated_count} instances updated")
+                    
+                except Exception as e:
+                    print(f"❌ | [ERROR] Error processing signal ID {signal.id}: {str(e)}")
+                    logger.error(f"Error processing signal ID {signal.id}: {str(e)}")
+                    import traceback
+                    print(f"❌ | [ERROR] Traceback: {traceback.format_exc()}")
+                    logger.error(f"Traceback: {traceback.format_exc()}")
+                    # Marcar como procesada para evitar bucles infinitos
+                    signal.processed = True
+                    signal.save()
+            
+        except Exception as e:
+            logger.error(f"Error checking update signals: {str(e)}")
+    
+    def _start_signal_monitor(self):
+        """Inicia el monitor de archivos de señal en un hilo separado"""
+        def signal_monitor_loop():
+            print(f"📁 | [THREAD START] Signal monitor thread EXECUTING, gateway_running={self.gateway_running}")
+            logger.info(f"📁 | Signal monitor thread started, gateway_running={self.gateway_running}")
+            
+            # Test de conexión a base de datos
+            try:
+                from django.db import connection
+                connection.ensure_connection()
+                test_count = ProxyUpdateSignal.objects.count()
+                print(f"📁 | [DB TEST] Database accessible, total signals in DB: {test_count}")
+                logger.info(f"📁 | Database test successful, total signals: {test_count}")
+            except Exception as db_test_error:
+                print(f"❌ | [DB TEST ERROR] Cannot access database: {db_test_error}")
+                logger.error(f"❌ | Database test failed: {db_test_error}")
+                import traceback
+                traceback.print_exc()
+            
+            if not self.gateway_running:
+                print(f"❌ | [THREAD ERROR] gateway_running is False! Thread will not loop.")
+                logger.error(f"❌ | gateway_running is False at thread start!")
+                return
+            
+            loop_count = 0
+            while self.gateway_running:
+                try:
+                    loop_count += 1
+                    if loop_count % 10 == 0:  # Log cada 5 segundos (10 * 0.5s)
+                        print(f"📁 | [LOOP] Signal monitor alive - loop {loop_count}, gateway_running={self.gateway_running}")
+                        logger.debug(f"📁 | Signal monitor alive - loop {loop_count}, gateway_running={self.gateway_running}")
+                    
+                    self._check_update_signals()
+                    time.sleep(0.5)  # Verificar cada medio segundo
+                except Exception as e:
+                    logger.error(f"❌ | Error in signal monitor loop: {str(e)}")
+                    import traceback
+                    logger.error(f"❌ | Signal monitor traceback: {traceback.format_exc()}")
+                    time.sleep(5)  # Esperar más en caso de error
+            
+            logger.warning(f"📁 | Signal monitor loop ended, gateway_running={self.gateway_running}")
+        
+        monitor_thread = threading.Thread(
+            target=signal_monitor_loop,
+            daemon=True,
+            name="SignalMonitor"
+        )
+        print(f"📁 | [MAIN] About to start signal monitor thread, gateway_running={self.gateway_running}")
+        monitor_thread.start()
+        print(f"📁 | [MAIN] Signal monitor thread started: {monitor_thread.is_alive()}")
+        logger.info(f"📁 | Signal monitor started, thread alive: {monitor_thread.is_alive()}")
+        logger.info("📁 | Signal monitor started")
+
     def stop_gateway(self):
         self.gateway_running = False
         if self.gateway_socket:
@@ -182,7 +361,11 @@ class ProxyInstance:
         self._conn_lock = threading.Lock()
         self.blocked_hosts = []
         self.event_key = None
-        self.default_blocked_hosts = ["chatgpt.com", "deepseek.com", "gemini.google.com"]  
+        self.default_blocked_hosts = ["chatgpt.com", "deepseek.com", "gemini.google.com"]
+        
+        # Registro de conexiones activas: {thread_id: {'host': str, 'sockets': [socket1, socket2]}}
+        self._active_connections = {}
+        self._connections_lock = threading.Lock()  
         try:
             # Intentar obtener el AssignedPort que ya esté activo
             try:
@@ -276,7 +459,10 @@ class ProxyInstance:
             status_msg = ""
             action = "ACCEPTED"
             
-            if self._is_host_blocked(target_host):
+            is_blocked = self._is_host_blocked(target_host)
+            logger.info(f"🔍 | Port {self.port}: Checking '{target_host}' against blocked hosts {self.blocked_hosts}: {'🚫 BLOCKED' if is_blocked else '✅ ALLOWED'}")
+            
+            if is_blocked:
                 status_icon = "⛔"
                 action = "REJECTED"
                 status_msg = f"{method} {target_host}"
@@ -322,6 +508,14 @@ class ProxyInstance:
 
             server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_socket.connect((target_host, target_port))
+            
+            # Registrar conexión activa
+            thread_id = threading.get_ident()
+            with self._connections_lock:
+                self._active_connections[thread_id] = {
+                    'host': target_host,
+                    'sockets': [client_socket, server_socket]
+                }
 
             # Manejar CONNECT
             if method.upper() == 'CONNECT':
@@ -335,6 +529,11 @@ class ProxyInstance:
         except Exception as e:
             logger.error(f"⚠️  | Error: {str(e)}")
         finally:
+            # Eliminar conexión del registro
+            thread_id = threading.get_ident()
+            with self._connections_lock:
+                self._active_connections.pop(thread_id, None)
+            
             if server_socket:
                 server_socket.close()
 
@@ -399,8 +598,101 @@ class ProxyInstance:
         except Exception as e:
             logger.error(f"Error sending log: {str(e)}")    
 
+    def close_connections_to_hosts(self, hosts_to_close):
+        """Cierra todas las conexiones activas a los hosts especificados"""
+        if not hosts_to_close:
+            return
+        
+        closed_count = 0
+        with self._connections_lock:
+            connections_to_close = []
+            for thread_id, conn_info in list(self._active_connections.items()):
+                host = conn_info.get('host', '')
+                # Verificar si el host de la conexión coincide con alguno de los hosts a cerrar
+                if any(host == h or host.endswith(f".{h}") for h in hosts_to_close):
+                    connections_to_close.append((thread_id, conn_info))
+            
+            # Cerrar los sockets
+            for thread_id, conn_info in connections_to_close:
+                try:
+                    for sock in conn_info.get('sockets', []):
+                        try:
+                            sock.shutdown(socket.SHUT_RDWR)
+                            sock.close()
+                        except:
+                            pass
+                    self._active_connections.pop(thread_id, None)
+                    closed_count += 1
+                    print(f"🔄 | Port {self.port}: Closed connection to {conn_info['host']}")
+                    logger.info(f"🔄 | Port {self.port}: Closed connection to {conn_info['host']}")
+                except Exception as e:
+                    logger.debug(f"Error closing connection: {e}")
+        
+        if closed_count > 0:
+            print(f"🔄 | Port {self.port}: Closed {closed_count} active connections to updated hosts")
+            logger.info(f"🔄 | Port {self.port}: Closed {closed_count} active connections")
+        
+        return closed_count
+    
+    def refresh_blocked_hosts(self, new_blocked_hosts=None):
+        try:
+            old_hosts = self.blocked_hosts[:]
+            
+            if new_blocked_hosts is not None:
+                # Usar la lista proporcionada (más eficiente)
+                self.blocked_hosts = new_blocked_hosts[:]
+            else:
+                # Refrescar desde la base de datos
+                participant_event = self.assigned_port.participant_event
+                self.blocked_hosts = list(
+                    BlockedHost.objects.filter(event=participant_event.event)
+                    .values_list('website__hostname', flat=True)
+                )
+            
+            # Solo loggear si hubo cambios
+            if old_hosts != self.blocked_hosts:
+                added_hosts = set(self.blocked_hosts) - set(old_hosts)
+                removed_hosts = set(old_hosts) - set(self.blocked_hosts)
+                changes = []
+                if added_hosts:
+                    changes.append(f"Added: {list(added_hosts)}")
+                if removed_hosts:
+                    changes.append(f"Removed: {list(removed_hosts)}")
+                change_summary = ", ".join(changes) if changes else "Modified"
+                logger.info(f"🔄 | Port {self.port} blocked hosts updated: {change_summary}")
+                logger.debug(f"🔄 | Port {self.port} new blocked hosts: {self.blocked_hosts}")
+                
+                # Cerrar conexiones activas a los hosts que cambiaron
+                hosts_changed = added_hosts | removed_hosts
+                if hosts_changed:
+                    print(f"🔄 | Port {self.port}: Closing connections to changed hosts: {list(hosts_changed)}")
+                    self.close_connections_to_hosts(hosts_changed)
+            else:
+                logger.debug(f"🔄 | Port {self.port} blocked hosts unchanged: {self.blocked_hosts}")
+            
+        except Exception as e:
+            logger.error(f"Error refreshing blocked hosts for port {self.port}: {str(e)}")
+
     def _is_host_blocked(self, host):
-        return any(host == blocked or host.endswith(f".{blocked}") for blocked in self.blocked_hosts)
+        """
+        Verifica si un host está bloqueado.
+        Bloquea el dominio exacto y todos sus subdominios.
+        Ejemplo: si 'example.com' está bloqueado, también bloquea 'www.example.com', 'api.example.com', etc.
+        """
+        for blocked in self.blocked_hosts:
+            # Coincidencia exacta del dominio
+            if host == blocked:
+                return True
+            # El host es un subdominio del dominio bloqueado
+            if host.endswith(f".{blocked}"):
+                return True
+            # El dominio bloqueado es un subdominio del host (para casos como *.google.com)
+            if blocked.startswith("*."):
+                # Remover el wildcard y verificar
+                base_domain = blocked[2:]  # Remover "*."
+                if host == base_domain or host.endswith(f".{base_domain}"):
+                    return True
+        return False
 
     def _relay_traffic(self, client, server):
         def _inc_conn():
