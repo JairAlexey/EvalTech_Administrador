@@ -30,6 +30,9 @@ from io import BytesIO
 from django.http import HttpResponse
 from authentication.utils import jwt_required
 from django.views.decorators.http import require_POST, require_GET
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Funciones
 
@@ -335,34 +338,6 @@ def log_participant_http_event(request: HttpRequest):
 
         ParticipantLog.objects.create(
             name="http", message=data["uri"], participant_event=participant_event
-        )
-        return JsonResponse({"status": "success"})
-
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=400)
-
-
-@require_POST
-def log_participant_keylogger_event(request: HttpRequest):
-
-    try:
-        data = json.loads(request.body)
-        auth = request.headers.get("Authorization", "")
-        parts = auth.split(" ", 1)
-        if len(parts) != 2 or not parts[1]:
-            return JsonResponse({"error": "Invalid format authorization"}, status=401)
-        event_key = parts[1]
-        participant_event = get_participant_event(event_key)
-        if not participant_event:
-            return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
-
-        if not getattr(participant_event, "is_monitoring", False):
-            return JsonResponse({"error": "Monitoring not started"}, status=403)
-
-        ParticipantLog.objects.create(
-            name="keylogger",
-            message="\n".join(data["keys"]),
-            participant_event=participant_event,
         )
         return JsonResponse({"status": "success"})
 
@@ -1237,6 +1212,36 @@ def events(request):
 
 @csrf_exempt
 @jwt_required()
+def notify_proxy_blocked_hosts_update(request, event_id):
+    """Notifica al proxy manager que se actualizaron los hosts bloqueados de un evento"""
+    if request.method == "POST":
+        try:
+            from proxy.server_proxy import DynamicProxyManager
+            
+            # Usar señal en base de datos para comunicación entre procesos
+            proxy_manager = DynamicProxyManager()
+            success = proxy_manager._create_update_signal_db(event_id)
+            
+            if success:
+                return JsonResponse({
+                    "success": True,
+                    "message": f"DB signal created for event {event_id} update"
+                })
+            else:
+                return JsonResponse({
+                    "success": False,
+                    "error": "Failed to create DB signal"
+                }, status=500)
+            
+        except Exception as e:
+            logger.error(f"Error notifying proxy of blocked hosts update: {str(e)}")
+            return JsonResponse({"error": "Failed to update proxy instances"}, status=500)
+    
+    return JsonResponse({"error": "Method not allowed"}, status=405)
+
+
+@csrf_exempt
+@jwt_required()
 def event_detail(request, event_id):
 
     user = request.user
@@ -1656,6 +1661,20 @@ def event_detail(request, event_id):
                     BlockedHost.objects.filter(
                         event=event, website_id__in=list(to_remove)
                     ).delete()
+                
+                # Notificar al proxy manager sobre la actualización de hosts bloqueados
+                if to_add or to_remove:
+                    try:
+                        # Usar señal en base de datos para comunicación entre procesos
+                        from proxy.server_proxy import DynamicProxyManager
+                        proxy_manager = DynamicProxyManager()
+                        success = proxy_manager._create_update_signal_db(event_id)
+                        if success:
+                            print(f"🔄 | Created signal file for proxy update (event {event_id})")
+                        else:
+                            print(f"⚠️  | Failed to create signal file for event {event_id}")
+                    except Exception as e:
+                        print(f"Failed to notify proxy of blocked hosts update: {str(e)}")
 
             return JsonResponse({"success": True, "updated": changed})
 
@@ -2060,3 +2079,54 @@ def participant_connection_stats(request, participant_id):
         return JsonResponse({"error": "Participant not found"}, status=404)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+@jwt_required()
+def get_proxy_status(request, event_id):
+    """Obtiene el estado del proxy para un evento específico"""
+    if request.method == "GET":
+        try:
+            from proxy.server_proxy import DynamicProxyManager
+            
+            # Obtener la instancia del proxy manager
+            proxy_manager = DynamicProxyManager()
+            
+            # Obtener participant_events del evento
+            participant_events = ParticipantEvent.objects.filter(event_id=event_id)
+            
+            # Obtener puertos activos para este evento
+            active_ports = AssignedPort.objects.filter(
+                participant_event__in=participant_events,
+                is_active=True
+            ).select_related("participant_event__participant")
+            
+            proxy_instances = []
+            for assigned_port in active_ports:
+                port_info = {
+                    "port": assigned_port.port,
+                    "participant": assigned_port.participant_event.participant.name,
+                    "is_active": assigned_port.is_active,
+                    "proxy_running": assigned_port.port in proxy_manager.active_proxies,
+                    "blocked_hosts": []
+                }
+                
+                # Si el proxy está ejecutándose, obtener los hosts bloqueados actuales
+                if assigned_port.port in proxy_manager.active_proxies:
+                    proxy_instance = proxy_manager.active_proxies[assigned_port.port]
+                    port_info["blocked_hosts"] = proxy_instance.blocked_hosts
+                
+                proxy_instances.append(port_info)
+            
+            return JsonResponse({
+                "success": True,
+                "event_id": event_id,
+                "total_instances": len(proxy_instances),
+                "proxy_instances": proxy_instances
+            })
+            
+        except Exception as e:
+            logger.error(f"Error getting proxy status for event {event_id}: {str(e)}")
+            return JsonResponse({"error": "Failed to get proxy status"}, status=500)
+    
+    return JsonResponse({"error": "Method not allowed"}, status=405)
