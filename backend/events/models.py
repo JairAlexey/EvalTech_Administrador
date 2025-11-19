@@ -146,3 +146,21 @@ class BlockedHost(models.Model):
 
     def __str__(self):
         return f"{self.website.hostname} ({self.event.name})"
+
+
+class ProxyUpdateSignal(models.Model):
+    """Modelo para comunicación entre procesos para actualizar el proxy"""
+    event_id = models.IntegerField()
+    action = models.CharField(max_length=50, default='update_blocked_hosts')
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed = models.BooleanField(default=False)
+    
+    class Meta:
+        db_table = 'proxy_update_signals'
+        indexes = [
+            models.Index(fields=['processed', 'created_at']),
+        ]
+    
+    def __str__(self):
+        status = "✅" if self.processed else "⏳"
+        return f"{status} Event {self.event_id} - {self.action}"
