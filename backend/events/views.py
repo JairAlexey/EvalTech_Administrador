@@ -1870,6 +1870,12 @@ def evaluaciones(request):
                 "startTime": (
                     evento.start_date.strftime("%H:%M %p") if evento.start_date else ""
                 ),
+                "closeDate": (
+                    evento.close_date.strftime("%d/%m/%Y") if evento.close_date else ""
+                ),
+                "closeTime": (
+                    evento.close_date.strftime("%H:%M %p") if evento.close_date else ""
+                ),
                 "duration": evento.duration,
                 "endDate": (
                     evento.end_date.strftime("%d/%m/%Y") if evento.end_date else ""
@@ -1945,6 +1951,8 @@ def evaluation_detail(request, evaluation_id):
         "description": event.description,
         "startDate": event.start_date.strftime("%Y-%m-%d") if event.start_date else "",
         "startTime": event.start_date.strftime("%H:%M") if event.start_date else "",
+        "closeDate": event.close_date.strftime("%Y-%m-%d") if event.close_date else "",
+        "closeTime": event.close_date.strftime("%H:%M") if event.close_date else "",
         "duration": event.duration,
         "endDate": event.end_date.strftime("%Y-%m-%d") if event.end_date else "",
         "endTime": event.end_date.strftime("%H:%M") if event.end_date else "",

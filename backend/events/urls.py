@@ -12,7 +12,10 @@ urlpatterns = [
         "api/participants/<int:participant_id>/connection-stats/",
         views.participant_connection_stats,
     ),
-    path("api/events/<int:event_id>/participants/<int:participant_id>/logs/", views.event_participant_logs),
+    path(
+        "api/events/<int:event_id>/participants/<int:participant_id>/logs/",
+        views.event_participant_logs,
+    ),
     # Rutas para la gestión de eventos
     path("api/events", views.events),
     path("api/events/<int:event_id>", views.event_detail),
@@ -49,5 +52,26 @@ urlpatterns = [
         "api/evaluations/<int:evaluation_id>",
         views.evaluation_detail,
         name="evaluation_detail",
+    ),
+    # Rutas para estados de eventos
+    path(
+        "api/events-status/<int:event_id>/start/",
+        views.start_event,
+        name="event-start",
+    ),
+    path(
+        "api/events-status/<int:event_id>/finish/",
+        views.finish_event,
+        name="event-finish",
+    ),
+    path(
+        "api/events-status/pending-start/",
+        views.pending_start_events,
+        name="events-pending-start",
+    ),
+    path(
+        "api/events-status/pending-finish/",
+        views.pending_finish_events,
+        name="events-pending-finish",
     ),
 ]
