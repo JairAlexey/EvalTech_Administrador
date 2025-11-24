@@ -63,7 +63,7 @@ def validate_event_access(participant_event, now):
     if now > event.end_date:
         return {
             "allowed": False,
-            "reason": "El evento ha finalizado completamente.",
+            "reason": "El evento ha finalizado.",
             "monitoring_allowed": False,
             "is_first_connection": is_first_connection,
         }
