@@ -3,7 +3,11 @@ from behavior_analysis.analyzers.voice import run_voice_test
 from behavior_analysis.analyzers.lipsync import run_lipsync_test
 from behavior_analysis.analyzers.gestures import run_gestures_test
 from behavior_analysis.analyzers.lighting import run_lighting_test
-from behavior_analysis.analyzers.faces import run_multiple_faces_test, run_absence_test
+from behavior_analysis.analyzers.faces import (
+    run_multiple_faces_test,
+    run_absence_test,
+    run_fast_face_analysis,
+)
 
 
 class Command(BaseCommand):
@@ -36,7 +40,7 @@ class Command(BaseCommand):
         elif feature == "lighting":
             run_lighting_test(video_path)
         elif feature == "multiple_faces":
-            run_multiple_faces_test(video_path)
+            run_fast_face_analysis(video_path)
         elif feature == "absence":
             run_absence_test(video_path)
         else:
