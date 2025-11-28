@@ -12,3 +12,4 @@ numpy
 moviepy
 redis
 celery
+librosa

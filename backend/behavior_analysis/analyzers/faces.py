@@ -22,6 +22,10 @@ class AnalizadorRostros:
         self.match_threshold = 0.4
         self.max_gap_tolerance = 2.0
 
+        # Para debug y logging
+        self.total_processed_frames = 0
+        self.last_logged_time = 0
+
     def _ensure_models_exist(self):
         """
         Descarga los modelos YuNet (Detección) y SFace (Reconocimiento) si no existen.
@@ -55,28 +59,46 @@ class AnalizadorRostros:
         )
 
     def procesar_frame(self, frame, timestamp):
+        """
+        Procesa un frame del video para detección y reconocimiento facial.
+        Aplica stride interno para optimizar rendimiento.
+        """
         self.frame_count += 1
+
+        # Stride interno: procesar solo 1 de cada N frames
         if self.frame_count % self.frame_stride != 0:
             return
+
+        self.total_processed_frames += 1
+
+        # Logging de progreso cada cierto tiempo
+        if int(timestamp) > self.last_logged_time and int(timestamp) % 30 == 0:
+            minutes = int(timestamp // 60)
+            seconds = int(timestamp % 60)
+            self.last_logged_time = int(timestamp)
 
         h, w = frame.shape[:2]
         scale = self.process_width / w
         new_h = int(h * scale)
 
+        # Resize del frame para optimizar velocidad
         small_frame = cv2.resize(frame, (self.process_width, new_h))
         self.detector.setInputSize((self.process_width, new_h))
 
-        # Detección
+        # Detección de rostros
         _, faces = self.detector.detect(small_frame)
 
         if faces is not None:
             for face in faces:
+                # Alinear rostro para reconocimiento
                 aligned_face = self.recognizer.alignCrop(small_frame, face)
                 if aligned_face is None:
                     continue
 
+                # Extraer embedding (características faciales)
                 face_feature = self.recognizer.feature(aligned_face)
 
+                # Comparar con personas conocidas
                 best_score = 0.0
                 best_id = None
 
@@ -94,14 +116,17 @@ class AnalizadorRostros:
                     last_interval = person["intervals"][-1]
 
                     if timestamp - person["last_seen"] <= self.max_gap_tolerance:
+                        # Extender intervalo actual
                         last_interval[1] = timestamp
                     else:
+                        # Crear nuevo intervalo (persona reapareció)
                         person["intervals"].append([timestamp, timestamp])
 
+                    # Actualizar embedding (promedio móvil para adaptarse a cambios de luz/ángulo)
                     person["embedding"] = (person["embedding"] + face_feature) / 2
                     person["last_seen"] = timestamp
                 else:
-                    # Nueva persona
+                    # Nueva persona detectada
                     self.known_people[self.next_person_id] = {
                         "embedding": face_feature,
                         "intervals": [[timestamp, timestamp]],
@@ -112,21 +137,34 @@ class AnalizadorRostros:
     def obtener_resultados(self):
         """
         Retorna una lista de diccionarios con los intervalos detectados.
+        Filtra ruido (apariciones menores a 1 segundo) y renumera IDs secuencialmente.
         """
         resultados = []
-        # Renumerar IDs para que sean secuenciales (1, 2, 3...) en el output final
-        # Ordenamos por tiempo de aparición
-        sorted_people = sorted(
-            self.known_people.items(), key=lambda x: x[1]["intervals"][0][0]
-        )
 
-        for idx, (pid, data) in enumerate(sorted_people, start=1):
+        # Filtrar y ordenar personas por primera aparición
+        valid_people = []
+        for pid, data in self.known_people.items():
             total_time = sum([end - start for start, end in data["intervals"]])
+            # Filtrar ruido: menos de 1 segundo total = probablemente falso positivo
             if total_time < 1.0:
                 continue
+            valid_people.append((data["intervals"][0][0], pid, data))
 
+        # Ordenar por tiempo de primera aparición
+        valid_people.sort(key=lambda x: x[0])
+
+        # Renumerar con IDs limpios (1, 2, 3...)
+        for idx, (_, old_pid, data) in enumerate(valid_people, start=1):
             for start, end in data["intervals"]:
                 resultados.append(
-                    {"persona_id": idx, "tiempo_inicio": start, "tiempo_fin": end}
+                    {
+                        "persona_id": idx,
+                        "tiempo_inicio": round(start, 2),
+                        "tiempo_fin": round(end, 2),
+                    }
                 )
+
+        print(
+            f"\n  [Rostros] Detectadas {len(valid_people)} personas únicas (filtrado ruido < 1s)"
+        )
         return resultados
