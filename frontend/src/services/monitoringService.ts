@@ -26,10 +26,8 @@ export interface ConnectionStats {
     email: string;
   };
   total_time_minutes: number;
-  proxy_is_active: boolean;
   monitoring_is_active: boolean;
   monitoring_last_change: string | null;
-  port: number | null;
 }
 
 export const monitoringService = {
@@ -72,11 +70,12 @@ export const monitoringService = {
   },
 
   /**
-   * Obtiene estadísticas de conexión de un participante
+   * Obtiene estadísticas de conexión de un participante en un evento específico
+   * @param eventId ID del evento
    * @param participantId ID del participante
    * @returns Promise con las estadísticas de conexión
    */
-  async getParticipantConnectionStats(participantId: string): Promise<ConnectionStats> {
+  async getParticipantConnectionStats(eventId: string, participantId: string): Promise<ConnectionStats> {
     try {
       const token = localStorage.getItem('auth_token');
       if (!token) {
@@ -84,7 +83,7 @@ export const monitoringService = {
       }
 
       const response = await fetch(
-        `${API_URL}/events/api/participants/${participantId}/connection-stats/`,
+        `${API_URL}/events/api/events/${eventId}/participants/${participantId}/connection-stats/`,
         {
           headers: {
             'Authorization': `Bearer ${token}`

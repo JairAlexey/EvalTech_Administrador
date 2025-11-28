@@ -46,7 +46,7 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
 
     const loadConnectionStats = async (participantId: string) => {
         try {
-            const stats = await monitoringService.getParticipantConnectionStats(participantId);
+            const stats = await monitoringService.getParticipantConnectionStats(eventId, participantId);
             setConnectionStats(stats);
         } catch (err) {
             console.error('Error loading connection stats:', err);
@@ -181,19 +181,11 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                         <h2 className="text-xl font-semibold text-gray-900 mb-4">
                             Estadísticas de Conexión
                         </h2>
-                        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div className="bg-blue-50 p-4 rounded-lg">
                                 <p className="text-sm text-gray-600">Tiempo Total</p>
                                 <p className="text-2xl font-bold text-blue-600">
                                     {connectionStats.total_time_minutes} min
-                                </p>
-                            </div>
-
-                            {/* Estado del Proxy */}
-                            <div className={`p-4 rounded-lg ${connectionStats.proxy_is_active ? 'bg-green-50' : 'bg-red-50'}`}>
-                                <p className="text-sm text-gray-600">Proxy</p>
-                                <p className={`text-2xl font-bold ${connectionStats.proxy_is_active ? 'text-green-600' : 'text-red-600'}`}>
-                                    {connectionStats.proxy_is_active ? 'Conectado' : 'Desconectado'}
                                 </p>
                             </div>
 
@@ -205,12 +197,6 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                                 </p>
                             </div>
 
-                            <div className="bg-purple-50 p-4 rounded-lg">
-                                <p className="text-sm text-gray-600">Puerto</p>
-                                <p className="text-2xl font-bold text-purple-600">
-                                    {connectionStats.port || 'N/A'}
-                                </p>
-                            </div>
                             <div className="bg-yellow-50 p-4 rounded-lg">
                                 <p className="text-sm text-gray-600">Último cambio monitoreo</p>
                                 <p className="text-sm font-semibold text-yellow-700">

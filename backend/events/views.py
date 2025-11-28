@@ -11,7 +11,7 @@ from .models import (
     BlockedHost,
     ParticipantEvent,
 )
-from proxy.models import AssignedPort
+
 from django.views.decorators.csrf import csrf_exempt
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Q
@@ -51,13 +51,9 @@ def validate_event_access(participant_event, now):
     """
     event = participant_event.event
     
-    try:
-        assigned_port = AssignedPort.objects.get(participant_event=participant_event)
-        is_first_connection = assigned_port.first_connection_time is None
-        has_connected_before = not is_first_connection
-    except AssignedPort.DoesNotExist:
-        is_first_connection = True
-        has_connected_before = False
+    # Determinar si es primera conexión basado en si ha monitoreado antes
+    is_first_connection = participant_event.monitoring_sessions_count == 0
+    has_connected_before = not is_first_connection
     
     # Regla 1: Nadie puede entrar después de end_date (fecha final absoluta)
     if now > event.end_date:
@@ -144,33 +140,15 @@ def verify_event_key(request):
                 "specificError": True  # Indica que es un error específico, no genérico
             }, status=403)
 
-        # Obtener información del tiempo de conexión
+        # Obtener información del tiempo de monitoreo desde ParticipantEvent
         connection_info = {
-            "totalTime": 0,
-            "isActive": False,
+            "totalTime": participant_event.get_total_monitoring_time(),
+            "isActive": participant_event.is_monitoring,
             "eventDuration": event.duration,
             "monitoringAllowed": access_validation["monitoring_allowed"],
-            "sessionCount": 0,  # NUEVO
-            "isFirstConnection": access_validation["is_first_connection"],  # NUEVO
+            "sessionCount": participant_event.monitoring_sessions_count,
+            "isFirstConnection": access_validation["is_first_connection"],
         }
-
-        try:
-            assigned_port = AssignedPort.objects.get(
-                participant_event=participant_event
-            )
-            connection_info["totalTime"] = assigned_port.get_total_time()
-            connection_info["isActive"] = bool(
-                getattr(participant_event, "is_monitoring", False)
-            )
-            connection_info["sessionCount"] = assigned_port.monitoring_sessions_count
-            
-            # Si es primera conexión, registrarla
-            if access_validation["is_first_connection"]:
-                assigned_port.first_connection_time = now
-                assigned_port.save(update_fields=['first_connection_time'])
-                
-        except AssignedPort.DoesNotExist:
-            pass
 
         return JsonResponse(
             {
@@ -1213,25 +1191,15 @@ def events(request):
 @csrf_exempt
 @jwt_required()
 def notify_proxy_blocked_hosts_update(request, event_id):
-    """Notifica al proxy manager que se actualizaron los hosts bloqueados de un evento"""
+    """Notifica al proxy manager que se actualizaron los hosts bloqueados de un evento
+    y devuelve los dominios que necesitan limpieza de caché"""
     if request.method == "POST":
         try:
-            from proxy.server_proxy import DynamicProxyManager
-            
-            # Usar señal en base de datos para comunicación entre procesos
-            proxy_manager = DynamicProxyManager()
-            success = proxy_manager._create_update_signal_db(event_id)
-            
-            if success:
-                return JsonResponse({
-                    "success": True,
-                    "message": f"DB signal created for event {event_id} update"
-                })
-            else:
-                return JsonResponse({
-                    "success": False,
-                    "error": "Failed to create DB signal"
-                }, status=500)
+            # Sistema de señales eliminado - ya no es necesario con arquitectura HTTP directa
+            return JsonResponse({
+                "success": True,
+                "message": f"Signal system deprecated - using direct HTTP architecture for event {event_id}"
+            })
             
         except Exception as e:
             logger.error(f"Error notifying proxy of blocked hosts update: {str(e)}")
@@ -1662,19 +1630,9 @@ def event_detail(request, event_id):
                         event=event, website_id__in=list(to_remove)
                     ).delete()
                 
-                # Notificar al proxy manager sobre la actualización de hosts bloqueados
+                # Sistema de notificación eliminado - ya no necesario con HTTP directo
                 if to_add or to_remove:
-                    try:
-                        # Usar señal en base de datos para comunicación entre procesos
-                        from proxy.server_proxy import DynamicProxyManager
-                        proxy_manager = DynamicProxyManager()
-                        success = proxy_manager._create_update_signal_db(event_id)
-                        if success:
-                            print(f"🔄 | Created signal file for proxy update (event {event_id})")
-                        else:
-                            print(f"⚠️  | Failed to create signal file for event {event_id}")
-                    except Exception as e:
-                        print(f"Failed to notify proxy of blocked hosts update: {str(e)}")
+                    print(f"🔄 | Blocked hosts updated for event {event_id}: +{len(to_add)} -{len(to_remove)}")
 
             return JsonResponse({"success": True, "updated": changed})
 
@@ -1902,25 +1860,12 @@ def evaluation_detail(request, evaluation_id):
     participants_data = []
 
     for p in participants:
-        # Obtener estados de proxy y monitoreo
-        proxy_status = False
+        # Obtener estado de monitoreo
         monitoring_status = False
 
         try:
             participant_event = ParticipantEvent.objects.get(event=event, participant=p)
-
-            # Estado de monitoreo
             monitoring_status = getattr(participant_event, "is_monitoring", False)
-
-            # Estado de proxy
-            try:
-                assigned_port = AssignedPort.objects.get(
-                    participant_event=participant_event
-                )
-                proxy_status = assigned_port.is_active
-            except AssignedPort.DoesNotExist:
-                proxy_status = False
-
         except ParticipantEvent.DoesNotExist:
             pass
 
@@ -1929,7 +1874,6 @@ def evaluation_detail(request, evaluation_id):
                 "id": str(p.id),
                 "name": p.name,
                 "initials": p.get_initials() if hasattr(p, "get_initials") else "",
-                "proxy_is_active": proxy_status,
                 "monitoring_is_active": monitoring_status,
                 "color": f"bg-{['blue', 'green', 'purple', 'red', 'yellow', 'indigo', 'pink'][p.id % 7]}-200",
             }
@@ -2024,17 +1968,16 @@ def event_participant_logs(request, event_id, participant_id):
 @csrf_exempt
 @jwt_required()
 @require_GET
-def participant_connection_stats(request, participant_id):
-    """Endpoint para obtener estadísticas de conexión de un participante"""
+def participant_connection_stats(request, event_id, participant_id):
+    """Endpoint para obtener estadísticas de conexión de un participante en un evento específico"""
 
     try:
-        from proxy.models import AssignedPort
-
+        event = Event.objects.get(id=event_id)
         participant = Participant.objects.get(id=participant_id)
 
-        # Buscar el ParticipantEvent activo del participante
+        # Buscar el ParticipantEvent específico del evento y participante
         participant_event = ParticipantEvent.objects.filter(
-            participant=participant
+            event=event, participant=participant
         ).first()
 
         connection_data = {
@@ -2044,34 +1987,17 @@ def participant_connection_stats(request, participant_id):
                 "email": participant.email,
             },
             "total_time_minutes": 0,
-            "proxy_is_active": False,
             "monitoring_is_active": False,
-            "last_activity": None,
-            "port": None,
+            "monitoring_last_change": None,
         }
 
         if participant_event:
-            # Estado de monitoreo desde ParticipantEvent
-            connection_data["monitoring_is_active"] = getattr(
-                participant_event, "is_monitoring", False
-            )
-
-            try:
-                assigned_port = AssignedPort.objects.get(
-                    participant_event=participant_event
-                )
-                # Estado de proxy desde AssignedPort
-                connection_data.update(
-                    {
-                        "total_time_minutes": assigned_port.get_total_time(),
-                        "proxy_is_active": assigned_port.is_active,
-                        "last_activity": assigned_port.last_activity,
-                        "monitoring_last_change": getattr(assigned_port, 'monitoring_last_change', None),
-                        "port": assigned_port.port,
-                    }
-                )
-            except AssignedPort.DoesNotExist:
-                pass
+            # Todos los datos desde ParticipantEvent
+            connection_data.update({
+                "monitoring_is_active": participant_event.is_monitoring,
+                "total_time_minutes": participant_event.get_total_monitoring_time(),
+                "monitoring_last_change": participant_event.monitoring_last_change,
+            })
 
         return JsonResponse(connection_data)
 
@@ -2084,49 +2010,75 @@ def participant_connection_stats(request, participant_id):
 @csrf_exempt
 @jwt_required()
 def get_proxy_status(request, event_id):
-    """Obtiene el estado del proxy para un evento específico"""
+    """Obtiene el estado de monitoreo para un evento específico (AssignedPort eliminado)"""
     if request.method == "GET":
         try:
-            from proxy.server_proxy import DynamicProxyManager
-            
-            # Obtener la instancia del proxy manager
-            proxy_manager = DynamicProxyManager()
-            
             # Obtener participant_events del evento
-            participant_events = ParticipantEvent.objects.filter(event_id=event_id)
+            participant_events = ParticipantEvent.objects.filter(event_id=event_id).select_related("participant")
             
-            # Obtener puertos activos para este evento
-            active_ports = AssignedPort.objects.filter(
-                participant_event__in=participant_events,
-                is_active=True
-            ).select_related("participant_event__participant")
-            
-            proxy_instances = []
-            for assigned_port in active_ports:
-                port_info = {
-                    "port": assigned_port.port,
-                    "participant": assigned_port.participant_event.participant.name,
-                    "is_active": assigned_port.is_active,
-                    "proxy_running": assigned_port.port in proxy_manager.active_proxies,
-                    "blocked_hosts": []
+            monitoring_instances = []
+            for pe in participant_events:
+                monitoring_info = {
+                    "participant": pe.participant.name,
+                    "is_monitoring": pe.is_monitoring,
+                    "total_time_minutes": pe.get_total_monitoring_time(),
+                    "sessions_count": pe.monitoring_sessions_count,
+                    "last_change": pe.monitoring_last_change,
                 }
-                
-                # Si el proxy está ejecutándose, obtener los hosts bloqueados actuales
-                if assigned_port.port in proxy_manager.active_proxies:
-                    proxy_instance = proxy_manager.active_proxies[assigned_port.port]
-                    port_info["blocked_hosts"] = proxy_instance.blocked_hosts
-                
-                proxy_instances.append(port_info)
+                monitoring_instances.append(monitoring_info)
             
             return JsonResponse({
                 "success": True,
                 "event_id": event_id,
-                "total_instances": len(proxy_instances),
-                "proxy_instances": proxy_instances
+                "total_participants": len(monitoring_instances),
+                "monitoring_instances": monitoring_instances
             })
             
         except Exception as e:
-            logger.error(f"Error getting proxy status for event {event_id}: {str(e)}")
-            return JsonResponse({"error": "Failed to get proxy status"}, status=500)
+            logger.error(f"Error getting monitoring status for event {event_id}: {str(e)}")
+            return JsonResponse({"error": "Failed to get monitoring status"}, status=500)
     
     return JsonResponse({"error": "Method not allowed"}, status=405)
+
+
+@csrf_exempt
+@jwt_required()
+def participant_connection_stats(request, event_id, participant_id):
+    """Endpoint para obtener estadísticas de conexión de un participante en un evento específico"""
+    
+    try:
+        event = Event.objects.get(id=event_id)
+        participant = Participant.objects.get(id=participant_id)
+
+        # Buscar el ParticipantEvent específico del evento y participante
+        participant_event = ParticipantEvent.objects.filter(
+            event=event, participant=participant
+        ).first()
+
+        connection_data = {
+            "participant": {
+                "id": participant.id,
+                "name": participant.name,
+                "email": participant.email,
+            },
+            "total_time_minutes": 0,
+            "monitoring_is_active": False,
+            "monitoring_last_change": None,
+        }
+
+        if participant_event:
+            # Todos los datos desde ParticipantEvent del evento específico
+            connection_data.update({
+                "monitoring_is_active": participant_event.is_monitoring,
+                "total_time_minutes": participant_event.get_total_monitoring_time(),
+                "monitoring_last_change": participant_event.monitoring_last_change,
+            })
+
+        return JsonResponse(connection_data)
+
+    except Event.DoesNotExist:
+        return JsonResponse({"error": "Event not found"}, status=404)
+    except Participant.DoesNotExist:
+        return JsonResponse({"error": "Participant not found"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
