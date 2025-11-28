@@ -11,4 +11,6 @@ RUN pip install -r requirements.txt
 
 COPY . /app/
 
+EXPOSE 8000
+
 CMD ["gunicorn", "administradormonitoreo.wsgi:application", "--bind", "0.0.0.0:8000"]
