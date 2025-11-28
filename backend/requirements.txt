@@ -13,3 +13,4 @@ moviepy
 redis
 celery
 librosa
+psycopg2-binary
