@@ -1,11 +1,10 @@
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
+import json
 
-from django.db import transaction
-from .models import AssignedPort
 from events.models import ParticipantEvent
-from events.views import validate_event_access  # NUEVO IMPORT
+from events.views import validate_event_access
 from .server_proxy import DynamicProxyManager
 import logging
 
@@ -15,73 +14,6 @@ logger = logging.getLogger(__name__)
 def proxy_test(request):
     """Endpoint de test para verificar que las URLs del proxy funcionen"""
     return JsonResponse({"status": "proxy URLs working", "method": request.method})
-
-
-@csrf_exempt
-@require_POST
-def release_port(request):
-    print(f"[DEBUG] release_port called - Method: {request.method}")
-    print(f"[DEBUG] Headers: {dict(request.headers)}")
-    print(f"[DEBUG] POST data: {request.POST}")
-    print(f"[DEBUG] Body: {request.body}")
-
-    auth_header = request.headers.get("Authorization", "")
-    event_key = auth_header.replace("Bearer ", "").strip()
-    print(f"[DEBUG] Event key: {event_key}")
-
-    # Get port from POST body
-    port = request.POST.get("port")
-    if not port:
-        return JsonResponse({"error": "Parameter 'port' is required"}, status=400)
-
-    if not event_key or not port:
-        return JsonResponse(
-            {"error": "Both event_key and port are required"}, status=400
-        )
-
-    try:
-        with transaction.atomic():
-            # Validate participant_event and port
-            participant_event = ParticipantEvent.objects.select_related('participant').get(
-                event_key=event_key
-            )
-            
-            # Buscar el puerto sin filtrar por is_active
-            try:
-                assigned_port = AssignedPort.objects.get(
-                    port=port,
-                    participant_event=participant_event
-                )
-            except AssignedPort.DoesNotExist:
-                return JsonResponse(
-                    {"error": "Port not assigned to this user"}, status=404
-                )
-            
-            # Si el puerto ya está inactivo, devolver éxito
-            if not assigned_port.is_active:
-                print(f"[DEBUG] Port {assigned_port.port} is already inactive")
-                return JsonResponse({"status": "Port already released"})
-
-            # Stop the proxy if it is active
-            proxy_manager = DynamicProxyManager()
-            if int(port) in proxy_manager.active_proxies:
-                proxy_instance = proxy_manager.active_proxies[int(port)]
-                proxy_instance.stop()
-                del proxy_manager.active_proxies[int(port)]
-
-            # End the session (esto actualizará is_active a False y calculará el tiempo)
-            print(f"[DEBUG] Deactivating port {assigned_port.port} for participant {participant_event.participant.name}")
-            print(f"[DEBUG] Before deactivate - total_duration: {assigned_port.total_duration}, is_active: {assigned_port.is_active}")
-            assigned_port.deactivate()
-            print(f"[DEBUG] After deactivate - total_duration: {assigned_port.total_duration}, is_active: {assigned_port.is_active}")
-
-            return JsonResponse({"status": "Port successfully released"})
-
-    except ParticipantEvent.DoesNotExist:
-        return JsonResponse({"error": "Invalid event key or inactive user"}, status=401)
-    except Exception as e:
-        logger.error(f"Error in release-port: {str(e)}", exc_info=True)
-        return JsonResponse({"error": "Internal server error"}, status=500)
 
 
 @csrf_exempt
@@ -107,28 +39,21 @@ def start_monitoring(request):
                 "error": "Ya no se permite iniciar monitoreo en este evento"
             }, status=403)
         
+        # Actualizar campos de monitoreo en ParticipantEvent
         pe.is_monitoring = True
-        pe.save(update_fields=["is_monitoring"])
-        logger.info(f"start_monitoring called for event_key={event_key}; participant_event id={pe.id}")
-
-        # Actualizar AssignedPort e incrementar contador de sesiones
-        try:
-            with transaction.atomic():
-                ap = AssignedPort.objects.select_for_update().get(participant_event=pe)
-                if ap.current_session_time is None:
-                    ap.current_session_time = now
-                    ap.monitoring_last_change = now
-                    # Incrementar contador de sesiones
-                    ap.monitoring_sessions_count += 1
-                    ap.save(update_fields=[
-                        "current_session_time", 
-                        "monitoring_last_change", 
-                        "monitoring_sessions_count"
-                    ])
-                    logger.info(f"Started monitoring session #{ap.monitoring_sessions_count} for participant_event {pe.id}")
-        except AssignedPort.DoesNotExist:
-            logger.info(f"start_monitoring: no AssignedPort found for participant_event id={pe.id}")
-            pass
+        if pe.monitoring_current_session_time is None:
+            pe.monitoring_current_session_time = now
+            pe.monitoring_last_change = now
+            pe.monitoring_sessions_count += 1
+            
+        pe.save(update_fields=[
+            "is_monitoring", 
+            "monitoring_current_session_time", 
+            "monitoring_last_change", 
+            "monitoring_sessions_count"
+        ])
+        
+        logger.info(f"start_monitoring called for event_key={event_key}; participant_event id={pe.id}; session #{pe.monitoring_sessions_count}")
 
         return JsonResponse({"status": "monitoring_started"})
     except ParticipantEvent.DoesNotExist:
@@ -151,29 +76,26 @@ def stop_monitoring(request):
     from django.utils import timezone
     try:
         pe = ParticipantEvent.objects.get(event_key=event_key)
+        
+        # Calcular duración de la sesión actual y sumarla al total
+        now = timezone.now()
+        if pe.monitoring_current_session_time:
+            start_time = pe.monitoring_current_session_time
+            session_seconds = int((now - start_time).total_seconds())
+            pe.monitoring_total_duration += session_seconds
+            pe.monitoring_current_session_time = None
+            
         pe.is_monitoring = False
-        pe.save(update_fields=["is_monitoring"])
-        logger.info(f"stop_monitoring called for event_key={event_key}; participant_event id={pe.id}")
-
-        # Si existe AssignedPort asociado, terminar la sesión actual (sin desactivar el puerto)
-        # y sumar la duración de forma transaccional para evitar dobles contados.
-        try:
-            from django.db import transaction
-            now = timezone.now()
-            with transaction.atomic():
-                ap = AssignedPort.objects.select_for_update().get(participant_event=pe)
-                if ap.current_session_time:
-                    start_time = ap.current_session_time
-                    session_seconds = int((now - start_time).total_seconds())
-                    if ap.total_duration is None:
-                        ap.total_duration = 0
-                    ap.total_duration += session_seconds
-                    ap.current_session_time = None
-                    ap.monitoring_last_change = now
-                    ap.save(update_fields=["total_duration", "current_session_time", "monitoring_last_change"])
-        except AssignedPort.DoesNotExist:
-            logger.info(f"stop_monitoring: no AssignedPort found for participant_event id={pe.id}")
-            pass
+        pe.monitoring_last_change = now
+        
+        pe.save(update_fields=[
+            "is_monitoring", 
+            "monitoring_total_duration", 
+            "monitoring_current_session_time", 
+            "monitoring_last_change"
+        ])
+        
+        logger.info(f"stop_monitoring called for event_key={event_key}; participant_event id={pe.id}; total_duration={pe.monitoring_total_duration}s")
 
         return JsonResponse({"status": "monitoring_stopped"})
     except ParticipantEvent.DoesNotExist:
@@ -181,3 +103,135 @@ def stop_monitoring(request):
     except Exception as e:
         logger.error(f"Error in stop_monitoring: {e}")
         return JsonResponse({"error": "Internal server error"}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def proxy_authenticate_http(request):
+    """    
+    Endpoint HTTP para validar event_key de proxy local.
+    Usado por LocalProxyServer para autenticarse con el servidor.
+    
+    Flujo: LocalProxyServer → POST /api/proxy/auth-http/ → DynamicProxyManager
+    - Valida event_key y participant
+    - Retorna éxito - el tráfico real va por localhost:8888 (puerto fijo)
+    """
+    try:
+        auth_header = request.headers.get('Authorization', '')
+        if not auth_header.startswith('Bearer '):
+            return JsonResponse({'error': 'Token de autorización requerido'}, status=401)
+        
+        event_key = auth_header.replace('Bearer ', '')
+        
+        # Validar event_key usando DynamicProxyManager
+        proxy_manager = DynamicProxyManager()
+        participant_event = proxy_manager._validate_event_key(event_key)
+        
+        if not participant_event:
+            logger.warning(f"Token inválido en proxy_authenticate_http: {event_key}")
+            return JsonResponse({'error': 'Token inválido'}, status=401)
+        
+        logger.info(f"Autenticación HTTP exitosa para participante {participant_event.participant.id}")
+        
+        return JsonResponse({
+            'participant_id': participant_event.participant.id,
+            'event_id': participant_event.event.id,
+            'status': 'authenticated',
+            'message': 'Proxy autenticado correctamente - usando puerto fijo 8888'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error en proxy_authenticate_http: {str(e)}")
+        return JsonResponse({'error': 'Error interno del servidor'}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def proxy_validate_url(request):
+    """
+    Endpoint HTTP para validar URLs desde proxy local.
+    Usado por LocalProxyServer para verificar si una URL está permitida.
+    
+    Flujo: Browser → localhost:8888 → POST /api/proxy/validate/ → validate_url_http()
+    - Verifica hosts bloqueados por evento + hosts por defecto
+    - Envía logs automáticamente cuando participant.is_monitoring=True  
+    - Retorna blocked/allowed para que LocalProxyServer tome acción
+    """
+    try:
+        # Validar token
+        auth_header = request.headers.get('Authorization', '')
+        if not auth_header.startswith('Bearer '):
+            return JsonResponse({'error': 'Token de autorización requerido'}, status=401)
+        
+        event_key = auth_header.replace('Bearer ', '')
+        
+        # Validar participante
+        proxy_manager = DynamicProxyManager()
+        participant = proxy_manager._validate_event_key(event_key)
+        
+        if not participant:
+            logger.warning(f"Token inválido en proxy_validate_url: {event_key}")
+            return JsonResponse({'error': 'Token inválido'}, status=401)
+        
+        # Obtener datos de la petición
+        try:
+            if hasattr(request, 'data') and request.data:
+                data = request.data
+            else:
+                data = json.loads(request.body.decode('utf-8'))
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'JSON inválido'}, status=400)
+        
+        method = data.get('method', 'GET')
+        target_url = data.get('url', '')
+        
+        if not target_url:
+            return JsonResponse({'error': 'URL requerida'}, status=400)
+        
+        # Usar lógica de validación consolidada del DynamicProxyManager
+        result = proxy_manager.validate_url_http(event_key, target_url, method)
+        
+        return JsonResponse(result)
+        
+    except Exception as e:
+        logger.error(f"Error en proxy_validate_url: {str(e)}")
+        # En caso de error, bloquear por seguridad
+        return JsonResponse({
+            'blocked': True,
+            'reason': 'Error interno del servidor'
+        })
+
+
+@csrf_exempt
+@require_POST
+def proxy_disconnect_http(request):
+    """
+    Endpoint HTTP para notificar desconexión de proxy local
+    Solo valida event_key
+    """
+    try:
+        auth_header = request.headers.get('Authorization', '')
+        if not auth_header.startswith('Bearer '):
+            return JsonResponse({'error': 'Token de autorización requerido'}, status=401)
+        
+        event_key = auth_header.replace('Bearer ', '')
+        
+        # Validar participante
+        proxy_manager = DynamicProxyManager()
+        participant_event = proxy_manager._validate_event_key(event_key)
+        
+        if not participant_event:
+            return JsonResponse({'error': 'Token inválido'}, status=401)
+        
+        logger.info(f"Proxy desconectado para participante {participant_event.participant.id}")
+        
+        return JsonResponse({
+            'status': 'disconnected',
+            'message': 'Desconexión de proxy registrada correctamente'
+        })
+            
+    except Exception as e:
+        logger.error(f"Error en proxy_disconnect_http: {str(e)}")
+        return JsonResponse({'error': 'Error interno del servidor'}, status=500)
+
+

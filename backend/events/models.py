@@ -82,6 +82,12 @@ class ParticipantEvent(models.Model):
     is_monitoring = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # Campos de monitoreo (separados del proxy connection)
+    monitoring_current_session_time = models.DateTimeField(blank=True, null=True, help_text="Tiempo de inicio de la sesión de monitoreo actual")
+    monitoring_total_duration = models.IntegerField(default=0, help_text="Duración total de monitoreo en segundos")
+    monitoring_last_change = models.DateTimeField(blank=True, null=True, help_text="Momento del último cambio de estado de monitoreo")
+    monitoring_sessions_count = models.IntegerField(default=0, help_text="Número de veces que se inició el monitoreo")
+
     class Meta:
         db_table = "eventos_participantes"
         constraints = [
@@ -98,6 +104,36 @@ class ParticipantEvent(models.Model):
     def save(self, *args, **kwargs):
         self.generate_event_key()
         return super().save(*args, **kwargs)
+
+    def get_total_monitoring_time(self):
+        """Retorna el tiempo total de monitoreo en minutos, incluyendo sesión actual si está activa"""
+        from django.utils import timezone
+        
+        # Convertir total_duration de segundos a minutos
+        total_minutes = (self.monitoring_total_duration or 0) // 60
+
+        # Incluir la sesión en curso SOLO si está en modo monitoreo
+        if self.is_monitoring and self.monitoring_current_session_time:
+            try:
+                current_seconds = int((timezone.now() - self.monitoring_current_session_time).total_seconds())
+                current_minutes = current_seconds // 60
+                total_minutes += current_minutes
+            except Exception:
+                # En caso de error, no sumar tiempo adicional
+                pass
+
+        return total_minutes
+
+    def has_monitoring_time_remaining(self):
+        """Verifica si aún hay tiempo disponible para monitoreo según la duración del evento"""
+        total_minutes = self.get_total_monitoring_time()
+        return total_minutes < self.event.duration
+
+    def get_remaining_monitoring_time(self):
+        """Obtiene el tiempo restante de monitoreo en minutos"""
+        total_minutes = self.get_total_monitoring_time()
+        event_duration = self.event.duration
+        return max(0, event_duration - total_minutes)
 
     def __str__(self):
         return f"{self.participant.name} - {self.event.name}"
@@ -148,19 +184,4 @@ class BlockedHost(models.Model):
         return f"{self.website.hostname} ({self.event.name})"
 
 
-class ProxyUpdateSignal(models.Model):
-    """Modelo para comunicación entre procesos para actualizar el proxy"""
-    event_id = models.IntegerField()
-    action = models.CharField(max_length=50, default='update_blocked_hosts')
-    created_at = models.DateTimeField(auto_now_add=True)
-    processed = models.BooleanField(default=False)
-    
-    class Meta:
-        db_table = 'proxy_update_signals'
-        indexes = [
-            models.Index(fields=['processed', 'created_at']),
-        ]
-    
-    def __str__(self):
-        status = "✅" if self.processed else "⏳"
-        return f"{status} Event {self.event_id} - {self.action}"
+# ProxyUpdateSignal model removed - no longer needed with direct HTTP architecture
