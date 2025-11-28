@@ -35,7 +35,7 @@ class AnalizadorRostros:
             "face_recognition_sface_2021dec.onnx": "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx",
         }
 
-        # Ajustado a la nueva carpeta
+        # Carpeta de modelos
         base_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)), "ai_models"
         )
