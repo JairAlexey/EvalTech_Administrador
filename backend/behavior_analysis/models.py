@@ -9,6 +9,7 @@ class AnalisisComportamiento(models.Model):
         related_name="analisis_comportamiento",
     )
     video_path = models.CharField(max_length=500)
+    status = models.CharField(max_length=20, default="PENDING")
     fecha_procesamiento = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -53,7 +54,6 @@ class RegistroIluminacion(models.Model):
         on_delete=models.CASCADE,
         related_name="registros_iluminacion",
     )
-    tipo_anomalia = models.CharField(max_length=100)  # ej. "Cambio Global"
     tiempo_inicio = models.FloatField()
     tiempo_fin = models.FloatField()
 
@@ -88,3 +88,17 @@ class AnomaliaLipsync(models.Model):
 
     class Meta:
         db_table = "registro_lipsync"
+
+
+class RegistroAusencia(models.Model):
+    analisis = models.ForeignKey(
+        AnalisisComportamiento,
+        on_delete=models.CASCADE,
+        related_name="registros_ausencia",
+    )
+    tiempo_inicio = models.FloatField()
+    tiempo_fin = models.FloatField()
+    duracion = models.FloatField()
+
+    class Meta:
+        db_table = "registro_ausencia"

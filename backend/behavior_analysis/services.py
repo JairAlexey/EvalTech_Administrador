@@ -1,6 +1,7 @@
 import cv2
 import mediapipe as mp
 import threading
+import os
 from django.utils import timezone
 from .models import (
     AnalisisComportamiento,
@@ -9,6 +10,7 @@ from .models import (
     RegistroIluminacion,
     RegistroVoz,
     AnomaliaLipsync,
+    RegistroAusencia,
 )
 from events.models import ParticipantEvent
 from .analyzers.faces import AnalizadorRostros
@@ -16,6 +18,7 @@ from .analyzers.gestures import AnalizadorGestos
 from .analyzers.lighting import AnalizadorIluminacion
 from .analyzers.lipsync import AnalizadorLipsync
 from .analyzers.voice import AnalizadorVoz
+from .analyzers.absence import AnalizadorAusencia
 
 
 def procesar_video_completo(video_path, participant_event_id):
@@ -27,10 +30,16 @@ def procesar_video_completo(video_path, participant_event_id):
         print(f"Error: ParticipantEvent {participant_event_id} no existe.")
         return None
 
-    # Crear registro principal
-    analisis = AnalisisComportamiento.objects.create(
-        participant_event=pe, video_path=video_path
-    )
+    # Obtener registro existente y actualizar estado
+    try:
+        analisis = AnalisisComportamiento.objects.get(participant_event=pe)
+        analisis.status = "PROCESSING"
+        analisis.save()
+    except AnalisisComportamiento.DoesNotExist:
+        print(
+            f"Error: No existe registro de análisis para el evento {participant_event_id}"
+        )
+        return None
 
     # Inicializar analizadores
     rostros = AnalizadorRostros()
@@ -38,6 +47,7 @@ def procesar_video_completo(video_path, participant_event_id):
     iluminacion = AnalizadorIluminacion()
     lipsync = AnalizadorLipsync(video_path)
     voz = AnalizadorVoz(video_path)
+    ausencia = AnalizadorAusencia()
 
     # Ejecutar análisis de voz en hilo separado
     voz_resultado = {}
@@ -59,11 +69,26 @@ def procesar_video_completo(video_path, participant_event_id):
         min_tracking_confidence=0.5,
     )
 
+    # Verificar existencia de archivo
+    if not os.path.exists(video_path):
+        print(f"Error: archivo no existe: {video_path}")
+        try:
+            analisis = AnalisisComportamiento.objects.get(
+                participant_event_id=participant_event_id
+            )
+            analisis.status = "ERROR"
+            analisis.save()
+        except AnalisisComportamiento.DoesNotExist:
+            pass
+        return None
+
     # Abrir video
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         print("Error al abrir el video.")
-        return
+        analisis.status = "ERROR"
+        analisis.save()
+        return None
 
     fps = cap.get(cv2.CAP_PROP_FPS)
     if fps <= 0:
@@ -71,6 +96,7 @@ def procesar_video_completo(video_path, participant_event_id):
     lipsync.set_fps(fps)
 
     frame_count = 0
+    last_timestamp = 0
 
     print("Procesando video frame a frame...")
     while cap.isOpened():
@@ -78,7 +104,15 @@ def procesar_video_completo(video_path, participant_event_id):
         if not success:
             break
 
-        timestamp = frame_count / fps
+        # Usar el timestamp real del video en lugar de calcularlo manualmente
+        # Esto funciona correctamente con WebM y otros formatos
+        timestamp_ms = cap.get(cv2.CAP_PROP_POS_MSEC)
+        timestamp = timestamp_ms / 1000.0  # Convertir de milisegundos a segundos
+
+        # Guardar el último timestamp válido
+        if timestamp > 0:
+            last_timestamp = timestamp
+
         h, w = frame.shape[:2]
 
         # 1. Rostros (YuNet) - Tiene su propio stride interno
@@ -87,7 +121,10 @@ def procesar_video_completo(video_path, participant_event_id):
         # 2. Iluminación (OpenCV puro)
         iluminacion.procesar_frame(frame, timestamp)
 
-        # 3. MediaPipe (Gestos + Lipsync)
+        # 3. Ausencia (MediaPipe Face Detection)
+        ausencia.procesar_frame(frame, timestamp)
+
+        # 4. MediaPipe (Gestos + Lipsync)
         # Convertir a RGB una vez
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = face_mesh.process(frame_rgb)
@@ -104,15 +141,20 @@ def procesar_video_completo(video_path, participant_event_id):
 
         frame_count += 1
         if frame_count % 100 == 0:
-            print(f"Procesado: {timestamp:.1f}s", end="\r")
+            # Convertir timestamp a formato mm:ss
+            minutes = int(timestamp // 60)
+            seconds = int(timestamp % 60)
+            print(f"Procesado: {minutes:02d}:{seconds:02d}", end="\r")
 
     cap.release()
     face_mesh.close()
 
     # Finalizar analizadores que requieran cierre
-    final_timestamp = frame_count / fps
+    # Usar el último timestamp real en lugar de calcularlo
+    final_timestamp = last_timestamp if last_timestamp > 0 else frame_count / fps
     gestos.finalizar(final_timestamp)
     iluminacion.finalizar(final_timestamp)
+    ausencia.finalizar(final_timestamp)
 
     # Esperar a voz
     voice_thread.join()
@@ -147,15 +189,22 @@ def procesar_video_completo(video_path, participant_event_id):
     for i in res_ilum:
         RegistroIluminacion.objects.create(
             analisis=analisis,
-            tipo_anomalia=i["tipo_anomalia"],
             tiempo_inicio=i["tiempo_inicio"],
             tiempo_fin=i["tiempo_fin"],
         )
 
-    # 4. Lipsync
+    # 4. Ausencia
+    res_ausencia = ausencia.finalizar(final_timestamp)
+    for start, end, duration in res_ausencia:
+        RegistroAusencia.objects.create(
+            analisis=analisis,
+            tiempo_inicio=start,
+            tiempo_fin=end,
+            duracion=duration,
+        )
+
+    # 5. Lipsync
     res_lipsync = lipsync.obtener_resultados()
-    analisis.lipsync_score = res_lipsync.get("score")
-    analisis.lipsync_lag = res_lipsync.get("lag")
     for a in res_lipsync.get("anomalias", []):
         AnomaliaLipsync.objects.create(
             analisis=analisis,
@@ -164,10 +213,8 @@ def procesar_video_completo(video_path, participant_event_id):
             tiempo_fin=a["tiempo_fin"],
         )
 
-    # 5. Voz
+    # 6. Voz
     if voz_resultado:
-        analisis.cantidad_voces_detectadas = voz_resultado.get("num_speakers", 0)
-
         for susurro in voz_resultado.get("susurros", []):
             RegistroVoz.objects.create(
                 analisis=analisis,
@@ -185,6 +232,7 @@ def procesar_video_completo(video_path, participant_event_id):
                 tiempo_fin=hab["tiempo_fin"],
             )
 
+    analisis.status = "COMPLETED"
     analisis.save()
     print("Análisis completado y guardado.")
-    return analisis
+    return {"id": analisis.id, "status": "COMPLETED"}
