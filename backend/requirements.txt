@@ -6,3 +6,10 @@ requests
 PyJWT
 supervisor
 openpyxl
+opencv-python
+mediapipe
+numpy
+moviepy
+redis
+celery
+librosa

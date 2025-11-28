@@ -5,6 +5,8 @@ export interface Evaluation {
   name: string;
   startDate: string;
   startTime: string;
+  closeDate: string;
+  closeTime: string;
   duration: number;
   endDate: string;
   endTime: string;
@@ -18,6 +20,8 @@ export interface EvaluationDetail {
   description: string;
   startDate: string;
   startTime: string;
+  closeDate: string;
+  closeTime: string;
   duration: number;
   endDate: string;
   endTime: string;

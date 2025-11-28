@@ -59,44 +59,45 @@ def validate_event_access(participant_event, now):
     if now > event.end_date:
         return {
             "allowed": False,
-            "reason": "El evento ha finalizado completamente.",
+            "reason": "El evento ha finalizado.",
             "monitoring_allowed": False,
-            "is_first_connection": is_first_connection
+            "is_first_connection": is_first_connection,
         }
-    
+
     # Regla 2: Primera conexión no permitida después de close_date
     if is_first_connection and now > event.close_date:
         return {
             "allowed": False,
             "reason": "El período de ingreso al evento ha terminado.",
             "monitoring_allowed": False,
-            "is_first_connection": is_first_connection
+            "is_first_connection": is_first_connection,
         }
-    
+
     # Regla 3: Conexiones previas permitidas hasta end_date
     if has_connected_before and now <= event.end_date:
         return {
             "allowed": True,
             "reason": "Acceso permitido - participante previamente conectado",
-            "monitoring_allowed": now <= event.close_date,  # Monitoreo solo hasta close_date
-            "is_first_connection": is_first_connection
+            "monitoring_allowed": now
+            <= event.close_date,  # Monitoreo solo hasta close_date
+            "is_first_connection": is_first_connection,
         }
-    
+
     # Regla 4: Primera conexión dentro del período normal
     if is_first_connection and now <= event.close_date:
         return {
             "allowed": True,
             "reason": "Acceso permitido - dentro del período de conexión",
             "monitoring_allowed": True,
-            "is_first_connection": is_first_connection
+            "is_first_connection": is_first_connection,
         }
-    
+
     # Caso por defecto (no debería llegar aquí)
     return {
         "allowed": False,
         "reason": "Acceso no permitido",
         "monitoring_allowed": False,
-        "is_first_connection": is_first_connection
+        "is_first_connection": is_first_connection,
     }
 
 
@@ -122,23 +123,27 @@ def verify_event_key(request):
         ).get(event_key=event_key)
         participant = participant_event.participant
         event = participant_event.event
-        
+
         from django.utils import timezone
+
         now = timezone.now()
-        
+
         # Validación básica de tiempo del evento (start_date - 1min hasta end_date)
         dateIsValid = check_event_time(event)
-        
+
         # Validaciones avanzadas de acceso
         access_validation = validate_event_access(participant_event, now)
-        
+
         if not access_validation["allowed"]:
-            return JsonResponse({
-                "isValid": False,
-                "error": access_validation["reason"],
-                "dateIsValid": False,
-                "specificError": True  # Indica que es un error específico, no genérico
-            }, status=403)
+            return JsonResponse(
+                {
+                    "isValid": False,
+                    "error": access_validation["reason"],
+                    "dateIsValid": False,
+                    "specificError": True,  # Indica que es un error específico, no genérico
+                },
+                status=403,
+            )
 
         # Obtener información del tiempo de monitoreo desde ParticipantEvent
         connection_info = {
@@ -1203,8 +1208,10 @@ def notify_proxy_blocked_hosts_update(request, event_id):
             
         except Exception as e:
             logger.error(f"Error notifying proxy of blocked hosts update: {str(e)}")
-            return JsonResponse({"error": "Failed to update proxy instances"}, status=500)
-    
+            return JsonResponse(
+                {"error": "Failed to update proxy instances"}, status=500
+            )
+
     return JsonResponse({"error": "Method not allowed"}, status=405)
 
 
@@ -1828,6 +1835,12 @@ def evaluaciones(request):
                 "startTime": (
                     evento.start_date.strftime("%H:%M %p") if evento.start_date else ""
                 ),
+                "closeDate": (
+                    evento.close_date.strftime("%d/%m/%Y") if evento.close_date else ""
+                ),
+                "closeTime": (
+                    evento.close_date.strftime("%H:%M %p") if evento.close_date else ""
+                ),
                 "duration": evento.duration,
                 "endDate": (
                     evento.end_date.strftime("%d/%m/%Y") if evento.end_date else ""
@@ -1889,6 +1902,8 @@ def evaluation_detail(request, evaluation_id):
         "description": event.description,
         "startDate": event.start_date.strftime("%Y-%m-%d") if event.start_date else "",
         "startTime": event.start_date.strftime("%H:%M") if event.start_date else "",
+        "closeDate": event.close_date.strftime("%Y-%m-%d") if event.close_date else "",
+        "closeTime": event.close_date.strftime("%H:%M") if event.close_date else "",
         "duration": event.duration,
         "endDate": event.end_date.strftime("%Y-%m-%d") if event.end_date else "",
         "endTime": event.end_date.strftime("%H:%M") if event.end_date else "",
@@ -2005,6 +2020,102 @@ def participant_connection_stats(request, event_id, participant_id):
         return JsonResponse({"error": "Participant not found"}, status=404)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
+
+# =============================
+# Endpoints de estado de eventos
+# =============================
+
+
+@csrf_exempt
+@require_GET
+def pending_start_events(request):
+    """Eventos en estado 'programado' cuyo start_date ya pasó o es ahora.
+
+    Se usan para decidir qué eventos arrancar.
+    """
+    now = timezone.now()
+    qs = Event.objects.filter(status="programado", start_date__lte=now).order_by(
+        "start_date"
+    )
+    data = [
+        {
+            "id": e.id,
+            "start_date": e.start_date.isoformat() if e.start_date else None,
+        }
+        for e in qs
+    ]
+    return JsonResponse({"results": data})
+
+
+@csrf_exempt
+@require_GET
+def pending_finish_events(request):
+    """Eventos en estado 'en_progreso' cuyo end_date ya pasó o es ahora.
+
+    Sirve para decidir cuáles finalizar.
+    """
+    now = timezone.now()
+    qs = Event.objects.filter(status="en_progreso", end_date__lte=now).order_by(
+        "end_date"
+    )
+    data = [
+        {
+            "id": e.id,
+            "end_date": e.end_date.isoformat() if e.end_date else None,
+        }
+        for e in qs
+    ]
+    return JsonResponse({"results": data})
+
+
+# Eventos: actualizar estados (start/finish)
+@csrf_exempt
+@require_POST
+def start_event(request, event_id):
+    """
+    Cambia el estado de un evento de 'programado' a 'en_progreso'.
+    """
+    try:
+        try:
+            event = Event.objects.get(id=event_id)
+        except Event.DoesNotExist:
+            return JsonResponse({"error": "Evento no encontrado"}, status=404)
+
+        if event.status != "programado":
+            return JsonResponse(
+                {"error": "El evento no está en estado 'programado'"}, status=400
+            )
+
+        event.status = "en_progreso"
+        event.save()
+        return JsonResponse({"success": True, "status": event.status})
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+
+@csrf_exempt
+@require_POST
+def finish_event(request, event_id):
+    """
+    Cambia el estado de un evento de 'en_progreso' a 'completado'.
+    """
+    try:
+        try:
+            event = Event.objects.get(id=event_id)
+        except Event.DoesNotExist:
+            return JsonResponse({"error": "Evento no encontrado"}, status=404)
+
+        if event.status != "en_progreso":
+            return JsonResponse(
+                {"error": "El evento no está en estado 'en_progreso'"}, status=400
+            )
+
+        event.status = "completado"
+        event.save()
+        return JsonResponse({"success": True, "status": event.status})
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
 
 
 @csrf_exempt
