@@ -11,4 +11,4 @@ RUN pip install -r requirements.txt
 
 COPY . /app/
 
-CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+CMD ["gunicorn", "evaltech.wsgi:application", "--bind", "0.0.0.0:8000"]
