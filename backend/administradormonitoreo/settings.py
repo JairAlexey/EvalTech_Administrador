@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "events",
     "proxy.apps.ProxyConfig",
+    "behavior_analysis",
 ]
 
 AUTH_USER_MODEL = "authentication.CustomUser"
@@ -157,6 +158,14 @@ FILE_UPLOAD_TEMP_DIR = None  # Usar directorio temporal del sistema
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Celery Configuration
+CELERY_BROKER_URL = "redis://localhost:6379/0"
+CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE
+
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
@@ -185,33 +194,33 @@ CORS_ALLOW_HEADERS = [
 
 # Configuración de logging para filtrar broken pipe en desarrollo
 LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'filters': {
-        'require_debug_true': {
-            '()': 'django.utils.log.RequireDebugTrue',
+    "version": 1,
+    "disable_existing_loggers": False,
+    "filters": {
+        "require_debug_true": {
+            "()": "django.utils.log.RequireDebugTrue",
         },
-        'skip_broken_pipe': {
-            '()': 'django.utils.log.CallbackFilter',
-            'callback': lambda record: 'Broken pipe' not in record.getMessage()
-        },
-    },
-    'handlers': {
-        'console': {
-            'level': 'INFO',
-            'filters': ['require_debug_true', 'skip_broken_pipe'],
-            'class': 'logging.StreamHandler',
+        "skip_broken_pipe": {
+            "()": "django.utils.log.CallbackFilter",
+            "callback": lambda record: "Broken pipe" not in record.getMessage(),
         },
     },
-    'root': {
-        'handlers': ['console'],
+    "handlers": {
+        "console": {
+            "level": "INFO",
+            "filters": ["require_debug_true", "skip_broken_pipe"],
+            "class": "logging.StreamHandler",
+        },
     },
-    'loggers': {
-        'django.server': {
-            'handlers': ['console'],
-            'level': 'INFO',
-            'filters': ['skip_broken_pipe'],
-            'propagate': False,
+    "root": {
+        "handlers": ["console"],
+    },
+    "loggers": {
+        "django.server": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "filters": ["skip_broken_pipe"],
+            "propagate": False,
         },
     },
 }
