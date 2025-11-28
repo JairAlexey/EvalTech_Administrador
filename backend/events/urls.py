@@ -9,7 +9,7 @@ urlpatterns = [
     path("api/verify-event-key", views.verify_event_key),
     # Rutas para consultar logs de participantes
     path(
-        "api/participants/<int:participant_id>/connection-stats/",
+        "api/events/<int:event_id>/participants/<int:participant_id>/connection-stats/",
         views.participant_connection_stats,
     ),
     path("api/events/<int:event_id>/participants/<int:participant_id>/logs/", views.event_participant_logs),
