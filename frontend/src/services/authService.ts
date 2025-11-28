@@ -3,7 +3,7 @@ export const TOKEN_KEY = 'auth_token';
 export const USER_INFO_KEY = 'user_info';
 
 // URL base de la API
-export const API_URL = 'http://localhost:8000';
+export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 // Interfaces para tipar las respuestas
 export interface User {
