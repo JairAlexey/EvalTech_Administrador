@@ -30,10 +30,11 @@ export default function BlockedPagesModal({
 
     // Función auxiliar para notificar al proxy cuando sea necesario
     const notifyProxyIfNeeded = async () => {
-        if (eventId) {
+            if (eventId) {
             try {
                 await blockedPagesService.notifyProxyUpdate(eventId);
                 console.log('✅ Proxy notificado sobre cambios en hosts bloqueados');
+                setSuccessMessage('Cambios guardados exitosamente');
             } catch (error) {
                 console.warn('⚠️  Error notificando al proxy (no crítico):', error);
             }

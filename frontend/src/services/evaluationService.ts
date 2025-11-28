@@ -30,7 +30,6 @@ export interface EvaluationDetail {
     id: string;
     name: string;
     initials: string;
-    proxy_is_active: boolean;
     monitoring_is_active: boolean;
     color: string;
   }>;
