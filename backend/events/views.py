@@ -78,8 +78,7 @@ def validate_event_access(participant_event, now):
         return {
             "allowed": True,
             "reason": "Acceso permitido - participante previamente conectado",
-            "monitoring_allowed": now
-            <= event.close_date,  # Monitoreo solo hasta close_date
+            "monitoring_allowed": True,  # Permitir monitoreo hasta end_date si ya se conectó antes
             "is_first_connection": is_first_connection,
         }
 
