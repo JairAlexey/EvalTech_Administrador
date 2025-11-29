@@ -177,7 +177,7 @@ CELERY_TIMEZONE = TIME_ZONE
 
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
-    "http://127.0.0.1:5173",
+    "http://localhost:5173",
     "https://frontend-production-c48c.up.railway.app",
 ]
 CORS_ALLOW_CREDENTIALS = True
