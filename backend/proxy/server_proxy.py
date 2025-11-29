@@ -136,35 +136,23 @@ class DynamicProxyManager:
                 
                 if is_blocked:
                     logger.info(f"HTTP URL bloqueada: {hostname} para evento {event.id}")
-                    
-                    # Enviar log del intento bloqueado
+                    # Enviar log SOLO si está en monitoreo
                     try:
                         if getattr(participant_event, 'is_monitoring', False):
-                            self._send_log_to_api(event_key, f"⛔ Blocked URL: {target_url}")
-                            logger.info(f"⛔ HTTP Blocked URL logged: {target_url}")
+                            mensaje = f"⛔ Intento acceder a {hostname}"
+                            self._send_log_to_api(event_key, mensaje)
+                            logger.info(f"⛔ Log de intento bloqueado enviado: {mensaje}")
                         else:
                             logger.debug(f"HTTP Blocked URL detected but participant not monitoring: {target_url}")
                     except Exception as log_error:
                         logger.warning(f"Error enviando log de bloqueo HTTP: {log_error}")
-                    
                     return {
                         'blocked': True,
                         'reason': 'Sitio no permitido durante la evaluación',
                         'hostname': hostname
                     }
-                
-                # URL permitida - enviar log del acceso
+                # URL permitida - NO enviar log
                 logger.debug(f"HTTP URL permitida: {hostname} para evento {event.id}")
-                
-                try:
-                    if getattr(participant_event, 'is_monitoring', False):
-                        self._send_log_to_api(event_key, target_url)
-                        logger.debug(f"📨 HTTP Access logged: {target_url}")
-                    else:
-                        logger.debug(f"HTTP Access detected but participant not monitoring: {target_url}")
-                except Exception as log_error:
-                    logger.warning(f"Error enviando log de acceso HTTP: {log_error}")
-                
                 return {
                     'blocked': False,
                     'allowed': True,
