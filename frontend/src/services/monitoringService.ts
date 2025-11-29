@@ -28,6 +28,7 @@ export interface ConnectionStats {
   total_time_minutes: number;
   monitoring_is_active: boolean;
   monitoring_last_change: string | null;
+  monitoring_sessions_count: number;
 }
 
 export const monitoringService = {

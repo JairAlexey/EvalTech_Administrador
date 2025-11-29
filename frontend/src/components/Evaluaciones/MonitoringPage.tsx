@@ -181,7 +181,7 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                         <h2 className="text-xl font-semibold text-gray-900 mb-4">
                             Estadísticas de Conexión
                         </h2>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                             <div className="bg-blue-50 p-4 rounded-lg">
                                 <p className="text-sm text-gray-600">Tiempo Total</p>
                                 <p className="text-2xl font-bold text-blue-600">
@@ -194,6 +194,13 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                                 <p className="text-sm text-gray-600">Monitoreo</p>
                                 <p className={`text-2xl font-bold ${connectionStats.monitoring_is_active ? 'text-green-600' : 'text-red-600'}`}>
                                     {connectionStats.monitoring_is_active ? 'Activo' : 'Inactivo'}
+                                </p>
+                            </div>
+
+                            <div className="bg-purple-50 p-4 rounded-lg">
+                                <p className="text-sm text-gray-600">Sesiones de Monitoreo</p>
+                                <p className="text-2xl font-bold text-purple-600">
+                                    {connectionStats.monitoring_sessions_count}
                                 </p>
                             </div>
 
@@ -262,9 +269,9 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                             </div>
                             <div className="flex justify-center">
                                 {isVideoFile(selectedImage) ? (
-                                    <video 
-                                        src={selectedImage} 
-                                        controls 
+                                    <video
+                                        src={selectedImage}
+                                        controls
                                         className="max-w-full h-auto rounded-lg"
                                         style={{ maxHeight: '70vh' }}
                                         preload="metadata"
@@ -276,9 +283,9 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                                         Tu navegador no soporta la reproducción de video.
                                     </video>
                                 ) : isImageFile(selectedImage) ? (
-                                    <img 
-                                        src={selectedImage} 
-                                        alt="Vista previa" 
+                                    <img
+                                        src={selectedImage}
+                                        alt="Vista previa"
                                         className="max-w-full h-auto rounded-lg"
                                         onError={(e) => {
                                             console.error('Error cargando imagen:', e);

@@ -2174,6 +2174,7 @@ def participant_connection_stats(request, event_id, participant_id):
             "total_time_minutes": 0,
             "monitoring_is_active": False,
             "monitoring_last_change": None,
+            "monitoring_sessions_count": 0,
         }
 
         if participant_event:
@@ -2182,6 +2183,7 @@ def participant_connection_stats(request, event_id, participant_id):
                 "monitoring_is_active": participant_event.is_monitoring,
                 "total_time_minutes": participant_event.get_total_monitoring_time(),
                 "monitoring_last_change": participant_event.monitoring_last_change,
+                "monitoring_sessions_count": participant_event.monitoring_sessions_count,
             })
 
         return JsonResponse(connection_data)
