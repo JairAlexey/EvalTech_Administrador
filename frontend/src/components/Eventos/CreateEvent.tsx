@@ -19,9 +19,10 @@ interface CreateEventProps {
   onBack?: () => void;
   onNavigate?: (page: string) => void;
   onEventCreated?: (eventId: string) => void;
+  onLogout?: () => void;
 }
 
-export default function CreateEvent({ onBack, onNavigate, onEventCreated }: CreateEventProps) {
+export default function CreateEvent({ onBack, onNavigate, onEventCreated, onLogout }: CreateEventProps) {
   const [eventName, setEventName] = useState('');
   const [description, setDescription] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -154,7 +155,7 @@ export default function CreateEvent({ onBack, onNavigate, onEventCreated }: Crea
 
   return (
     <div className="flex h-screen bg-gray-50">
-      <Sidebar currentPage="eventos" onNavigate={onNavigate} />
+      <Sidebar currentPage="eventos" onNavigate={onNavigate} onLogout={onLogout} />
 
       <div className="flex-1 overflow-y-auto">
         <div className="bg-white border-b border-gray-200 px-8 py-6">

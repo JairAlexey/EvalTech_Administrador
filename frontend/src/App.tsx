@@ -322,6 +322,7 @@ function App() {
                         onBack={handleBackToEvents}
                         eventId={selectedEventId}
                         onNavigate={handleNavigate}
+                        onLogout={handleLogout}
                     />
                 );
 
@@ -330,6 +331,7 @@ function App() {
                     <CreateEvent
                         onBack={handleBackToEvents}
                         onNavigate={handleNavigate}
+                        onLogout={handleLogout}
                     />
                 );
 
@@ -338,6 +340,7 @@ function App() {
                     <Participant
                         onNavigate={handleNavigate}
                         canAccess={hasPermissionForPage}
+                        onLogout={handleLogout}
                     />
                 );
 
@@ -371,6 +374,7 @@ function App() {
                     <EvaluationsList
                         onNavigate={handleNavigate}
                         onViewEvaluation={handleViewEvaluationDetails}
+                        onLogout={handleLogout}
                     />
                 );
 
@@ -385,6 +389,7 @@ function App() {
                         evaluationId={selectedEventId}
                         onNavigate={handleNavigate}
                         onViewMonitoring={handleViewMonitoring}
+                        onLogout={handleLogout}
                     />
                 );
 
@@ -404,6 +409,7 @@ function App() {
                             localStorage.setItem('currentPage', 'evaluation-details');
                         }}
                         onNavigate={handleNavigate}
+                        onLogout={handleLogout}
                     />
                 );
 
@@ -416,7 +422,7 @@ function App() {
                 );
 
             case 'cuenta':
-                return <Profile onNavigate={handleNavigate} />;
+                return <Profile onNavigate={handleNavigate} onLogout={handleLogout} />;
 
             default:
                 return (

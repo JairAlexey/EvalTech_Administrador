@@ -8,13 +8,15 @@ import BlockedPagesModal from './BlockedPagesModal';
 import blockedPagesService from '../../services/blockedPagesService';
 import { useAuth } from '../../contexts/AuthContext';
 
+
 interface EditEventProps {
   onBack?: () => void;
   eventId?: string;
   onNavigate?: (page: string) => void;
+  onLogout?: () => void;
 }
 
-export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProps) {
+export default function EditEvent({ onBack, eventId, onNavigate, onLogout }: EditEventProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -262,7 +264,7 @@ export default function EditEvent({ onBack, eventId, onNavigate }: EditEventProp
 
   return (
     <div className="flex h-screen bg-gray-50">
-      <Sidebar currentPage="eventos" onNavigate={onNavigate} />
+      <Sidebar currentPage="eventos" onNavigate={onNavigate} onLogout={onLogout} />
 
       <div className="flex-1 overflow-y-auto">
         <div className="bg-white border-b border-gray-200 px-8 py-6">

@@ -6,9 +6,10 @@ import evaluationService, { type Evaluation } from '../../services/evaluationSer
 interface EvaluationsListProps {
   onNavigate?: (page: string) => void;
   onViewEvaluation?: (evaluationId: string) => void;
+  onLogout?: () => void;
 }
 
-export default function EvaluationsList({ onNavigate, onViewEvaluation }: EvaluationsListProps) {
+export default function EvaluationsList({ onNavigate, onViewEvaluation, onLogout }: EvaluationsListProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
@@ -155,7 +156,7 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation }: Evalua
 
   return (
     <div className="flex h-screen bg-gray-50">
-      <Sidebar currentPage="evaluaciones" onNavigate={onNavigate} />
+      <Sidebar currentPage="evaluaciones" onNavigate={onNavigate} onLogout={onLogout} />
 
       <div className="flex-1 overflow-y-auto">
         <div className="bg-white border-b border-gray-200 px-8 py-6">
@@ -171,20 +172,21 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation }: Evalua
           <div className="bg-white rounded-lg border border-gray-200">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between gap-4">
+                <div className="relative flex-1 max-w-md">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Buscar evaluaciones..."
+                    className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
+                    disabled={loading}
+                  />
+                </div>
+
                 <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="text"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      placeholder="Buscar evaluaciones..."
-                      className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm w-64"
-                      disabled={loading}
-                    />
-                  </div>
                   <button
-                    className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition text-sm"
+                    className="flex items-center gap-2 px-4 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition text-sm font-medium"
                     disabled={loading || evaluations.length === 0}
                   >
                     <Filter className="w-4 h-4" />
