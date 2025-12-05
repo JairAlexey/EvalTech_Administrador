@@ -9,9 +9,10 @@ interface MonitoringPageProps {
     participantId: string;
     onBack: () => void;
     onNavigate: (page: string) => void;
+    onLogout?: () => void;
 }
 
-const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: MonitoringPageProps) => {
+const MonitoringPage = ({ eventId, participantId, onBack, onNavigate, onLogout }: MonitoringPageProps) => {
     const [logs, setLogs] = useState<ParticipantLog[]>([]);
     const [eventName, setEventName] = useState<string>('');
     const [loading, setLoading] = useState<boolean>(true);
@@ -119,7 +120,7 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
 
     return (
         <div className="flex min-h-screen bg-gray-100">
-            <Sidebar onNavigate={onNavigate} />
+            <Sidebar onNavigate={onNavigate} onLogout={onLogout} />
 
             <div className="flex-1 p-8">
                 {/* Header */}

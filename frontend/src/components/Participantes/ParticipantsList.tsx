@@ -7,13 +7,12 @@ import EditParticipant from './EditParticipant';
 import ImportParticipantsModal from './ImportParticipantsModal';
 import participantService, { type Participant as ParticipantType } from '../../services/participantService';
 
-interface Participant extends ParticipantType {
-  selected: boolean;
-}
+interface Participant extends ParticipantType { }
 
 interface ParticipantListProps {
   onNavigate?: (page: string) => void;
   canAccess?: (page: string) => boolean; // <-- new optional prop
+  onLogout?: () => void;
 }
 
 function getColorClass(color: string) {
@@ -29,7 +28,7 @@ function getColorClass(color: string) {
   return allowed.includes(color) ? color : "bg-gray-200";
 }
 
-export default function ParticipantsList({ onNavigate, canAccess }: ParticipantListProps) {
+export default function ParticipantsList({ onNavigate, canAccess, onLogout }: ParticipantListProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -38,7 +37,6 @@ export default function ParticipantsList({ onNavigate, canAccess }: ParticipantL
   const [showImportModal, setShowImportModal] = useState(false);
   const [participantToDelete, setParticipantToDelete] = useState<string | null>(null);
   const [participantToEdit, setParticipantToEdit] = useState<string | null>(null);
-  const [selectAll, setSelectAll] = useState(false);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +47,7 @@ export default function ParticipantsList({ onNavigate, canAccess }: ParticipantL
       try {
         setLoading(true);
         const participantsData = await participantService.getParticipants(searchTerm);
-        setParticipants(participantsData.map(participant => ({ ...participant, selected: false })));
+        setParticipants(participantsData);
         setError(null);
       } catch (err) {
         setError('No se pudieron cargar los participantes. Por favor, inténtelo de nuevo más tarde.');
@@ -70,30 +68,13 @@ export default function ParticipantsList({ onNavigate, canAccess }: ParticipantL
     setLoading(true);
     try {
       const participantsData = await participantService.getParticipants(searchTerm);
-      setParticipants(participantsData.map(participant => ({ ...participant, selected: false })));
+      setParticipants(participantsData);
       setError(null);
     } catch (err) {
       setError('No se pudieron cargar los participantes. Por favor, inténtelo de nuevo más tarde.');
     } finally {
       setLoading(false);
     }
-  };
-
-  // Calcular cuántos participantes están seleccionados
-  const selectedCount = participants.filter(c => c.selected).length;
-
-  // Función para manejar la selección de un participante
-  const toggleParticipant = (id: string) => {
-    setParticipants(participants.map(c =>
-      c.id === id ? { ...c, selected: !c.selected } : c
-    ));
-  };
-
-  // Función para seleccionar o deseleccionar todos los participantes
-  const toggleSelectAll = () => {
-    const newSelectAll = !selectAll;
-    setSelectAll(newSelectAll);
-    setParticipants(participants.map(c => ({ ...c, selected: newSelectAll })));
   };
 
   // Función para manejar el clic en el botón de eliminar
@@ -159,7 +140,7 @@ export default function ParticipantsList({ onNavigate, canAccess }: ParticipantL
 
   return (
     <div className="flex h-screen bg-gray-50">
-      <Sidebar currentPage="participants" onNavigate={onNavigate} />
+      <Sidebar currentPage="participants" onNavigate={onNavigate} onLogout={onLogout} />
 
       <div className="flex-1 overflow-y-auto">
         <div className="bg-white border-b border-gray-200 px-8 py-6">
@@ -182,35 +163,25 @@ export default function ParticipantsList({ onNavigate, canAccess }: ParticipantL
           <div className="bg-white rounded-lg border border-gray-200">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center">
+                <div className="relative flex-1 max-w-md">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <input
-                    type="checkbox"
-                    checked={selectAll}
-                    onChange={toggleSelectAll}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Buscar participantes..."
+                    className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
                   />
-                  <span className="ml-2 text-sm text-gray-600">Seleccionar todo</span>
-                  <span className="ml-4 text-sm text-gray-500">{selectedCount} seleccionados</span>
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="text"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      placeholder="Buscar participantes..."
-                      className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm w-64"
-                    />
-                  </div>
-                  <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition text-sm">
+                  <button className="flex items-center gap-2 px-4 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition text-sm font-medium">
                     <Filter className="w-4 h-4" />
                     Filtros
                   </button>
                   <button
                     onClick={() => setShowImportModal(true)}
-                    className="flex items-center gap-2 px-4 py-2 border border-blue-600 text-blue-700 rounded-lg hover:bg-blue-50 transition text-sm"
+                    className="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm font-medium shadow-sm"
                     title="Cargar participantes desde Excel"
                   >
                     <Upload className="w-4 h-4" />
@@ -218,9 +189,7 @@ export default function ParticipantsList({ onNavigate, canAccess }: ParticipantL
                   </button>
                 </div>
               </div>
-            </div>
-
-            {error && (
+            </div>            {error && (
               <div className="p-6 bg-red-50 border-b border-red-200 text-red-700">
                 <p>{error}</p>
                 <button
@@ -241,7 +210,6 @@ export default function ParticipantsList({ onNavigate, canAccess }: ParticipantL
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="w-12 px-6 py-3"></th>
                       <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                         Nombre
                       </th>
@@ -267,14 +235,6 @@ export default function ParticipantsList({ onNavigate, canAccess }: ParticipantL
                       participants.map((participant) => (
                         <tr key={participant.id} className="hover:bg-gray-50 transition">
                           <td className="px-6 py-4">
-                            <input
-                              type="checkbox"
-                              checked={participant.selected}
-                              onChange={() => toggleParticipant(participant.id)}
-                              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                            />
-                          </td>
-                          <td className="px-6 py-4">
                             <div className="flex items-center">
                               <div className={`w-8 h-8 rounded-full ${getColorClass(participant.color)} flex items-center justify-center text-gray-700 font-medium`}>
                                 {participant.initials}
@@ -287,11 +247,31 @@ export default function ParticipantsList({ onNavigate, canAccess }: ParticipantL
                           </td>
                           <td className="px-6 py-4 text-sm text-gray-600">
                             {participant.events && participant.events.length > 0 ? (
-                              <ul>
-                                {participant.events.map(event => (
-                                  <li key={event.id}>{event.name}</li>
-                                ))}
-                              </ul>
+                              <div className="flex items-center gap-1 flex-wrap">
+                                {participant.events.map(event => {
+                                  const eventInitials = event.name
+                                    .split(' ')
+                                    .map(word => word[0])
+                                    .join('')
+                                    .toUpperCase()
+                                    .slice(0, 2);
+
+                                  return (
+                                    <div
+                                      key={event.id}
+                                      className="relative group"
+                                    >
+                                      <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-medium text-xs cursor-default">
+                                        {eventInitials}
+                                      </div>
+                                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                                        {event.name}
+                                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             ) : (
                               <span className="text-gray-400 text-xs">Sin eventos</span>
                             )}

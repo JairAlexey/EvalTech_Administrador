@@ -8,9 +8,10 @@ interface EvaluationDetailsProps {
   onNavigate?: (page: string) => void;
   onViewMonitoring?: (participantId: string) => void;
   onBack?: () => void;
+  onLogout?: () => void;
 }
 
-export default function EvaluationDetails({ evaluationId, onNavigate, onViewMonitoring, onBack }: EvaluationDetailsProps) {
+export default function EvaluationDetails({ evaluationId, onNavigate, onViewMonitoring, onBack, onLogout }: EvaluationDetailsProps) {
   const [evaluation, setEvaluation] = useState<EvaluationDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -156,7 +157,7 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
 
   return (
     <div className="flex h-screen bg-gray-50">
-      <Sidebar currentPage="evaluaciones" onNavigate={onNavigate} />
+      <Sidebar currentPage="evaluaciones" onNavigate={onNavigate} onLogout={onLogout} />
 
       <div className="flex-1 overflow-y-auto">
         {/* Header */}
