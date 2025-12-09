@@ -146,6 +146,7 @@ class ParticipantLog(models.Model):
     participant_event = models.ForeignKey(
         ParticipantEvent, on_delete=models.CASCADE, null=True
     )
+    timestamp = models.DateTimeField(auto_now_add=True, editable=False, help_text="Hora UTC en que se registró el log")
 
     class Meta:
         db_table = "logs_participantes"
