@@ -158,8 +158,16 @@ def verify_event_key(request):
             {
                 "isValid": True,
                 "dateIsValid": dateIsValid,
-                "participant": {"name": participant.name, "email": participant.email},
-                "event": {"name": event.name, "id": event.id},
+                "participant": {
+                    "name": participant.name, 
+                    "email": participant.email,
+                    "monitoring_total_duration": participant_event.monitoring_total_duration
+                },
+                "event": {
+                    "name": event.name, 
+                    "id": event.id,
+                    "duration": event.duration
+                },
                 "connectionInfo": connection_info,
             }
         )
