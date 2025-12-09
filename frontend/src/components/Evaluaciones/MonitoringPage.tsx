@@ -120,7 +120,7 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate, onLogout }
 
     return (
         <div className="flex min-h-screen bg-gray-100">
-            <Sidebar onNavigate={onNavigate} onLogout={onLogout} />
+            <Sidebar currentPage="evaluaciones" onNavigate={onNavigate} onLogout={onLogout} />
 
             <div className="flex-1 p-8">
                 {/* Header */}
