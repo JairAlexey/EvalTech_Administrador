@@ -11,6 +11,7 @@ from .models import (
     BlockedHost,
     ParticipantEvent,
 )
+from .s3_service import s3_service
 
 from django.views.decorators.csrf import csrf_exempt
 from django.core.serializers.json import DjangoJSONEncoder
@@ -21,8 +22,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.db.models.deletion import RestrictedError
-from authentication.models import CustomUser
-from authentication.models import UserRole
+from authentication.models import CustomUser, UserRole
 from authentication.views import verify_token, get_user_data
 from openpyxl import load_workbook
 from openpyxl.workbook import Workbook
@@ -50,11 +50,11 @@ def validate_event_access(participant_event, now):
     Valida si un participante puede acceder al evento según las reglas de negocio
     """
     event = participant_event.event
-    
+
     # Determinar si es primera conexión basado en si ha monitoreado antes
     is_first_connection = participant_event.monitoring_sessions_count == 0
     has_connected_before = not is_first_connection
-    
+
     # Regla 1: Nadie puede entrar después de end_date (fecha final absoluta)
     if now > event.end_date:
         return {
@@ -159,14 +159,14 @@ def verify_event_key(request):
                 "isValid": True,
                 "dateIsValid": dateIsValid,
                 "participant": {
-                    "name": participant.name, 
+                    "name": participant.name,
                     "email": participant.email,
-                    "monitoring_total_duration": participant_event.monitoring_total_duration
+                    "monitoring_total_duration": participant_event.monitoring_total_duration,
                 },
                 "event": {
-                    "name": event.name, 
+                    "name": event.name,
                     "id": event.id,
-                    "duration": event.duration
+                    "duration": event.duration,
                 },
                 "connectionInfo": connection_info,
             }
@@ -352,13 +352,32 @@ def log_participant_screen_event(request: HttpRequest):
             return JsonResponse({"error": "Monitoring not started"}, status=403)
 
         file = request.FILES["screenshot"]
-        ParticipantLog.objects.create(
-            name="screen",
-            file=file,
-            message="Desktop Screenshot",
-            participant_event=participant_event,
+
+        # Subir archivo a S3
+        upload_result = s3_service.upload_media_fragment(
+            file, participant_event.id, media_type="screen", timestamp=timezone.now()
         )
-        return JsonResponse({"status": "success"})
+
+        if upload_result["success"]:
+            # Guardar el log con la URL de S3
+            ParticipantLog.objects.create(
+                name="screen",
+                url=upload_result["url"],
+                message=f"Desktop Screenshot",
+                participant_event=participant_event,
+            )
+            return JsonResponse(
+                {
+                    "status": "success",
+                    "s3_key": upload_result["key"],
+                    "url": upload_result["url"],
+                }
+            )
+        else:
+            return JsonResponse(
+                {"error": f"Failed to upload screenshot: {upload_result['error']}"},
+                status=500,
+            )
 
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=400)
@@ -381,13 +400,35 @@ def log_participant_audio_video_event(request: HttpRequest):
             return JsonResponse({"error": "Monitoring not started"}, status=403)
 
         file = request.FILES["media"]
-        ParticipantLog.objects.create(
-            name="audio/video",
-            file=file,
-            message="Media Capture",
-            participant_event=participant_event,
+
+        # Subir archivo de audio/video a S3
+        upload_result = s3_service.upload_media_fragment(
+            file,
+            participant_event.id,
+            media_type="video",  # Asumimos video por defecto, se puede detectar del archivo
+            timestamp=timezone.now(),
         )
-        return JsonResponse({"status": "success"})
+
+        if upload_result["success"]:
+            # Guardar el log con la URL de S3
+            ParticipantLog.objects.create(
+                name="audio/video",
+                url=upload_result["url"],
+                message=f"Media Capture",
+                participant_event=participant_event,
+            )
+            return JsonResponse(
+                {
+                    "status": "success",
+                    "s3_key": upload_result["key"],
+                    "url": upload_result["url"],
+                }
+            )
+        else:
+            return JsonResponse(
+                {"error": f"Failed to upload media fragment: {upload_result['error']}"},
+                status=500,
+            )
 
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=400)
@@ -1208,11 +1249,13 @@ def notify_proxy_blocked_hosts_update(request, event_id):
     if request.method == "POST":
         try:
             # Sistema de señales eliminado - ya no es necesario con arquitectura HTTP directa
-            return JsonResponse({
-                "success": True,
-                "message": f"Signal system deprecated - using direct HTTP architecture for event {event_id}"
-            })
-            
+            return JsonResponse(
+                {
+                    "success": True,
+                    "message": f"Signal system deprecated - using direct HTTP architecture for event {event_id}",
+                }
+            )
+
         except Exception as e:
             logger.error(f"Error notifying proxy of blocked hosts update: {str(e)}")
             return JsonResponse(
@@ -1643,10 +1686,12 @@ def event_detail(request, event_id):
                     BlockedHost.objects.filter(
                         event=event, website_id__in=list(to_remove)
                     ).delete()
-                
+
                 # Sistema de notificación eliminado - ya no necesario con HTTP directo
                 if to_add or to_remove:
-                    print(f"🔄 | Blocked hosts updated for event {event_id}: +{len(to_add)} -{len(to_remove)}")
+                    print(
+                        f"🔄 | Blocked hosts updated for event {event_id}: +{len(to_add)} -{len(to_remove)}"
+                    )
 
             return JsonResponse({"success": True, "updated": changed})
 
@@ -1949,25 +1994,23 @@ def event_participant_logs(request, event_id, participant_id):
 
         logs_data = []
         for log in logs:
-            # Si el modelo ParticipantLog tuviera un campo created_at lo usamos,
-            # si no existe (compatibilidad) usamos el id como fallback para
-            # mantener un valor entero ordenable usado por el frontend.
-            created_ts = None
-            if hasattr(log, "created_at") and getattr(log, "created_at"):
+            # Formatear timestamp como string legible
+            created_at_formatted = ""
+            if hasattr(log, "timestamp") and getattr(log, "timestamp"):
                 try:
-                    created_ts = int(log.created_at.timestamp())
+                    created_at_formatted = log.timestamp.strftime("%d/%m/%Y %H:%M:%S")
                 except Exception:
-                    created_ts = None
-            if created_ts is None:
-                created_ts = int(log.id)
+                    created_at_formatted = "N/A"
+            else:
+                created_at_formatted = "N/A"
 
             log_data = {
                 "id": log.id,
                 "name": log.name,
                 "message": log.message,
-                "created_at": created_ts,
-                "has_file": bool(log.file),
-                "file_url": log.file.url if log.file else None,
+                "created_at": created_at_formatted,
+                "has_file": bool(log.url),
+                "file_url": log.url if log.url else None,
             }
             logs_data.append(log_data)
 
@@ -2015,11 +2058,13 @@ def participant_connection_stats(request, event_id, participant_id):
 
         if participant_event:
             # Todos los datos desde ParticipantEvent
-            connection_data.update({
-                "monitoring_is_active": participant_event.is_monitoring,
-                "total_time_minutes": participant_event.get_total_monitoring_time(),
-                "monitoring_last_change": participant_event.monitoring_last_change,
-            })
+            connection_data.update(
+                {
+                    "monitoring_is_active": participant_event.is_monitoring,
+                    "total_time_minutes": participant_event.get_total_monitoring_time(),
+                    "monitoring_last_change": participant_event.monitoring_last_change,
+                }
+            )
 
         return JsonResponse(connection_data)
 
@@ -2132,8 +2177,10 @@ def get_proxy_status(request, event_id):
     if request.method == "GET":
         try:
             # Obtener participant_events del evento
-            participant_events = ParticipantEvent.objects.filter(event_id=event_id).select_related("participant")
-            
+            participant_events = ParticipantEvent.objects.filter(
+                event_id=event_id
+            ).select_related("participant")
+
             monitoring_instances = []
             for pe in participant_events:
                 monitoring_info = {
@@ -2144,18 +2191,24 @@ def get_proxy_status(request, event_id):
                     "last_change": pe.monitoring_last_change,
                 }
                 monitoring_instances.append(monitoring_info)
-            
-            return JsonResponse({
-                "success": True,
-                "event_id": event_id,
-                "total_participants": len(monitoring_instances),
-                "monitoring_instances": monitoring_instances
-            })
-            
+
+            return JsonResponse(
+                {
+                    "success": True,
+                    "event_id": event_id,
+                    "total_participants": len(monitoring_instances),
+                    "monitoring_instances": monitoring_instances,
+                }
+            )
+
         except Exception as e:
-            logger.error(f"Error getting monitoring status for event {event_id}: {str(e)}")
-            return JsonResponse({"error": "Failed to get monitoring status"}, status=500)
-    
+            logger.error(
+                f"Error getting monitoring status for event {event_id}: {str(e)}"
+            )
+            return JsonResponse(
+                {"error": "Failed to get monitoring status"}, status=500
+            )
+
     return JsonResponse({"error": "Method not allowed"}, status=405)
 
 
@@ -2163,7 +2216,7 @@ def get_proxy_status(request, event_id):
 @jwt_required()
 def participant_connection_stats(request, event_id, participant_id):
     """Endpoint para obtener estadísticas de conexión de un participante en un evento específico"""
-    
+
     try:
         event = Event.objects.get(id=event_id)
         participant = Participant.objects.get(id=participant_id)
@@ -2187,12 +2240,14 @@ def participant_connection_stats(request, event_id, participant_id):
 
         if participant_event:
             # Todos los datos desde ParticipantEvent del evento específico
-            connection_data.update({
-                "monitoring_is_active": participant_event.is_monitoring,
-                "total_time_minutes": participant_event.get_total_monitoring_time(),
-                "monitoring_last_change": participant_event.monitoring_last_change,
-                "monitoring_sessions_count": participant_event.monitoring_sessions_count,
-            })
+            connection_data.update(
+                {
+                    "monitoring_is_active": participant_event.is_monitoring,
+                    "total_time_minutes": participant_event.get_total_monitoring_time(),
+                    "monitoring_last_change": participant_event.monitoring_last_change,
+                    "monitoring_sessions_count": participant_event.monitoring_sessions_count,
+                }
+            )
 
         return JsonResponse(connection_data)
 
@@ -2202,3 +2257,154 @@ def participant_connection_stats(request, event_id, participant_id):
         return JsonResponse({"error": "Participant not found"}, status=404)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+@jwt_required()
+def participant_media_files(request, event_id, participant_id):
+    """
+    Endpoint para listar archivos multimedia de un participante en S3.
+    """
+    if request.method == "GET":
+        try:
+            # Verificar que el evento y participante existen
+            event = Event.objects.get(id=event_id)
+            participant = Participant.objects.get(id=participant_id)
+
+            # Obtener el ParticipantEvent
+            participant_event = ParticipantEvent.objects.filter(
+                event=event, participant=participant
+            ).first()
+
+            if not participant_event:
+                return JsonResponse(
+                    {"error": "Participant not enrolled in this event"}, status=404
+                )
+
+            # Verificar si S3 está configurado
+            if not s3_service.is_configured():
+                return JsonResponse({"error": "S3 service not configured"}, status=503)
+
+            # Obtener parámetros de filtro
+            media_type = request.GET.get("media_type")  # video, audio, screen
+            start_date = request.GET.get("start_date")
+            end_date = request.GET.get("end_date")
+
+            # Parsear fechas si se proporcionan
+            start_datetime = None
+            end_datetime = None
+            if start_date:
+                try:
+                    start_datetime = datetime.fromisoformat(start_date)
+                except ValueError:
+                    return JsonResponse(
+                        {"error": "Invalid start_date format"}, status=400
+                    )
+            if end_date:
+                try:
+                    end_datetime = datetime.fromisoformat(end_date)
+                except ValueError:
+                    return JsonResponse(
+                        {"error": "Invalid end_date format"}, status=400
+                    )
+
+            # Listar archivos multimedia del participante
+            media_files = s3_service.list_participant_media(
+                participant_event.id,
+                media_type=media_type,
+                start_date=start_datetime,
+                end_date=end_datetime,
+            )
+
+            # Organizar archivos por tipo
+            files_by_type = {"video": [], "audio": [], "screen": [], "unknown": []}
+
+            total_size = 0
+            for file_info in media_files:
+                file_type = file_info.get("media_type", "unknown")
+                if file_type in files_by_type:
+                    files_by_type[file_type].append(file_info)
+                else:
+                    files_by_type["unknown"].append(file_info)
+                total_size += file_info.get("size", 0)
+
+            return JsonResponse(
+                {
+                    "success": True,
+                    "participant": {
+                        "id": participant.id,
+                        "name": participant.name,
+                        "email": participant.email,
+                    },
+                    "event": {"id": event.id, "name": event.name},
+                    "files_by_type": files_by_type,
+                    "summary": {
+                        "total_files": len(media_files),
+                        "total_size_bytes": total_size,
+                        "video_files": len(files_by_type["video"]),
+                        "audio_files": len(files_by_type["audio"]),
+                        "screen_files": len(files_by_type["screen"]),
+                    },
+                }
+            )
+
+        except Event.DoesNotExist:
+            return JsonResponse({"error": "Event not found"}, status=404)
+        except Participant.DoesNotExist:
+            return JsonResponse({"error": "Participant not found"}, status=404)
+        except Exception as e:
+            logger.error(
+                f"Error listing media files for participant {participant_id} in event {event_id}: {e}"
+            )
+            return JsonResponse({"error": str(e)}, status=500)
+
+    return JsonResponse({"error": "Method not allowed"}, status=405)
+
+
+@csrf_exempt
+@jwt_required()
+def create_s3_bucket(request):
+    """
+    Endpoint para crear el bucket de S3 si no existe.
+    Solo para administradores.
+    """
+    if request.method == "POST":
+        try:
+            # Verificar permisos de administrador
+            user_data = get_user_data(request)
+            if not user_data or user_data.get("role") != UserRole.ADMIN.value:
+                return JsonResponse({"error": "Admin privileges required"}, status=403)
+
+            if not s3_service.is_configured():
+                return JsonResponse(
+                    {
+                        "error": "S3 service not configured. Please check AWS credentials and settings."
+                    },
+                    status=503,
+                )
+
+            # Intentar crear el bucket
+            success = s3_service.create_bucket_if_not_exists()
+
+            if success:
+                return JsonResponse(
+                    {
+                        "success": True,
+                        "message": f"Bucket '{s3_service.bucket_name}' is ready for use.",
+                        "bucket_name": s3_service.bucket_name,
+                        "region": s3_service.region,
+                    }
+                )
+            else:
+                return JsonResponse(
+                    {
+                        "error": "Failed to create or access S3 bucket. Check AWS credentials and permissions."
+                    },
+                    status=500,
+                )
+
+        except Exception as e:
+            logger.error(f"Error creating S3 bucket: {e}")
+            return JsonResponse({"error": str(e)}, status=500)
+
+    return JsonResponse({"error": "Method not allowed"}, status=405)

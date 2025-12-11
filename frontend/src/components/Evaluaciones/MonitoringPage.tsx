@@ -24,6 +24,81 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate, onLogout }
     const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
     const LOGS_PER_PAGE = 4;
 
+    // Función para convertir timestamp UTC a zona horaria local
+    function parseUTCTimestamp(
+        timestamp?: string | number,
+        targetTimeZone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
+    ) {
+        if (!timestamp) {
+            return '';
+        }
+
+        let utcDate: Date;
+
+        if (typeof timestamp === 'number') {
+            // Si es un número, asumimos que es un timestamp Unix (segundos desde epoch)
+            utcDate = new Date(timestamp * 1000);
+        } else {
+            // Verificar si es formato ISO (contiene 'T' y posiblemente 'Z')
+            if (timestamp.includes('T')) {
+                // Formato ISO: "2025-12-11T22:55:02.684Z" o similar
+                utcDate = new Date(timestamp);
+            } else {
+                // Formato personalizado: "DD/MM/YYYY HH:MM:SS" (en UTC desde el backend)
+                const [dateStr, timeStr] = timestamp.split(' ');
+                if (!dateStr || !timeStr) return timestamp;
+
+                const [day, month, year] = dateStr.split('/');
+                const [hStr, mStr, sStr] = timeStr.split(':');
+
+                if (!day || !month || !year || !hStr || !mStr || !sStr) return timestamp;
+
+                // Construir fecha UTC
+                const utcMs = Date.UTC(
+                    parseInt(year, 10),
+                    parseInt(month, 10) - 1,
+                    parseInt(day, 10),
+                    parseInt(hStr, 10),
+                    parseInt(mStr, 10),
+                    parseInt(sStr, 10),
+                    0
+                );
+
+                utcDate = new Date(utcMs);
+            }
+        }
+
+        if (isNaN(utcDate.getTime())) {
+            return typeof timestamp === 'string' ? timestamp : '';
+        }
+
+        // Formatear en la zona horaria local
+        const fmt = new Intl.DateTimeFormat('es-EC', {
+            timeZone: targetTimeZone,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        });
+
+        // Extraer partes
+        const parts = fmt.formatToParts(utcDate);
+        const get = (type: Intl.DateTimeFormatPartTypes) =>
+            parts.find(p => p.type === type)?.value ?? '';
+
+        const localDay = get('day');
+        const localMonth = get('month');
+        const localYear = get('year');
+        const localHour = get('hour');
+        const localMinute = get('minute');
+        const localSecond = get('second');
+
+        return `${localDay}/${localMonth}/${localYear} ${localHour}:${localMinute}:${localSecond}`;
+    }
+
     // Cargar logs y estadísticas al montar o cambiar eventId/participantId
     useEffect(() => {
         handleRefresh();
@@ -209,7 +284,7 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate, onLogout }
                                 <p className="text-sm text-gray-600">Último cambio monitoreo</p>
                                 <p className="text-sm font-semibold text-yellow-700">
                                     {connectionStats.monitoring_last_change
-                                        ? new Date(connectionStats.monitoring_last_change).toLocaleString('es-ES')
+                                        ? parseUTCTimestamp(connectionStats.monitoring_last_change)
                                         : 'N/A'}
                                 </p>
                             </div>
@@ -349,6 +424,9 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate, onLogout }
                                                     Tipo
                                                 </th>
                                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    Tiempo
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                     Mensaje
                                                 </th>
                                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -369,6 +447,9 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate, onLogout }
                                                         <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
                                                             {log.name}
                                                         </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                                        {parseUTCTimestamp(log.created_at)}
                                                     </td>
                                                     <td className="px-6 py-4 text-sm text-gray-600">
                                                         {log.message}
@@ -413,6 +494,16 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate, onLogout }
                                         </div>
                                         <div className="flex items-center space-x-2">
                                             <button
+                                                onClick={() => setCurrentPage(1)}
+                                                disabled={currentPage === 1}
+                                                className="p-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                title="Primera página"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                                                </svg>
+                                            </button>
+                                            <button
                                                 onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                                                 disabled={currentPage === 1}
                                                 className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -428,6 +519,16 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate, onLogout }
                                                 className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                                             >
                                                 Siguiente
+                                            </button>
+                                            <button
+                                                onClick={() => setCurrentPage(totalPages)}
+                                                disabled={currentPage === totalPages}
+                                                className="p-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                title="Última página"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                                                </svg>
                                             </button>
                                         </div>
                                     </div>
