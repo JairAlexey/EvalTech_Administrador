@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "events",
     "proxy.apps.ProxyConfig",
     "behavior_analysis",
+    "storages",
 ]
 
 AUTH_USER_MODEL = "authentication.CustomUser"
@@ -154,8 +155,6 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "static"
-MEDIA_URL = "media/"
-MEDIA_ROOT = BASE_DIR / "media"
 
 # Configuraciones para archivos multimedia
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB en memoria
@@ -236,3 +235,34 @@ LOGGING = {
 
 BASE_URL = "http://127.0.0.1:8000"
 ADMINISTRADORMONITOREO_API_LOG_HTTP_REQUEST = "/events/api/logging/http-request"
+
+# AWS S3 Configuration
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+AWS_STORAGE_BUCKET_NAME = os.getenv(
+    "AWS_STORAGE_BUCKET_NAME", "evaltech-monitoring-media"
+)
+AWS_S3_REGION_NAME = os.getenv("AWS_S3_REGION_NAME", "us-east-1")
+AWS_S3_CUSTOM_DOMAIN = os.getenv("AWS_S3_CUSTOM_DOMAIN", None)
+AWS_DEFAULT_ACL = os.getenv("AWS_DEFAULT_ACL", "private")
+
+# S3 Object Parameters
+AWS_S3_OBJECT_PARAMETERS = {
+    "CacheControl": "max-age=86400",
+}
+
+# S3 File Settings
+AWS_S3_FILE_OVERWRITE = False
+AWS_QUERYSTRING_AUTH = True  # Generate signed URLs for private access
+AWS_QUERYSTRING_EXPIRE = 3600  # URLs expire after 1 hour
+AWS_S3_SIGNATURE_VERSION = "s3v4"
+
+# Use S3 for media files storage
+if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
+    DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
+    AWS_LOCATION = "media"
+    MEDIA_URL = f"https://{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com/{AWS_LOCATION}/"
+else:
+    # Fallback to local storage if AWS credentials are not provided
+    MEDIA_URL = "media/"
+    MEDIA_ROOT = BASE_DIR / "media"

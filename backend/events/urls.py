@@ -16,6 +16,17 @@ urlpatterns = [
         "api/events/<int:event_id>/participants/<int:participant_id>/logs/",
         views.event_participant_logs,
     ),
+    # Rutas para gestión de archivos multimedia en S3
+    path(
+        "api/events/<int:event_id>/participants/<int:participant_id>/media/",
+        views.participant_media_files,
+        name="participant-media-files",
+    ),
+    path(
+        "api/s3/bucket/create/",
+        views.create_s3_bucket,
+        name="create-s3-bucket",
+    ),
     # Rutas para la gestión de eventos
     path("api/events", views.events),
     path("api/events/<int:event_id>", views.event_detail),
