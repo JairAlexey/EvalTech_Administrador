@@ -16,3 +16,4 @@ librosa
 psycopg2-binary
 boto3
 django-storages
+ffmpeg-python
