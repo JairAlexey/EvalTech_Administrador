@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Filter, Eye, Loader } from 'lucide-react';
+import { Search, Filter, Eye, Loader, X } from 'lucide-react';
 import Sidebar from '../utils/Sidebar';
 import evaluationService, { type Evaluation } from '../../services/evaluationService';
 
@@ -16,6 +16,12 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation, onLogout
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [showFiltersModal, setShowFiltersModal] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [durationOperator, setDurationOperator] = useState<string>('');
+  const [durationValue, setDurationValue] = useState<string>('');
+  const [startDateFilter, setStartDateFilter] = useState<string>('');
+  const [endDateFilter, setEndDateFilter] = useState<string>('');
 
   // Cargar evaluaciones desde el backend
   useEffect(() => {
@@ -85,12 +91,57 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation, onLogout
     }
   };
 
-  // Filtrar evaluaciones basado en búsqueda
+  // Filtrar evaluaciones basado en búsqueda y filtros
   const filteredEvaluations = evaluations.filter(evaluation => {
-    if (!searchTerm) return true;
-    const evaluationName = (evaluation.name || '').toLowerCase();
-    const searchTermLower = searchTerm.toLowerCase();
-    return evaluationName.includes(searchTermLower);
+    // Filtro por término de búsqueda
+    if (searchTerm) {
+      const evaluationName = (evaluation.name || '').toLowerCase();
+      const searchTermLower = searchTerm.toLowerCase();
+      if (!evaluationName.includes(searchTermLower)) {
+        return false;
+      }
+    }
+
+    // Filtro por estado
+    if (statusFilter && evaluation.status.toLowerCase() !== statusFilter.toLowerCase()) {
+      return false;
+    }
+
+    // Filtro por duración
+    if (durationOperator && durationValue) {
+      const evaluationDuration = parseInt(String(evaluation.duration), 10);
+      const filterDuration = parseInt(durationValue, 10);
+
+      if (durationOperator === 'igual' && evaluationDuration !== filterDuration) {
+        return false;
+      }
+      if (durationOperator === 'mayor' && evaluationDuration <= filterDuration) {
+        return false;
+      }
+      if (durationOperator === 'menor' && evaluationDuration >= filterDuration) {
+        return false;
+      }
+    }
+
+    // Filtro por fecha de inicio
+    if (startDateFilter && evaluation.startDate) {
+      const eventDate = new Date(evaluation.startDate.split('/').reverse().join('-'));
+      const filterDate = new Date(startDateFilter);
+      if (eventDate < filterDate) {
+        return false;
+      }
+    }
+
+    // Filtro por fecha de fin
+    if (endDateFilter && evaluation.endDate) {
+      const eventDate = new Date(evaluation.endDate.split('/').reverse().join('-'));
+      const filterDate = new Date(endDateFilter);
+      if (eventDate > filterDate) {
+        return false;
+      }
+    }
+
+    return true;
   });
 
   // Paginación
@@ -108,6 +159,20 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation, onLogout
       onViewEvaluation(String(evaluationId));
     }
   };
+
+  // Obtener estados únicos para el filtro
+  const uniqueStatus = Array.from(new Set(evaluations.map(e => e.status).filter(Boolean)));
+
+  // Resetear filtros
+  const handleResetFilters = () => {
+    setStatusFilter('');
+    setDurationOperator('');
+    setDurationValue('');
+    setStartDateFilter('');
+    setEndDateFilter('');
+  };
+
+  const hasActiveFilters = statusFilter || durationOperator || durationValue || startDateFilter || endDateFilter;
 
   // Conversión a hora local (acepta YYYY-MM-DD o DD/MM/YYYY y HH:MM o HH:MM AM/PM)
   function parseEventDateTime(
@@ -186,11 +251,16 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation, onLogout
 
                 <div className="flex items-center gap-3">
                   <button
-                    className="flex items-center gap-2 px-4 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition text-sm font-medium"
+                    onClick={() => setShowFiltersModal(true)}
+                    className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg text-sm font-medium transition ${hasActiveFilters
+                        ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                        : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                      }`}
                     disabled={loading || evaluations.length === 0}
                   >
                     <Filter className="w-4 h-4" />
                     Filtros
+                    {hasActiveFilters && <span className="ml-1 bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">✓</span>}
                   </button>
                 </div>
               </div>
@@ -248,10 +318,11 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation, onLogout
                     {paginatedEvaluations.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
-                          {evaluations.length === 0 ?
-                            'No hay evaluaciones disponibles.' :
-                            'No se encontraron evaluaciones que coincidan con la búsqueda.'
-                          }
+                          {evaluations.length === 0
+                            ? 'No hay evaluaciones disponibles.'
+                            : searchTerm || hasActiveFilters
+                              ? 'No se encontraron evaluaciones que coincidan con la búsqueda o filtros.'
+                              : 'No hay evaluaciones disponibles.'}
                         </td>
                       </tr>
                     ) : (
@@ -351,6 +422,114 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation, onLogout
           </div>
         </div>
       </div>
+
+      {/* Modal de filtros */}
+      {showFiltersModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 sticky top-0 bg-white">
+              <h2 className="text-lg font-bold text-gray-900">Filtros de evaluaciones</h2>
+              <button
+                onClick={() => setShowFiltersModal(false)}
+                className="text-gray-500 hover:text-gray-700 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Filtro por estado */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Estado
+                </label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                >
+                  <option value="">Todos los estados</option>
+                  {uniqueStatus.map(status => (
+                    <option key={status} value={status}>
+                      {getStatusLabel(status)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filtro por duración */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Duración (minutos)
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    value={durationOperator}
+                    onChange={(e) => setDurationOperator(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                  >
+                    <option value="">Seleccionar</option>
+                    <option value="igual">Igual a</option>
+                    <option value="mayor">Mayor que</option>
+                    <option value="menor">Menor que</option>
+                  </select>
+                  <input
+                    type="number"
+                    value={durationValue}
+                    onChange={(e) => setDurationValue(e.target.value)}
+                    placeholder="0"
+                    min="0"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Filtro por fecha de inicio */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Fecha de inicio (desde)
+                </label>
+                <input
+                  type="date"
+                  value={startDateFilter}
+                  onChange={(e) => setStartDateFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                />
+              </div>
+
+              {/* Filtro por fecha de fin */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Fecha de fin (hasta)
+                </label>
+                <input
+                  type="date"
+                  value={endDateFilter}
+                  onChange={(e) => setEndDateFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Botones de acción */}
+            <div className="px-6 py-4 border-t border-gray-200 flex gap-3 sticky bottom-0 bg-white">
+              <button
+                onClick={handleResetFilters}
+                disabled={!hasActiveFilters}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Limpiar filtros
+              </button>
+              <button
+                onClick={() => setShowFiltersModal(false)}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition"
+              >
+                Aplicar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
