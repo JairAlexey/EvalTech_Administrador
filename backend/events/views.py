@@ -201,8 +201,21 @@ def get_participant_event(event_key):
 
 
 def _validate_participant_fields(
-    first_name: str, last_name: str, email: str, seen_emails: set
+    first_name: str, last_name: str, email: str, seen_emails: set, participant_id: int = None, ids_in_excel: set = None
 ):
+    """Valida campos de participante.
+    
+    Args:
+        first_name: Nombre del participante
+        last_name: Apellidos del participante
+        email: Email del participante
+        seen_emails: Set de emails ya vistos en el lote actual
+        participant_id: ID del participante (para actualizaciones, excluye self de validación de duplicados)
+        ids_in_excel: Set de IDs que están siendo actualizados en este lote
+    
+    Returns:
+        Tupla (first_name, last_name, email, errors)
+    """
     errors = []
     fn = (first_name or "").strip()
     ln = (last_name or "").strip()
@@ -227,9 +240,43 @@ def _validate_participant_fields(
         else:
             seen_emails.add(em)
 
-    # Duplicado en BD
-    if em and Participant.objects.filter(email__iexact=em).exists():
-        errors.append("Email ya existe en el sistema")
+    # Duplicado en BD (excluir el propio participante si es actualización)
+    if em:
+        qs = Participant.objects.filter(email__iexact=em)
+        if participant_id:
+            qs = qs.exclude(id=participant_id)
+        
+        # Obtener conflictos potenciales
+        conflicts = list(qs.values_list('id', flat=True))
+        
+        if conflicts:
+            # Si hay conflictos, verificar si todos los conflictos están siendo actualizados en este Excel
+            # Si el ID conflictivo está en el Excel, asumimos que su correo será sobrescrito (o es el mismo, validado por seen_emails)
+            
+            # Si ids_in_excel es None, comportamiento antiguo (error directo)
+            if ids_in_excel is None:
+                 errors.append("Email ya existe en el sistema")
+            else:
+                # Verificar si hay algún conflicto que NO esté en el Excel
+                # Si hay un conflicto con un ID que NO está en el Excel, es un error real.
+                # NOTA: Si el ID no está en el Excel, será eliminado, por lo que el correo quedará libre.
+                # Por lo tanto, si estamos en modo "full sync" (ids_in_excel != None), 
+                # NO deberíamos marcar error si el conflicto es con alguien que no está en el Excel.
+                
+                # Conflictos reales: IDs que existen en BD, tienen ese email, Y TAMBIÉN están en el Excel (pero con otro ID, obvio)
+                # Si el conflicto está en el Excel, significa que ese usuario está siendo actualizado.
+                # Si ese usuario actualizado MANTIENE su email, entonces seen_emails lo habría detectado (duplicado en Excel).
+                # Si ese usuario actualizado CAMBIA su email, entonces libera este email.
+                
+                # Por lo tanto, la única validación necesaria es seen_emails (duplicados dentro del Excel).
+                # Los conflictos con la BD se resuelven solos:
+                # 1. Si el conflicto NO está en Excel -> Se elimina -> Email libre.
+                # 2. Si el conflicto SÍ está en Excel -> Se actualiza.
+                #    a. Si mantiene email -> Duplicado en Excel -> Error en seen_emails.
+                #    b. Si cambia email -> Email libre.
+                
+                # Conclusión: En modo full sync, NO necesitamos validar contra BD, solo contra seen_emails.
+                pass
 
     return fn, ln, em, errors
 
@@ -601,27 +648,31 @@ def participants(request):
 @csrf_exempt
 @jwt_required()
 @require_GET
-def participants_template(request):
-    """Devuelve una plantilla Excel con columnas requeridas: Nombre, Apellidos, Email"""
-
+def export_participants(request):
+    """Exporta participantes existentes a Excel con columnas: ID, Nombre, Apellidos, Email."""
+    
+    participants = Participant.objects.all().order_by("created_at")
+    filename = "participantes.xlsx"
+    
+    # Crear Excel
     wb = Workbook()
     ws = wb.active
     ws.title = "Participantes"
-    ws.append(["Nombre", "Apellidos", "Email"])
-    # Fila ejemplo vacía (opcional)
-    ws.append(["", "", ""])
-
+    ws.append(["ID", "Nombre", "Apellidos", "Email"])
+    
+    # Agregar datos existentes
+    for p in participants:
+        ws.append([p.id, p.first_name, p.last_name, p.email])
+    
     bio = BytesIO()
     wb.save(bio)
     bio.seek(0)
-
+    
     response = HttpResponse(
         bio.getvalue(),
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-    response["Content-Disposition"] = (
-        'attachment; filename="plantilla_participantes.xlsx"'
-    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 
 
@@ -629,157 +680,233 @@ def participants_template(request):
 @jwt_required()
 @require_POST
 def import_participants(request):
-    """Importa participantes desde Excel (modo previsualización o creación) .
-
-    - POST multipart/form-data con campo 'file': parsea Excel y devuelve filas validadas (no crea si dry_run=1).
-    - POST application/json con 'rows': valida y crea participantes, devolviendo resumen.
+    """Importa participantes desde Excel con validación previa completa.
+    
+    Flujo:
+    1. Valida TODAS las filas primero
+    2. Si hay errores: retorna solo filas con error (no crea nada)
+    3. Si todo válido: crea/actualiza todo en transacción atómica
     """
-
-    # Determinar dry_run
-    dry_raw = request.GET.get("dry_run") or request.POST.get("dry_run")
-    dry_run = str(dry_raw).lower() in {"1", "true", "yes"}
-
-    results = []
-
-    # Modo archivo Excel (previsualización)
-    if "file" in request.FILES:
-        up_file = request.FILES["file"]
-
-        # Validar tipo de archivo por extensión y content_type
-        filename = getattr(up_file, "name", "")
-        content_type = getattr(up_file, "content_type", "")
-        if not (
-            filename.lower().endswith(".xlsx")
-            or content_type
-            == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        ):
-            return JsonResponse(
-                {"error": "El archivo debe ser un Excel (.xlsx)"}, status=400
-            )
-
-        try:
-            wb = load_workbook(up_file, data_only=True)
-            ws = wb.active
-        except Exception as e:
-            return JsonResponse(
-                {"error": f"No se pudo leer el Excel: {str(e)}"}, status=400
-            )
-
-        # Leer cabeceras
-        headers = []
-        for cell in ws[1]:
-            value = (
-                (cell.value or "").strip()
-                if isinstance(cell.value, str)
-                else (cell.value or "")
-            )
-            headers.append(str(value))
-
-        normalized = [h.strip().lower() for h in headers]
-        expected = ["nombre", "apellidos", "email"]
-        if normalized[:3] != expected:
-            return JsonResponse(
-                {
-                    "error": "Formato inválido. Las primeras 3 columnas deben ser: Nombre, Apellidos, Email",
-                    "headers": headers,
-                },
-                status=400,
-            )
-
-        col_idx = {"nombre": 1, "apellidos": 2, "email": 3}
-
-        seen_emails = set()
-        for row_idx in range(2, ws.max_row + 1):
-            fn = ws.cell(row=row_idx, column=col_idx["nombre"]).value
-            ln = ws.cell(row=row_idx, column=col_idx["apellidos"]).value
-            em = ws.cell(row=row_idx, column=col_idx["email"]).value
-
-            fn, ln, em, errs = _validate_participant_fields(fn, ln, em, seen_emails)
-            results.append(
-                {
-                    "row_number": row_idx,
-                    "first_name": fn,
-                    "last_name": ln,
-                    "email": em,
-                    "errors": errs,
-                }
-            )
-
-        # En modo archivo siempre devolvemos previsualización (no creamos), a menos que dry_run sea falso explícitamente.
-        if dry_run or True:
-            valid_count = sum(1 for r in results if not r["errors"])
-            invalid_count = len(results) - valid_count
-            return JsonResponse(
-                {
-                    "rows": results,
-                    "valid_count": valid_count,
-                    "invalid_count": invalid_count,
-                }
-            )
-
-    # Modo JSON
+    
+    # Validar que sea archivo Excel
+    if "file" not in request.FILES:
+        return JsonResponse({"error": "Se requiere un archivo Excel"}, status=400)
+    
+    up_file = request.FILES["file"]
+    
+    # Validar tipo de archivo
+    filename = getattr(up_file, "name", "")
+    content_type = getattr(up_file, "content_type", "")
+    if not (
+        filename.lower().endswith(".xlsx")
+        or content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    ):
+        return JsonResponse({"error": "El archivo debe ser un Excel (.xlsx)"}, status=400)
+    
+    # Leer Excel
     try:
-        data = json.loads(request.body or b"{}")
-    except Exception:
-        data = {}
-
-    rows = data.get("rows", [])
-    if not isinstance(rows, list) or not rows:
+        wb = load_workbook(up_file, data_only=True)
+        ws = wb.active
+    except Exception as e:
+        return JsonResponse({"error": f"No se pudo leer el Excel: {str(e)}"}, status=400)
+    
+    # Validar cabeceras
+    headers = []
+    for cell in ws[1]:
+        value = (cell.value or "").strip() if isinstance(cell.value, str) else (cell.value or "")
+        headers.append(str(value))
+    
+    normalized = [h.strip().lower() for h in headers]
+    expected = ["id", "nombre", "apellidos", "email"]
+    if normalized[:4] != expected:
         return JsonResponse(
-            {"error": "Se requiere un arreglo 'rows' para importar"}, status=400
+            {
+                "error": "Formato inválido. Las primeras 4 columnas deben ser: ID, Nombre, Apellidos, Email",
+                "headers": headers,
+            },
+            status=400,
         )
-
-    created = 0
-    output_rows = []
+    
+    # FASE 1: VALIDAR TODAS LAS FILAS
+    rows_to_process = []
     seen_emails = set()
-
-    for idx, r in enumerate(rows, start=1):
-        fn, ln, em = r.get("first_name"), r.get("last_name"), r.get("email")
-        fn, ln, em, errs = _validate_participant_fields(fn, ln, em, seen_emails)
-        if errs:
-            output_rows.append(
-                {
-                    "index": idx,
-                    "first_name": fn,
-                    "last_name": ln,
-                    "email": em,
-                    "errors": errs,
-                }
-            )
+    has_errors = False
+    
+    # Pre-lectura para obtener todos los IDs presentes en el Excel
+    ids_in_excel = set()
+    raw_data = []
+    
+    for row_idx in range(2, ws.max_row + 1):
+        pid = ws.cell(row=row_idx, column=1).value
+        fn = ws.cell(row=row_idx, column=2).value
+        ln = ws.cell(row=row_idx, column=3).value
+        em = ws.cell(row=row_idx, column=4).value
+        
+        if not any([pid, fn, ln, em]):
             continue
+            
+        raw_data.append({
+            "row_idx": row_idx,
+            "pid": pid,
+            "fn": fn,
+            "ln": ln,
+            "em": em
+        })
+        
+        if pid:
+            try:
+                ids_in_excel.add(int(pid))
+            except (ValueError, TypeError):
+                pass # Se validará después
 
-        try:
-            Participant.objects.create(
-                first_name=fn, last_name=ln, name=f"{fn} {ln}".strip(), email=em
-            )
-            created += 1
-            output_rows.append(
-                {
-                    "index": idx,
-                    "first_name": fn,
-                    "last_name": ln,
-                    "email": em,
-                    "errors": [],
-                }
-            )
-        except Exception as e:
-            output_rows.append(
-                {
-                    "index": idx,
-                    "first_name": fn,
-                    "last_name": ln,
-                    "email": em,
-                    "errors": [str(e)],
-                }
-            )
+    for item in raw_data:
+        row_idx = item["row_idx"]
+        pid = item["pid"]
+        fn = item["fn"]
+        ln = item["ln"]
+        em = item["em"]
+        
+        # Procesar ID
+        participant_id = None
+        id_errors = []
+        if pid:
+            try:
+                participant_id = int(pid)
+                # Verificar que el ID existe
+                if not Participant.objects.filter(id=participant_id).exists():
+                    id_errors.append(f"ID {participant_id} no existe en el sistema")
+            except (ValueError, TypeError):
+                id_errors.append("ID debe ser un número válido")
+        
+        # Validar campos
+        fn, ln, em, field_errors = _validate_participant_fields(fn, ln, em, seen_emails, participant_id, ids_in_excel)
+        
+        errors = id_errors + field_errors
+        
+        rows_to_process.append({
+            "row_number": row_idx,
+            "id": participant_id,
+            "first_name": fn,
+            "last_name": ln,
+            "email": em,
+            "errors": errors,
+            "is_update": bool(participant_id),
+        })
+        
+        if errors:
+            has_errors = True
+    
+    # Si hay errores: retornar SOLO las filas con error
+    if has_errors:
+        error_rows = [r for r in rows_to_process if r["errors"]]
+        return JsonResponse(
+            {
+                "success": False,
+                "message": "Se encontraron errores. Corrija el archivo y vuelva a importar.",
+                "rows": error_rows,
+                "total_errors": len(error_rows),
+            },
+            status=400,
+        )
+    
+    # FASE 2: CREAR/ACTUALIZAR TODO EN TRANSACCIÓN ATÓMICA
+    created_count = 0
+    updated_count = 0
+    deleted_count = 0
+    
+    try:
+        with transaction.atomic():
+            # 1. Eliminar participantes que no están en el Excel
+            # ids_in_excel contiene todos los IDs válidos del archivo
+            participants_to_delete = Participant.objects.exclude(id__in=ids_in_excel)
+            deleted_count = participants_to_delete.count()
+            
+            if deleted_count > 0:
+                try:
+                    participants_to_delete.delete()
+                except RestrictedError:
+                    # Identificar qué participantes causaron el error
+                    restricted_participants = participants_to_delete.filter(
+                        participant_events__isnull=False
+                    ).distinct()
+                    
+                    restricted_names = [f"<strong>{name}</strong>" for name in restricted_participants.values_list('name', flat=True)]
+                    
+                    if len(restricted_names) > 3:
+                        names_str = ", ".join(restricted_names[:3]) + f" y {len(restricted_names) - 3} más"
+                    else:
+                        names_str = ", ".join(restricted_names)
 
-    return JsonResponse(
-        {
-            "created": created,
-            "failed": len(output_rows) - created,
-            "rows": output_rows,
-        }
-    )
+                    return JsonResponse(
+                        {
+                            "success": False,
+                            "message": f"No se pudieron eliminar los siguientes participantes porque están asociados a uno o más eventos: {names_str}. Desvincúlelos de los eventos antes de proceder.",
+                        },
+                        status=400
+                    )
+            
+            # 2. Actualizar/Crear
+            # Para evitar errores de unicidad al intercambiar emails (swap),
+            # primero actualizamos todos los emails de los registros a actualizar a un valor temporal.
+            # Solo es necesario si hay actualizaciones.
+            
+            updates = [r for r in rows_to_process if r["is_update"]]
+            creates = [r for r in rows_to_process if not r["is_update"]]
+            
+            if updates:
+                update_ids = [r["id"] for r in updates]
+                # Usamos update() masivo con Case/When o iteramos?
+                # Iterar y guardar es lento pero seguro para señales (si las hubiera).
+                # Para evitar unique constraint, seteamos emails temporales.
+                for r in updates:
+                    # Solo necesitamos hacerlo si el email cambia, pero para simplificar lo hacemos a todos
+                    # o mejor, solo a aquellos cuyo nuevo email ya existe en BD (aunque sea en otro usuario que también se actualizará).
+                    # La estrategia más robusta es setear todos a temporal.
+                    p = Participant.objects.get(id=r["id"])
+                    p.email = f"temp_{p.id}_{timezone.now().timestamp()}@temp.com"
+                    p.save()
+
+            # Ahora aplicamos los valores reales
+            for row in updates:
+                participant = Participant.objects.get(id=row["id"])
+                participant.first_name = row["first_name"]
+                participant.last_name = row["last_name"]
+                participant.name = f"{row['first_name']} {row['last_name']}".strip()
+                participant.email = row["email"]
+                participant.save()
+                updated_count += 1
+                
+                # Actualizar claves de eventos asociados (igual que en edición individual)
+                # Al cambiar el email, el hash del event_key cambia
+                for pe in ParticipantEvent.objects.filter(participant=participant):
+                    pe.save() # El método save() llama a generate_event_key()
+
+            for row in creates:
+                Participant.objects.create(
+                    first_name=row["first_name"],
+                    last_name=row["last_name"],
+                    name=f"{row['first_name']} {row['last_name']}".strip(),
+                    email=row["email"],
+                )
+                created_count += 1
+            
+            response_data = {
+                "success": True,
+                "message": "Importación exitosa",
+                "created": created_count,
+                "updated": updated_count,
+                "deleted": deleted_count,
+                "total_processed": len(rows_to_process),
+            }
+            
+            return JsonResponse(response_data)
+    
+    except Exception as e:
+        logger.error(f"Error en importación de participantes: {str(e)}")
+        return JsonResponse(
+            {"error": f"Error al procesar la importación: {str(e)}"},
+            status=500,
+        )
 
 
 @csrf_exempt

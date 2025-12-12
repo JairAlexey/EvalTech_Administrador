@@ -58,6 +58,10 @@ export default function ParticipantsList({ onNavigate, canAccess, onLogout, filt
         .find(e => e.id === filterEventId);
       if (event) {
         setEventSearchInput(event.name);
+      } else {
+        // Si no se encuentra el evento en los participantes actuales,
+        // usar un placeholder genérico con el ID
+        setEventSearchInput(`Evento (ID: ${filterEventId})`);
       }
     }
   }, [filterEventId, participants]);
@@ -226,6 +230,15 @@ export default function ParticipantsList({ onNavigate, canAccess, onLogout, filt
 
   // Obtener el evento seleccionado
   const selectedEvent = uniqueEvents.find(e => e.id === eventFilter);
+  
+  // Si hay un eventFilter activo pero no está en uniqueEvents (evento sin participantes),
+  // crear un objeto temporal para mostrarlo
+  const displaySelectedEvent = selectedEvent || (eventFilter ? {
+    id: eventFilter,
+    name: eventSearchInput || `Evento (ID: ${eventFilter})`,
+    date: '',
+    status: ''
+  } : null);
 
   // Resetear filtros
   const handleResetFilters = () => {
@@ -277,11 +290,10 @@ export default function ParticipantsList({ onNavigate, canAccess, onLogout, filt
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => setShowFiltersModal(true)}
-                    className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg text-sm font-medium transition ${
-                      hasActiveFilters
+                    className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg text-sm font-medium transition ${hasActiveFilters
                         ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'
                         : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-                    }`}
+                      }`}
                     disabled={loading || participants.length === 0}
                   >
                     <Filter className="w-4 h-4" />
@@ -340,8 +352,8 @@ export default function ParticipantsList({ onNavigate, canAccess, onLogout, filt
                           {participants.length === 0
                             ? 'No hay participantes disponibles. Crea un nuevo participante para comenzar.'
                             : searchTerm || hasActiveFilters
-                            ? 'No se encontraron participantes que coincidan con la búsqueda o filtros.'
-                            : 'No hay participantes disponibles.'}
+                              ? 'No se encontraron participantes que coincidan con la búsqueda o filtros.'
+                              : 'No hay participantes disponibles.'}
                         </td>
                       </tr>
                     ) : (
@@ -585,7 +597,7 @@ export default function ParticipantsList({ onNavigate, canAccess, onLogout, filt
                       <X className="w-4 h-4" />
                     </button>
                   )}
-                  
+
                   {/* Dropdown de eventos */}
                   {showEventDropdown && filteredEvents.length > 0 && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg z-10 max-h-48 overflow-y-auto">
@@ -606,10 +618,10 @@ export default function ParticipantsList({ onNavigate, canAccess, onLogout, filt
                   )}
 
                   {/* Evento seleccionado */}
-                  {selectedEvent && (
+                  {displaySelectedEvent && (
                     <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
                       <p className="text-sm text-blue-700">
-                        <span className="font-medium">Evento seleccionado:</span> {selectedEvent.name}
+                        <span className="font-medium">Evento seleccionado:</span> {displaySelectedEvent.name}
                       </p>
                       <button
                         onClick={() => {
@@ -651,7 +663,6 @@ export default function ParticipantsList({ onNavigate, canAccess, onLogout, filt
         isOpen={showImportModal}
         onClose={() => setShowImportModal(false)}
         onSuccess={() => {
-          setShowImportModal(false);
           refreshParticipants();
         }}
       />
