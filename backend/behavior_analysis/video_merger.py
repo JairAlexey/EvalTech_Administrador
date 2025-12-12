@@ -22,7 +22,8 @@ class VideoMergerService:
     """Servicio para unir videos de un participante en orden cronológico"""
 
     def __init__(self):
-        self.temp_dir = tempfile.mkdtemp()
+        # No crear temp_dir global para evitar colisiones en paralelo
+        self.temp_dir = None
 
     def merge_participant_videos(self, participant_event_id: int) -> Dict[str, Any]:
         """
@@ -36,6 +37,9 @@ class VideoMergerService:
             Dict con el resultado de la operación
         """
         try:
+            # Crear un directorio temporal por ejecución
+            self.temp_dir = tempfile.mkdtemp()
+            logger.info(f"Using temp dir for merge: {self.temp_dir}")
             # Obtener todos los logs de video del participante ordenados por tiempo
             video_logs = ParticipantLog.objects.filter(
                 participant_event_id=participant_event_id,
@@ -100,6 +104,13 @@ class VideoMergerService:
                 f"Error merging videos for participant_event {participant_event_id}: {str(e)}"
             )
             return {"success": False, "error": str(e)}
+        finally:
+            # Asegurar limpieza del directorio temporal per-call
+            if self.temp_dir and os.path.isdir(self.temp_dir):
+                try:
+                    os.rmdir(self.temp_dir)
+                except Exception as e:
+                    logger.debug(f"Temp dir not empty or already removed: {e}")
 
     def _download_video_from_s3(self, s3_url: str) -> str:
         """Descarga un video de S3 a un archivo temporal con timeout"""
@@ -312,9 +323,7 @@ class VideoMergerService:
 
                 if upload_result["success"]:
                     # Generar URL pública permanente para el video
-                    public_url = s3_service.generate_public_url(
-                        upload_result["key"]
-                    )
+                    public_url = s3_service.generate_public_url(upload_result["key"])
                     if public_url:
                         return {
                             "success": True,
