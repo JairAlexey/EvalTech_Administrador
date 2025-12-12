@@ -38,6 +38,7 @@ function App() {
     const [currentPage, setCurrentPage] = useState<Page>(getInitialPage);
     const [selectedEventId, setSelectedEventId] = useState<string | null>(getInitialEventId);
     const [selectedParticipantId, setSelectedParticipantId] = useState<string | null>(getInitialParticipantId);
+    const [filterEventId, setFilterEventId] = useState<string | null>(null);
     const [loginError, setLoginError] = useState<string | null>(null);
 
     const { isAuthenticated, isLoading, logout, user, hasAnyRole, login, refreshUserInfo } = useAuth();
@@ -46,12 +47,19 @@ function App() {
     const isEvaluator = user?.role === 'evaluator';
 
     // Navigation handler for sidebar and component navigation
-    const handleNavigate = async (page: string) => {
-        console.log("Navigating to:", page);
+    const handleNavigate = async (page: string, eventIdForFilter?: string) => {
+        console.log("Navigating to:", page, eventIdForFilter ? `with filter: ${eventIdForFilter}` : '');
 
         // Si está autenticado, verificar y renovar token si es necesario
         if (isAuthenticated) {
             await refreshUserInfo();
+        }
+
+        // Si navegamos a participantes con filtro de evento
+        if (page === 'participants' && eventIdForFilter) {
+            setFilterEventId(eventIdForFilter);
+        } else {
+            setFilterEventId(null);
         }
 
         // Secciones principales
@@ -341,6 +349,7 @@ function App() {
                         onNavigate={handleNavigate}
                         canAccess={hasPermissionForPage}
                         onLogout={handleLogout}
+                        filterEventId={filterEventId}
                     />
                 );
 
