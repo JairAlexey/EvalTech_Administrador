@@ -311,15 +311,15 @@ class VideoMergerService:
                 )
 
                 if upload_result["success"]:
-                    # Generar URL presignada para el video
-                    url_result = s3_service.generate_presigned_url(
-                        upload_result["s3_key"]
+                    # Generar URL pública permanente para el video
+                    public_url = s3_service.generate_public_url(
+                        upload_result["key"]
                     )
-                    if url_result["success"]:
+                    if public_url:
                         return {
                             "success": True,
-                            "video_url": url_result["url"],
-                            "s3_key": upload_result["s3_key"],
+                            "video_url": public_url,
+                            "s3_key": upload_result["key"],
                         }
 
                 return {
