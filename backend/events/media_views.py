@@ -5,6 +5,7 @@ from django.http import (
     HttpResponseNotFound,
     Http404,
     HttpResponseRedirect,
+    JsonResponse,
 )
 from django.conf import settings
 from django.views.decorators.http import require_GET
@@ -74,7 +75,7 @@ def serve_media_file(request, file_path):
 def serve_s3_media_file(request, s3_key):
     """
     Vista para servir archivos multimedia desde S3.
-    Redirige a la URL pre-firmada de S3.
+    Redirige a la URL pública permanente de S3.
     """
     try:
         if not s3_service.is_configured():
@@ -92,18 +93,18 @@ def serve_s3_media_file(request, s3_key):
 
         if range_header:
             # Para requests de rango, redirigir a S3 con headers apropiados
-            presigned_url = s3_service.generate_presigned_url(s3_key, expiration=3600)
-            if presigned_url:
-                response = HttpResponseRedirect(presigned_url)
+            public_url = s3_service.generate_public_url(s3_key)
+            if public_url:
+                response = HttpResponseRedirect(public_url)
                 response["Accept-Ranges"] = "bytes"
                 return response
             else:
                 return HttpResponseNotFound("Could not generate S3 URL")
         else:
             # Para requests completos, redirigir directamente a S3
-            presigned_url = s3_service.generate_presigned_url(s3_key, expiration=3600)
-            if presigned_url:
-                return HttpResponseRedirect(presigned_url)
+            public_url = s3_service.generate_public_url(s3_key)
+            if public_url:
+                return HttpResponseRedirect(public_url)
             else:
                 return HttpResponseNotFound("Could not generate S3 URL")
 
@@ -153,53 +154,11 @@ def handle_range_request(file_path, range_header, content_type, file_size):
 
 @csrf_exempt
 @require_GET
-def serve_s3_media_file(request, s3_key):
-    """
-    Vista para servir archivos multimedia desde S3.
-    Redirige a la URL pre-firmada de S3.
-    """
-    try:
-        if not s3_service.is_configured():
-            logger.error("S3 service not configured")
-            return HttpResponseNotFound("S3 service not available")
-
-        # Verificar que el archivo existe en S3
-        file_info = s3_service.get_media_fragment_info(s3_key)
-        if not file_info:
-            logger.warning(f"S3 file not found: {s3_key}")
-            raise Http404("Media file not found in S3")
-
-        # Verificar si es una solicitud de rango (para streaming)
-        range_header = request.META.get("HTTP_RANGE")
-
-        if range_header:
-            # Para requests de rango, redirigir a S3 con headers apropiados
-            presigned_url = s3_service.generate_presigned_url(s3_key, expiration=3600)
-            if presigned_url:
-                response = HttpResponseRedirect(presigned_url)
-                response["Accept-Ranges"] = "bytes"
-                return response
-            else:
-                return HttpResponseNotFound("Could not generate S3 URL")
-        else:
-            # Para requests completos, redirigir directamente a S3
-            presigned_url = s3_service.generate_presigned_url(s3_key, expiration=3600)
-            if presigned_url:
-                return HttpResponseRedirect(presigned_url)
-            else:
-                return HttpResponseNotFound("Could not generate S3 URL")
-
-    except Exception as e:
-        logger.error(f"Error serving S3 media file {s3_key}: {e}")
-        return HttpResponseNotFound()
-
-
-@csrf_exempt
-@require_GET
 def get_s3_presigned_url(request, s3_key):
     """
-    Endpoint para obtener URL pre-firmada de S3 sin redirección.
+    Endpoint para obtener URL pública de S3 sin redirección.
     Útil para aplicaciones que necesitan la URL directa.
+    NOTA: Ahora devuelve URLs públicas permanentes (sin expiración).
     """
     try:
         if not s3_service.is_configured():
@@ -210,16 +169,15 @@ def get_s3_presigned_url(request, s3_key):
         if not file_info:
             return JsonResponse({"error": "File not found"}, status=404)
 
-        # Generar URL pre-firmada
-        expiration = int(request.GET.get("expiration", 3600))  # Default 1 hora
-        presigned_url = s3_service.generate_presigned_url(s3_key, expiration=expiration)
+        # Generar URL pública permanente
+        public_url = s3_service.generate_public_url(s3_key)
 
-        if presigned_url:
+        if public_url:
             return JsonResponse(
                 {
                     "success": True,
-                    "url": presigned_url,
-                    "expires_in": expiration,
+                    "url": public_url,
+                    "permanent": True,  # Indicar que es una URL permanente
                     "file_info": {
                         "size": file_info["size"],
                         "last_modified": file_info["last_modified"].isoformat(),
@@ -231,7 +189,7 @@ def get_s3_presigned_url(request, s3_key):
             )
         else:
             return JsonResponse(
-                {"error": "Could not generate presigned URL"}, status=500
+                {"error": "Could not generate public URL"}, status=500
             )
 
     except Exception as e:
