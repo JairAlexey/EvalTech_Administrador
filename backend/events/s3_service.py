@@ -86,7 +86,9 @@ class S3Service:
             # Deshabilitar Block Public Access para permitir objetos públicos
             try:
                 self.s3_client.delete_public_access_block(Bucket=self.bucket_name)
-                logger.info(f"Public access block removed for bucket '{self.bucket_name}'")
+                logger.info(
+                    f"Public access block removed for bucket '{self.bucket_name}'"
+                )
             except ClientError as e:
                 logger.warning(f"Could not remove public access block: {e}")
 
@@ -173,7 +175,7 @@ class S3Service:
                 "fragment_timestamp": (timestamp or datetime.now()).isoformat(),
             }
 
-            # Subir archivo con ACL público para URL permanente
+            # Subir archivo sin ACL (compatible con Object Ownership: Bucket owner enforced)
             self.s3_client.upload_fileobj(
                 file_obj,
                 self.bucket_name,
@@ -182,7 +184,6 @@ class S3Service:
                     "ContentType": self._get_content_type(media_type),
                     "Metadata": metadata,
                     "ServerSideEncryption": "AES256",
-                    "ACL": "public-read",  # Hacer el archivo público
                 },
             )
 
@@ -365,6 +366,7 @@ class S3Service:
             "video": "video/webm",
             "audio": "audio/webm",
             "screen": "image/jpeg",  # Screenshots como imágenes JPEG
+            "merged_video": "video/webm",
         }
         return content_types.get(media_type, "application/octet-stream")
 
@@ -374,6 +376,7 @@ class S3Service:
             "video": "webm",
             "audio": "webm",
             "screen": "jpg",  # Screenshots como JPEG para menor costo
+            "merged_video": "webm",
         }
         return extensions.get(media_type, "bin")
 
@@ -434,11 +437,9 @@ class S3Service:
 
         try:
             self.s3_client.download_file(
-                Bucket=self.bucket_name,
-                Key=s3_key,
-                Filename=local_file_path
+                Bucket=self.bucket_name, Key=s3_key, Filename=local_file_path
             )
-            
+
             logger.info(f"Successfully downloaded {s3_key} to {local_file_path}")
             return {"success": True}
 
