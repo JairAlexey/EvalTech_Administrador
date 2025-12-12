@@ -116,7 +116,10 @@ DATABASES = {
         "NAME": os.getenv("DB_NAME", "railway"),
         "USER": os.getenv("DB_USER", "postgres"),
         "PASSWORD": os.getenv("DB_PASSWORD", ""),
-        "HOST": os.getenv("DB_HOST", "localhost"),
+        "HOST": os.getenv(
+            "DB_HOST",
+            "host.docker.internal" if os.getenv("DOCKER_ENV") else "localhost",
+        ),
         "PORT": os.getenv("DB_PORT", "5432"),
     }
 }
@@ -167,8 +170,11 @@ FILE_UPLOAD_TEMP_DIR = None  # Usar directorio temporal del sistema
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Celery Configuration
-CELERY_BROKER_URL = "redis://localhost:6379/0"
-CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
+redis_host = "host.docker.internal" if os.getenv("DOCKER_ENV") else "localhost"
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", f"redis://{redis_host}:6379/0")
+CELERY_RESULT_BACKEND = os.getenv(
+    "CELERY_RESULT_BACKEND", f"redis://{redis_host}:6379/0"
+)
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"

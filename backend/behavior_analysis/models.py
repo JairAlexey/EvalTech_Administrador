@@ -8,7 +8,7 @@ class AnalisisComportamiento(models.Model):
         on_delete=models.CASCADE,
         related_name="analisis_comportamiento",
     )
-    video_path = models.CharField(max_length=500)
+    video_link = models.CharField(max_length=500)
     status = models.CharField(max_length=20, default="PENDING")
     fecha_procesamiento = models.DateTimeField(auto_now_add=True)
 

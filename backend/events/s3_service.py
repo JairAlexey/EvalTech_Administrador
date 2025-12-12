@@ -387,6 +387,39 @@ class S3Service:
             logger.error(f"Error during cleanup: {e}")
             return {"deleted_count": 0, "errors": [str(e)]}
 
+    def download_file(self, s3_key, local_file_path):
+        """
+        Descarga un archivo desde S3 a una ubicación local.
+
+        Args:
+            s3_key (str): Key del archivo en S3
+            local_file_path (str): Ruta local donde guardar el archivo
+
+        Returns:
+            dict: {'success': bool, 'error': str}
+        """
+        if not self.is_configured():
+            return {"success": False, "error": "S3 not configured properly"}
+
+        try:
+            self.s3_client.download_file(
+                Bucket=self.bucket_name,
+                Key=s3_key,
+                Filename=local_file_path
+            )
+            
+            logger.info(f"Successfully downloaded {s3_key} to {local_file_path}")
+            return {"success": True}
+
+        except ClientError as e:
+            error_msg = f"Error downloading file from S3: {str(e)}"
+            logger.error(error_msg)
+            return {"success": False, "error": error_msg}
+        except Exception as e:
+            error_msg = f"Unexpected error downloading file: {str(e)}"
+            logger.error(error_msg)
+            return {"success": False, "error": error_msg}
+
 
 # Instancia global del servicio
 s3_service = S3Service()
