@@ -21,7 +21,9 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate, onLogout }
     const [filterType, setFilterType] = useState<string>('all');
     const [currentPage, setCurrentPage] = useState<number>(1);
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
+    const [selectedLogId, setSelectedLogId] = useState<number | null>(null);
     const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+    const [hasRetried, setHasRetried] = useState<boolean>(false);
     const LOGS_PER_PAGE = 4;
 
     // Función para convertir timestamp UTC a zona horaria local
@@ -173,7 +175,7 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate, onLogout }
         return imageExtensions.some(ext => lowerUrl.includes(ext));
     };
 
-    const openMediaModal = (fileUrl: string) => {
+    const normalizeUrl = (fileUrl: string) => {
         let normalizedUrl = fileUrl;
         try {
             if (normalizedUrl.startsWith('/')) {
@@ -184,13 +186,34 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate, onLogout }
         } catch (e) {
             console.error('Error normalizando file_url:', e);
         }
-        setSelectedImage(normalizedUrl);
+        return normalizedUrl;
+    };
+
+    const openMediaModal = (fileUrl: string, logId: number) => {
+        setHasRetried(false);
+        setSelectedLogId(logId);
+        setSelectedImage(normalizeUrl(fileUrl));
         setIsModalOpen(true);
     };
 
     const closeModal = () => {
         setIsModalOpen(false);
         setSelectedImage(null);
+        setSelectedLogId(null);
+        setHasRetried(false);
+    };
+
+    const refreshAndReopen = async () => {
+        if (selectedLogId === null) return;
+        // Evitar loops infinitos: solo reintentar una vez
+        if (hasRetried) return;
+        setHasRetried(true);
+        await handleRefresh();
+        const updatedLog = logs.find((l) => l.id === selectedLogId);
+        if (updatedLog?.file_url) {
+            setSelectedImage(normalizeUrl(updatedLog.file_url));
+            setIsModalOpen(true);
+        }
     };
 
     return (
@@ -343,31 +366,32 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate, onLogout }
                                     </button>
                                 </div>
                             </div>
-                            <div className="flex justify-center">
-                                {isVideoFile(selectedImage) ? (
-                                    <video
-                                        src={selectedImage}
-                                        controls
-                                        className="max-w-full h-auto rounded-lg"
-                                        style={{ maxHeight: '70vh' }}
-                                        preload="metadata"
-                                        onError={(e) => {
-                                            console.error('Error cargando video:', e);
-                                            // Mostrar mensaje de error si no se puede cargar
-                                        }}
-                                    >
-                                        Tu navegador no soporta la reproducción de video.
-                                    </video>
-                                ) : isImageFile(selectedImage) ? (
-                                    <img
-                                        src={selectedImage}
-                                        alt="Vista previa"
-                                        className="max-w-full h-auto rounded-lg"
-                                        onError={(e) => {
-                                            console.error('Error cargando imagen:', e);
-                                        }}
-                                    />
-                                ) : (
+                                <div className="flex justify-center">
+                                    {isVideoFile(selectedImage) ? (
+                                        <video
+                                            src={selectedImage}
+                                            controls
+                                            className="max-w-full h-auto rounded-lg"
+                                            style={{ maxHeight: '70vh' }}
+                                            preload="metadata"
+                                            onError={(e) => {
+                                                console.error('Error cargando video:', e);
+                                                refreshAndReopen();
+                                            }}
+                                        >
+                                            Tu navegador no soporta la reproducción de video.
+                                        </video>
+                                    ) : isImageFile(selectedImage) ? (
+                                        <img
+                                            src={selectedImage}
+                                            alt="Vista previa"
+                                            className="max-w-full h-auto rounded-lg"
+                                            onError={(e) => {
+                                                console.error('Error cargando imagen:', e);
+                                                refreshAndReopen();
+                                            }}
+                                        />
+                                    ) : (
                                     <div className="text-center text-gray-600 p-8">
                                         <svg className="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -469,7 +493,7 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate, onLogout }
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                                                         {log.has_file && log.file_url && (
                                                             <button
-                                                                onClick={() => log.file_url && openMediaModal(log.file_url)}
+                                                                onClick={() => log.file_url && openMediaModal(log.file_url, log.id)}
                                                                 className="text-blue-600 hover:text-blue-800 p-2 hover:bg-blue-50 rounded-full transition-colors"
                                                                 title="Ver archivo"
                                                             >

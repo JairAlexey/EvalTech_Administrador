@@ -288,9 +288,9 @@ class Command(BaseCommand):
                     )
 
                     if upload_result["success"]:
-                        # Actualizar log con nueva URL
+                        # Actualizar log con nueva key (campo url guarda la key)
                         old_url = log.url
-                        log.url = upload_result["url"]
+                        log.url = upload_result["key"]
                         log.message += f' - Migrated from local: {old_url} to S3: {upload_result["key"]}'
                         log.save()
 
