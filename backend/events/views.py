@@ -409,15 +409,15 @@ def log_participant_screen_event(request: HttpRequest):
             # Guardar el log con la URL de S3
             ParticipantLog.objects.create(
                 name="screen",
-                url=upload_result["url"],
-                message=f"Desktop Screenshot",
+                url=upload_result["key"],  # guardamos la key en el campo url
+                message="Desktop Screenshot",
                 participant_event=participant_event,
             )
             return JsonResponse(
                 {
                     "status": "success",
                     "s3_key": upload_result["key"],
-                    "url": upload_result["url"],
+                    "url": upload_result.get("presigned_url"),
                 }
             )
         else:
@@ -460,15 +460,15 @@ def log_participant_audio_video_event(request: HttpRequest):
             # Guardar el log con la URL de S3
             ParticipantLog.objects.create(
                 name="audio/video",
-                url=upload_result["url"],
-                message=f"Media Capture",
+                url=upload_result["key"],  # guardamos la key en el campo url
+                message="Media Capture",
                 participant_event=participant_event,
             )
             return JsonResponse(
                 {
                     "status": "success",
                     "s3_key": upload_result["key"],
-                    "url": upload_result["url"],
+                    "url": upload_result.get("presigned_url"),
                 }
             )
         else:
@@ -2131,13 +2131,18 @@ def event_participant_logs(request, event_id, participant_id):
             else:
                 created_at_formatted = "N/A"
 
+            presigned_url = None
+            if log.url and s3_service.is_configured():
+                presigned_url = s3_service.generate_presigned_url(log.url)
+
             log_data = {
                 "id": log.id,
                 "name": log.name,
                 "message": log.message,
                 "created_at": created_at_formatted,
                 "has_file": bool(log.url),
-                "file_url": log.url if log.url else None,
+                "file_url": presigned_url,
+                "s3_key": log.url,
             }
             logs_data.append(log_data)
 

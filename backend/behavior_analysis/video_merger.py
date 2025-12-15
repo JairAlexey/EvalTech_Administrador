@@ -322,14 +322,11 @@ class VideoMergerService:
                 )
 
                 if upload_result["success"]:
-                    # Generar URL pública permanente para el video
-                    public_url = s3_service.generate_public_url(upload_result["key"])
-                    if public_url:
-                        return {
-                            "success": True,
-                            "video_url": public_url,
-                            "s3_key": upload_result["key"],
-                        }
+                    return {
+                        "success": True,
+                        "video_url": upload_result.get("presigned_url"),
+                        "s3_key": upload_result["key"],
+                    }
 
                 return {
                     "success": False,

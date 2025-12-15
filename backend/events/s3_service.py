@@ -83,14 +83,22 @@ class S3Service:
     def _configure_bucket_policies(self):
         """Configura políticas básicas del bucket (versionado, lifecycle, etc.)."""
         try:
-            # Deshabilitar Block Public Access para permitir objetos públicos
+            # Mantener bloqueo de acceso público para que el bucket quede privado
             try:
-                self.s3_client.delete_public_access_block(Bucket=self.bucket_name)
+                self.s3_client.put_public_access_block(
+                    Bucket=self.bucket_name,
+                    PublicAccessBlockConfiguration={
+                        "BlockPublicAcls": True,
+                        "IgnorePublicAcls": True,
+                        "BlockPublicPolicy": True,
+                        "RestrictPublicBuckets": True,
+                    },
+                )
                 logger.info(
-                    f"Public access block removed for bucket '{self.bucket_name}'"
+                    f"Public access block configured for bucket '{self.bucket_name}'"
                 )
             except ClientError as e:
-                logger.warning(f"Could not remove public access block: {e}")
+                logger.warning(f"Could not configure public access block: {e}")
 
             # Habilitar versionado
             self.s3_client.put_bucket_versioning(
@@ -158,7 +166,7 @@ class S3Service:
             timestamp (datetime): Timestamp del fragmento
 
         Returns:
-            dict: {'success': bool, 'key': str, 'url': str, 'error': str}
+            dict: {'success': bool, 'key': str, 'url': str, 'presigned_url': str, 'error': str}
         """
         if not self.is_configured():
             return {"success": False, "error": "S3 not configured properly"}
@@ -187,12 +195,18 @@ class S3Service:
                 },
             )
 
-            # Generar URL pública permanente (sin expiración)
-            url = self.generate_public_url(key)
+            # Generar URL prefirmada de conveniencia (bucket permanece privado)
+            presigned_url = self.generate_presigned_url(key)
 
             logger.info(f"Successfully uploaded media fragment: {key}")
 
-            return {"success": True, "key": key, "url": url, "metadata": metadata}
+            return {
+                "success": True,
+                "key": key,
+                "url": key,  # almacenar solo la key aunque el campo se llame url
+                "presigned_url": presigned_url,
+                "metadata": metadata,
+            }
 
         except ClientError as e:
             logger.error(f"Error uploading media fragment: {e}")
@@ -296,6 +310,7 @@ class S3Service:
             if "Contents" in response:
                 for obj in response["Contents"]:
                     key = obj["Key"]
+                    presigned_url = self.generate_presigned_url(key)
 
                     # Filtrar por tipo de media si se especifica
                     if media_type and f"/{media_type}_" not in key:
@@ -316,7 +331,9 @@ class S3Service:
                         "last_modified": obj["LastModified"],
                         "media_type": metadata.get("media_type", "unknown"),
                         "fragment_timestamp": metadata.get("fragment_timestamp"),
-                        "url": self.generate_public_url(key),  # URL pública permanente
+                        "s3_key": key,
+                        "url": presigned_url,
+                        "presigned_url": presigned_url,
                     }
 
                     files.append(file_info)
@@ -344,6 +361,7 @@ class S3Service:
 
         try:
             response = self.s3_client.head_object(Bucket=self.bucket_name, Key=key)
+            presigned_url = self.generate_presigned_url(key)
 
             return {
                 "key": key,
@@ -351,7 +369,9 @@ class S3Service:
                 "last_modified": response["LastModified"],
                 "content_type": response.get("ContentType"),
                 "metadata": response.get("Metadata", {}),
-                "url": self.generate_public_url(key),  # URL pública permanente
+                "s3_key": key,
+                "url": presigned_url,
+                "presigned_url": presigned_url,
             }
 
         except ClientError as e:
