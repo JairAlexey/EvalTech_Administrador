@@ -20,6 +20,8 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'resumen' | 'comportamiento' | 'actividad'>('resumen');
     const videoRef = useRef<HTMLVideoElement>(null);
+    const videoRefreshAttempts = useRef<number>(0);
+    const screenshotRefreshAttempts = useRef<number>(0);
     const [isGalleryOpen, setIsGalleryOpen] = useState<boolean>(false);
     const [currentImageIndex, setCurrentImageIndex] = useState<number>(0);
     const [activeDetectionTab, setActiveDetectionTab] = useState<'ausencias' | 'gestos' | 'iluminacion' | 'voz' | 'lipsync' | 'rostros'>('ausencias');
@@ -82,6 +84,18 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
 
         loadData();
     }, [eventId, participantId]);
+
+    const refreshReportData = async () => {
+        try {
+            const freshReport = await behaviorAnalysisService.getAnalysisReport(eventId, participantId);
+            setReportData(freshReport);
+            return freshReport;
+        } catch (reportError) {
+            console.error('Error al refrescar reporte:', reportError);
+            setError(reportError instanceof Error ? reportError.message : 'No se pudo refrescar el reporte');
+            return null;
+        }
+    };
 
     const getStatusBadge = (status?: string) => {
         if (!status) return { text: 'Sin estado', color: 'bg-gray-100 text-gray-700' };
@@ -147,6 +161,23 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
         if (reportData && currentImageIndex < reportData.activity_logs.screenshots.length - 1) {
             setCurrentImageIndex(currentImageIndex + 1);
         }
+    };
+
+    const handleVideoError = async () => {
+        if (videoRefreshAttempts.current >= 2) return; // evita bucles si sigue fallando
+        videoRefreshAttempts.current += 1;
+        const freshReport = await refreshReportData();
+        if (freshReport?.analysis?.video_link && videoRef.current) {
+            videoRef.current.src = freshReport.analysis.video_link;
+            videoRef.current.load();
+            videoRef.current.play().catch(() => null);
+        }
+    };
+
+    const handleScreenshotError = async () => {
+        if (screenshotRefreshAttempts.current >= 2) return;
+        screenshotRefreshAttempts.current += 1;
+        await refreshReportData();
     };
 
     const badge = getStatusBadge(statusData?.analysis?.status);
@@ -386,6 +417,7 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                         ref={videoRef}
                                                         src={reportData.analysis.video_link}
                                                         controls
+                                                        onError={handleVideoError}
                                                         className="w-full"
                                                         style={{ maxHeight: '70vh' }}
                                                     >
@@ -798,6 +830,7 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                                             <img
                                                                                 src={screenshot.url}
                                                                                 alt={`Captura ${screenshot.id}`}
+                                                                                onError={handleScreenshotError}
                                                                                 className="w-full h-full object-cover"
                                                                             />
                                                                             <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-all flex items-center justify-center">
@@ -909,6 +942,7 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                         <img
                             src={reportData.activity_logs.screenshots[currentImageIndex].url || ''}
                             alt={`Captura ${currentImageIndex + 1}`}
+                            onError={handleScreenshotError}
                             className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
                         />
                         <div className="mt-4 text-white text-center">
