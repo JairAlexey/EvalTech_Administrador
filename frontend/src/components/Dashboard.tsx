@@ -216,10 +216,10 @@ export default function Dashboard({ onNavigate, onLogout }: DashboardProps) {
   ).length;
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex min-h-screen bg-gray-50">
       <Sidebar currentPage="dashboard" onNavigate={onNavigate} onLogout={onLogout} />
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1">
         <div className="bg-white border-b border-gray-200 px-8 py-6">
           <div className="flex items-center justify-between">
             <div>
