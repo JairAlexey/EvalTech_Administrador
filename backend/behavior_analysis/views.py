@@ -2,11 +2,13 @@ import json
 import logging
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_GET
+from django.core.serializers.json import DjangoJSONEncoder
 from .models import AnalisisComportamiento
 from events.models import ParticipantEvent, Event
 from .tasks import analyze_behavior_task
 from .video_merger import video_merger_service
+from authentication.utils import jwt_required
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +33,7 @@ def register_analysis(request):
         # Create or update the analysis record
         analisis, created = AnalisisComportamiento.objects.update_or_create(
             participant_event=participant_event,
-            defaults={"video_link": video_link, "status": "PENDING"},
+            defaults={"video_link": video_link, "status": "pendiente"},
         )
 
         return JsonResponse(
@@ -128,6 +130,148 @@ def merge_participant_video(request):
     except Exception as e:
         logger.error(f"Unexpected error in merge_participant_video: {str(e)}")
         return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+@jwt_required()
+@require_GET
+def analysis_status(request, event_id, participant_id):
+    try:
+        participant_event = ParticipantEvent.objects.select_related(
+            "participant", "event"
+        ).get(event_id=event_id, participant_id=participant_id)
+    except ParticipantEvent.DoesNotExist:
+        return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
+
+    analysis = getattr(participant_event, "analisis_comportamiento", None)
+
+    data = {
+        "event": {
+            "id": participant_event.event.id,
+            "name": participant_event.event.name,
+        },
+        "participant": {
+            "id": participant_event.participant.id,
+            "name": participant_event.participant.name,
+            "email": participant_event.participant.email,
+        },
+        "analysis": {
+            "id": getattr(analysis, "id", None),
+            "status": getattr(analysis, "status", "no_solicitado"),
+            "video_link": getattr(analysis, "video_link", None),
+            "fecha_procesamiento": getattr(analysis, "fecha_procesamiento", None),
+        },
+    }
+
+    return JsonResponse(data, status=200, encoder=DjangoJSONEncoder)
+
+
+@csrf_exempt
+@jwt_required()
+@require_GET
+def analysis_report(request, event_id, participant_id):
+    """Endpoint completo para obtener el reporte de análisis con todos los registros"""
+    try:
+        participant_event = ParticipantEvent.objects.select_related(
+            "participant", "event"
+        ).get(event_id=event_id, participant_id=participant_id)
+    except ParticipantEvent.DoesNotExist:
+        return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
+
+    analysis = getattr(participant_event, "analisis_comportamiento", None)
+
+    if not analysis:
+        return JsonResponse(
+            {
+                "error": "No analysis found for this participant",
+                "status": "no_solicitado",
+            },
+            status=404,
+        )
+
+    # Recopilar todos los registros relacionados
+    registros_rostros = list(
+        analysis.registros_rostros.values(
+            "id", "persona_id", "tiempo_inicio", "tiempo_fin"
+        )
+    )
+
+    registros_gestos = list(
+        analysis.registros_gestos.values(
+            "id", "tipo_gesto", "tiempo_inicio", "tiempo_fin", "duracion"
+        )
+    )
+
+    registros_iluminacion = list(
+        analysis.registros_iluminacion.values("id", "tiempo_inicio", "tiempo_fin")
+    )
+
+    registros_voz = list(
+        analysis.registros_voz.values(
+            "id", "tipo_log", "etiqueta_hablante", "tiempo_inicio", "tiempo_fin"
+        )
+    )
+
+    anomalias_lipsync = list(
+        analysis.anomalias_lipsync.values(
+            "id", "tipo_anomalia", "tiempo_inicio", "tiempo_fin"
+        )
+    )
+
+    registros_ausencia = list(
+        analysis.registros_ausencia.values(
+            "id", "tiempo_inicio", "tiempo_fin", "duracion"
+        )
+    )
+
+    # Calcular estadísticas
+    total_rostros_detectados = len(set(r["persona_id"] for r in registros_rostros))
+    total_gestos = len(registros_gestos)
+    total_anomalias_iluminacion = len(registros_iluminacion)
+    total_anomalias_voz = len([v for v in registros_voz if v["tipo_log"] == "susurro"])
+    total_hablantes = len([v for v in registros_voz if v["tipo_log"] == "hablante"])
+    total_anomalias_lipsync = len(anomalias_lipsync)
+    total_ausencias = len(registros_ausencia)
+    tiempo_total_ausencia = sum(r["duracion"] for r in registros_ausencia)
+
+    data = {
+        "event": {
+            "id": participant_event.event.id,
+            "name": participant_event.event.name,
+            "duration": participant_event.event.duration,
+        },
+        "participant": {
+            "id": participant_event.participant.id,
+            "name": participant_event.participant.name,
+            "email": participant_event.participant.email,
+        },
+        "analysis": {
+            "id": analysis.id,
+            "status": analysis.status,
+            "video_link": analysis.video_link,
+            "fecha_procesamiento": analysis.fecha_procesamiento,
+        },
+        "statistics": {
+            "total_rostros_detectados": total_rostros_detectados,
+            "total_gestos": total_gestos,
+            "total_anomalias_iluminacion": total_anomalias_iluminacion,
+            "total_anomalias_voz": total_anomalias_voz,
+            "total_hablantes": total_hablantes,
+            "total_anomalias_lipsync": total_anomalias_lipsync,
+            "total_ausencias": total_ausencias,
+            "tiempo_total_ausencia_segundos": round(tiempo_total_ausencia, 2),
+        },
+        "registros": {
+            "rostros": registros_rostros,
+            "gestos": registros_gestos,
+            "iluminacion": registros_iluminacion,
+            "voz": registros_voz,
+            "lipsync": anomalias_lipsync,
+            "ausencias": registros_ausencia,
+        },
+    }
+
+    return JsonResponse(data, status=200, encoder=DjangoJSONEncoder)
 
 
 @csrf_exempt

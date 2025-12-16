@@ -11,6 +11,7 @@ import Home from './components/Home';
 import EvaluationsList from './components/Evaluaciones/EvaluationsList';
 import EvaluationDetails from './components/Evaluaciones/EvaluationDetails';
 import MonitoringPage from './components/Evaluaciones/MonitoringPage';
+import ReportPage from './components/Evaluaciones/ReportPage';
 import UserRoleManagement from './components/Roles/UserRoleManagement';
 import { useAuth } from './contexts/AuthContext';
 import CreateParticipant from './components/Participantes/CreateParticipant';
@@ -18,7 +19,7 @@ import Profile from './components/Perfil/Profile';
 import AccessDeniedPage from './components/utils/AccessDenied';
 import NotFoundPage from './components/utils/NotFound';
 
-type Page = 'home' | 'login' | 'dashboard' | 'eventos' | 'create-event' | 'event-details' | 'edit-event' | 'participants' | 'edit-participant' | 'create-participant' | 'evaluaciones' | 'evaluation-details' | 'monitoring' | 'estadisticas' | 'exportar' | 'cuenta' | 'roles';
+type Page = 'home' | 'login' | 'dashboard' | 'eventos' | 'create-event' | 'event-details' | 'edit-event' | 'participants' | 'edit-participant' | 'create-participant' | 'evaluaciones' | 'evaluation-details' | 'monitoring' | 'report' | 'estadisticas' | 'exportar' | 'cuenta' | 'roles';
 
 function App() {
     // Recuperar el estado guardado de localStorage o usar valores por defecto
@@ -120,6 +121,7 @@ function App() {
             'evaluaciones',
             'evaluation-details',
             'monitoring',
+            'report',
             'estadisticas',
             'exportar',
             'cuenta'
@@ -138,6 +140,7 @@ function App() {
             'evaluaciones',
             'evaluation-details',
             'monitoring',
+            'report',
             'estadisticas',
             'exportar',
             'cuenta'
@@ -195,6 +198,11 @@ function App() {
     const handleViewMonitoring = (participantId: string) => {
         setSelectedParticipantId(participantId);
         handleNavigate('monitoring');
+    };
+
+    const handleViewReport = (participantId: string) => {
+        setSelectedParticipantId(participantId);
+        handleNavigate('report');
     };
 
     // Controladores de regreso
@@ -398,6 +406,7 @@ function App() {
                         evaluationId={selectedEventId}
                         onNavigate={handleNavigate}
                         onViewMonitoring={handleViewMonitoring}
+                        onViewReport={handleViewReport}
                         onLogout={handleLogout}
                     />
                 );
@@ -409,6 +418,26 @@ function App() {
                 }
                 return (
                     <MonitoringPage
+                        eventId={selectedEventId}
+                        participantId={selectedParticipantId}
+                        onBack={() => {
+                            setSelectedParticipantId(null);
+                            localStorage.removeItem('selectedParticipantId');
+                            setCurrentPage('evaluation-details');
+                            localStorage.setItem('currentPage', 'evaluation-details');
+                        }}
+                        onNavigate={handleNavigate}
+                        onLogout={handleLogout}
+                    />
+                );
+
+            case 'report':
+                if (!selectedEventId || !selectedParticipantId) {
+                    handleNavigate('evaluaciones');
+                    return null;
+                }
+                return (
+                    <ReportPage
                         eventId={selectedEventId}
                         participantId={selectedParticipantId}
                         onBack={() => {

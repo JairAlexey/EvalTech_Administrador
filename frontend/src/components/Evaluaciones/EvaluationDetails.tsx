@@ -7,11 +7,12 @@ interface EvaluationDetailsProps {
   evaluationId: string;
   onNavigate?: (page: string) => void;
   onViewMonitoring?: (participantId: string) => void;
+  onViewReport?: (participantId: string) => void;
   onBack?: () => void;
   onLogout?: () => void;
 }
 
-export default function EvaluationDetails({ evaluationId, onNavigate, onViewMonitoring, onBack, onLogout }: EvaluationDetailsProps) {
+export default function EvaluationDetails({ evaluationId, onNavigate, onViewMonitoring, onViewReport, onBack, onLogout }: EvaluationDetailsProps) {
   const [evaluation, setEvaluation] = useState<EvaluationDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +51,9 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
 
   const handleReport = (participantId: string, participantName: string) => {
     console.log('Generar informe para participante:', participantId, participantName);
-    // TODO: Implementar generación/visualización de informe
+    if (onViewReport) {
+      onViewReport(participantId);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -154,6 +157,8 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
       </div>
     );
   }
+
+  const isCompleted = evaluation?.status?.toLowerCase() === 'completado';
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -302,7 +307,8 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
                             </button>
                             <button
                               onClick={() => handleReport(participant.id, participant.name)}
-                              className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition"
+                              className={`p-2 rounded-lg transition ${isCompleted ? 'text-green-600 hover:bg-green-50' : 'text-gray-400 cursor-not-allowed'} `}
+                              disabled={!isCompleted}
                               title="Ver informe"
                             >
                               <FileText className="w-5 h-5" />
