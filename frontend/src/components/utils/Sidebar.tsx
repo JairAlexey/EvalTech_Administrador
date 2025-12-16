@@ -26,7 +26,7 @@ export default function Sidebar({ onNavigate, onLogout, currentPage }: SidebarPr
   const sections = [...new Set(menuItems.map(item => item.section))];
 
   return (
-    <div className="w-52 bg-slate-800 text-white h-screen flex flex-col">
+    <div className="w-52 bg-slate-800 text-white h-screen flex flex-col sticky top-0">
       <div className="p-6 border-b border-slate-700">
         <h1 className="text-xl font-bold">EvalTech</h1>
         <p className="text-xs text-slate-400 mt-1">Panel Administrativo</p>
