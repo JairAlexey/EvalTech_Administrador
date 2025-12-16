@@ -3,13 +3,20 @@ from events.models import ParticipantEvent
 
 
 class AnalisisComportamiento(models.Model):
+    STATUS_CHOICES = [
+        ("pendiente", "Pendiente"),
+        ("procesando", "Procesando"),
+        ("completado", "Completado"),
+        ("error", "Error"),
+    ]
+
     participant_event = models.OneToOneField(
         ParticipantEvent,
         on_delete=models.CASCADE,
         related_name="analisis_comportamiento",
     )
     video_link = models.CharField(max_length=500)
-    status = models.CharField(max_length=20, default="PENDING")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pendiente")
     fecha_procesamiento = models.DateTimeField(auto_now_add=True)
 
     class Meta:

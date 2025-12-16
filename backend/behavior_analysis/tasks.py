@@ -61,7 +61,7 @@ def process_participant_completion_task(self, participant_event_id, event_id, ev
         logger.info(f"[Task {self.request.id}] Step 2/3: Registering analysis for participant {participant_name}")
         analisis, created = AnalisisComportamiento.objects.update_or_create(
             participant_event=participant_event,
-            defaults={"video_link": video_url, "status": "PENDING"},
+            defaults={"video_link": video_url, "status": "pendiente"},
         )
         logger.info(f"[Task {self.request.id}] Analysis registered (created: {created})")
         

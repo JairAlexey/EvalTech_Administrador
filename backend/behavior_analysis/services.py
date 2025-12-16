@@ -46,7 +46,7 @@ def procesar_video_completo(video_path, participant_event_id):
     # Obtener registro existente y actualizar estado
     try:
         analisis = AnalisisComportamiento.objects.get(participant_event=pe)
-        analisis.status = "PROCESSING"
+        analisis.status = "procesando"
         analisis.save()
     except AnalisisComportamiento.DoesNotExist:
         print(
@@ -70,7 +70,7 @@ def procesar_video_completo(video_path, participant_event_id):
                 print(
                     f"Error: no se pudo descargar el video desde S3: {download_result.get('error')}"
                 )
-                analisis.status = "ERROR"
+                analisis.status = "error"
                 analisis.save()
                 _cleanup_temp()
                 return None
@@ -78,7 +78,7 @@ def procesar_video_completo(video_path, participant_event_id):
             local_video_path = temp_file_path
     except Exception as e:
         print(f"Error descargando video remoto: {e}")
-        analisis.status = "ERROR"
+        analisis.status = "error"
         analisis.save()
         _cleanup_temp()
         return None
@@ -125,7 +125,7 @@ def procesar_video_completo(video_path, participant_event_id):
                 print(
                     f"Error: no se pudo descargar el video (fallback) desde S3: {download_result.get('error')}"
                 )
-                analisis.status = "ERROR"
+                analisis.status = "error"
                 analisis.save()
                 _cleanup_temp()
                 return None
@@ -134,7 +134,7 @@ def procesar_video_completo(video_path, participant_event_id):
             local_video_path = temp_file_path
         except Exception as e:
             print(f"Error descargando video remoto (fallback): {e}")
-            analisis.status = "ERROR"
+            analisis.status = "error"
             analisis.save()
             _cleanup_temp()
             return None
@@ -146,7 +146,7 @@ def procesar_video_completo(video_path, participant_event_id):
             analisis = AnalisisComportamiento.objects.get(
                 participant_event_id=participant_event_id
             )
-            analisis.status = "ERROR"
+            analisis.status = "error"
             analisis.save()
         except AnalisisComportamiento.DoesNotExist:
             pass
@@ -157,7 +157,7 @@ def procesar_video_completo(video_path, participant_event_id):
     cap = cv2.VideoCapture(local_video_path)
     if not cap.isOpened():
         print("Error al abrir el video.")
-        analisis.status = "ERROR"
+        analisis.status = "error"
         analisis.save()
         _cleanup_temp()
         return None
@@ -304,11 +304,11 @@ def procesar_video_completo(video_path, participant_event_id):
                 tiempo_fin=hab["tiempo_fin"],
             )
 
-    analisis.status = "COMPLETED"
+    analisis.status = "completado"
     analisis.save()
     print("Análisis completado y guardado.")
     _cleanup_temp()
-    return {"id": analisis.id, "status": "COMPLETED"}
+    return {"id": analisis.id, "status": "completado"}
 
     # Limpieza del archivo temporal en caso de haber descargado desde S3
     # (Se ejecutará al salir de la función)
