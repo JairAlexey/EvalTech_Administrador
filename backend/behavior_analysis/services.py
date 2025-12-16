@@ -55,34 +55,39 @@ def procesar_video_completo(video_path, participant_event_id):
         _cleanup_temp()
         return None
 
-    # Descargar el video si viene como URL (S3) para procesarlo localmente
+    # Descargar el video si viene como URL o clave de S3 para procesarlo localmente
     try:
-        if isinstance(video_path, str) and video_path.startswith("http"):
-            # Extraer la key del objeto desde la URL p√∫blica de S3
-            key = video_path.split(".amazonaws.com/")[-1].split("?")[0]
+        if isinstance(video_path, str):
+            key = None
+            if video_path.startswith("http"):
+                # Extraer la key del objeto desde la URL p£blica de S3
+                key = video_path.split(".amazonaws.com/")[-1].split("?")[0]
+            elif not os.path.exists(video_path):
+                # No es una ruta local existente, asumir que es la key de S3
+                key = video_path
 
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".webm")
-            temp_file_path = temp_file.name
-            temp_file.close()
+            if key:
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".webm")
+                temp_file_path = temp_file.name
+                temp_file.close()
 
-            download_result = s3_service.download_file(key, temp_file_path)
-            if not download_result.get("success"):
-                print(
-                    f"Error: no se pudo descargar el video desde S3: {download_result.get('error')}"
-                )
-                analisis.status = "error"
-                analisis.save()
-                _cleanup_temp()
-                return None
+                download_result = s3_service.download_file(key, temp_file_path)
+                if not download_result.get("success"):
+                    print(
+                        f"Error: no se pudo descargar el video desde S3: {download_result.get('error')}"
+                    )
+                    analisis.status = "error"
+                    analisis.save()
+                    _cleanup_temp()
+                    return None
 
-            local_video_path = temp_file_path
+                local_video_path = temp_file_path
     except Exception as e:
         print(f"Error descargando video remoto: {e}")
         analisis.status = "error"
         analisis.save()
         _cleanup_temp()
         return None
-
     # Inicializar analizadores con la ruta local (descargada o original)
     rostros = AnalizadorRostros()
     gestos = AnalizadorGestos()
@@ -111,10 +116,15 @@ def procesar_video_completo(video_path, participant_event_id):
         min_tracking_confidence=0.5,
     )
 
-    # Fallback: si todav√≠a tenemos una URL, intenta descargar ahora
-    if isinstance(local_video_path, str) and local_video_path.startswith("http"):
+    # Fallback: si todav°a tenemos una referencia remota, intenta descargar ahora
+    if isinstance(local_video_path, str) and (
+        local_video_path.startswith("http") or not os.path.exists(local_video_path)
+    ):
         try:
-            key = local_video_path.split(".amazonaws.com/")[-1].split("?")[0]
+            if local_video_path.startswith("http"):
+                key = local_video_path.split(".amazonaws.com/")[-1].split("?")[0]
+            else:
+                key = local_video_path
 
             temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".webm")
             temp_file_path = temp_file.name
@@ -138,7 +148,6 @@ def procesar_video_completo(video_path, participant_event_id):
             analisis.save()
             _cleanup_temp()
             return None
-
     # Verificar existencia de archivo
     if not os.path.exists(local_video_path):
         print(f"Error: archivo no existe: {local_video_path}")

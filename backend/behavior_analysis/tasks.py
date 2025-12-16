@@ -53,21 +53,32 @@ def process_participant_completion_task(self, participant_event_id, event_id, ev
                 'participant_name': participant_name
             }
         
-        video_url = merge_result['video_url']
+        video_key = merge_result.get('s3_key') or merge_result.get('video_key') or merge_result.get('key')
+        video_url = merge_result.get('video_url')
+        if not video_key:
+            error_msg = "Video merge did not return an S3 key"
+            logger.error(f"[Task {self.request.id}] {error_msg}")
+            return {
+                'success': False,
+                'error': error_msg,
+                'participant_event_id': participant_event_id,
+                'participant_name': participant_name
+            }
+
         merged_count = merge_result['merged_count']
-        logger.info(f"[Task {self.request.id}] Videos merged successfully: {video_url} ({merged_count} fragments)")
+        logger.info(f"[Task {self.request.id}] Videos merged successfully: key={video_key}, url={video_url} ({merged_count} fragments)")
         
         # Paso 2: Registrar análisis con el video unido
         logger.info(f"[Task {self.request.id}] Step 2/3: Registering analysis for participant {participant_name}")
         analisis, created = AnalisisComportamiento.objects.update_or_create(
             participant_event=participant_event,
-            defaults={"video_link": video_url, "status": "pendiente"},
+            defaults={"video_link": video_key, "status": "pendiente"},
         )
         logger.info(f"[Task {self.request.id}] Analysis registered (created: {created})")
         
         # Paso 3: Iniciar análisis de comportamiento
         logger.info(f"[Task {self.request.id}] Step 3/3: Starting behavior analysis for participant {participant_name}")
-        analysis_task = analyze_behavior_task.delay(video_url, participant_event_id)
+        analysis_task = analyze_behavior_task.delay(video_key, participant_event_id)
         logger.info(f"[Task {self.request.id}] Behavior analysis task started: {analysis_task.id}")
         
         result = {
@@ -75,6 +86,7 @@ def process_participant_completion_task(self, participant_event_id, event_id, ev
             'participant_event_id': participant_event_id,
             'participant_name': participant_name,
             'video_url': video_url,
+            'video_key': video_key,
             'merged_count': merged_count,
             'analysis_task_id': analysis_task.id,
             'processing_task_id': self.request.id
