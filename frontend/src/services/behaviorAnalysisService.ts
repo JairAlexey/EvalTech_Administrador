@@ -44,6 +44,8 @@ export interface AnalysisReport {
     total_anomalias_lipsync: number;
     total_ausencias: number;
     tiempo_total_ausencia_segundos: number;
+    total_screenshots: number;
+    total_blocked_requests: number;
   };
   registros: {
     rostros: Array<{
@@ -83,6 +85,24 @@ export interface AnalysisReport {
       tiempo_fin: number;
       duracion: number;
     }>;
+  };
+  activity_logs: {
+    screenshots: Array<{
+      id: number;
+      timestamp: string;
+      url: string | null;
+    }>;
+    blocked_requests: Array<{
+      id: number;
+      message: string;
+      timestamp: string;
+      url: string | null;
+    }>;
+  };
+  monitoring: {
+    total_duration_seconds: number;
+    sessions_count: number;
+    last_change: string | null;
   };
 }
 

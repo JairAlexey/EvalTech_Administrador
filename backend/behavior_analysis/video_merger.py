@@ -90,7 +90,14 @@ class VideoMergerService:
             if upload_result["success"]:
                 return {
                     "success": True,
-                    "video_url": upload_result["video_url"],
+                    # Presigned URL de conveniencia para descargar/reproducir
+                    "video_url": upload_result.get("presigned_url")
+                    or upload_result.get("video_url"),
+                    # Clave real almacenada en S3 (lo que debe persistir en BD)
+                    "video_key": upload_result.get("s3_key")
+                    or upload_result.get("key"),
+                    "s3_key": upload_result.get("s3_key")
+                    or upload_result.get("key"),
                     "merged_count": len(video_files),
                 }
             else:
@@ -324,8 +331,11 @@ class VideoMergerService:
                 if upload_result["success"]:
                     return {
                         "success": True,
+                        # Devolver tanto la key como una URL prefirmada de conveniencia
                         "video_url": upload_result.get("presigned_url"),
+                        "presigned_url": upload_result.get("presigned_url"),
                         "s3_key": upload_result["key"],
+                        "key": upload_result["key"],
                     }
 
                 return {

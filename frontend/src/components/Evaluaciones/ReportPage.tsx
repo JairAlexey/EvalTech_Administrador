@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import Sidebar from '../utils/Sidebar';
 import behaviorAnalysisService, { type AnalysisStatus, type AnalysisReport } from '../../services/behaviorAnalysisService';
-import { User, Clock, AlertTriangle, Eye, Volume2, Lightbulb, MessageSquare, UserX, Activity } from 'lucide-react';
+import { User, Clock, AlertTriangle, Eye, Volume2, Lightbulb, MessageSquare, UserX, Activity, Camera, Shield, Timer } from 'lucide-react';
 
 interface ReportPageProps {
     eventId: string;
@@ -11,12 +12,40 @@ interface ReportPageProps {
     onLogout?: () => void;
 }
 
+
 export default function ReportPage({ eventId, participantId, onBack, onNavigate, onLogout }: ReportPageProps) {
     const [statusData, setStatusData] = useState<AnalysisStatus | null>(null);
     const [reportData, setReportData] = useState<AnalysisReport | null>(null);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
+    const [activeTab, setActiveTab] = useState<'resumen' | 'comportamiento' | 'actividad'>('resumen');
     const videoRef = useRef<HTMLVideoElement>(null);
+    const [isGalleryOpen, setIsGalleryOpen] = useState<boolean>(false);
+    const [currentImageIndex, setCurrentImageIndex] = useState<number>(0);
+    const [activeDetectionTab, setActiveDetectionTab] = useState<'ausencias' | 'gestos' | 'iluminacion' | 'voz' | 'lipsync' | 'rostros'>('ausencias');
+
+    // Estado para colapsar/expandir subcategorías agrupadas
+    const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+
+    // Keyboard navigation for gallery
+    useEffect(() => {
+        if (!isGalleryOpen) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'ArrowLeft') {
+                setCurrentImageIndex((prev) => (prev > 0 ? prev - 1 : prev));
+            } else if (e.key === 'ArrowRight') {
+                setCurrentImageIndex((prev) => (reportData && prev < reportData.activity_logs.screenshots.length - 1 ? prev + 1 : prev));
+            } else if (e.key === 'Escape') {
+                setIsGalleryOpen(false);
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isGalleryOpen, reportData]);
+
+    const toggleGroup = (groupKey: string) => {
+        setCollapsedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
+    };
 
     useEffect(() => {
         const loadData = async () => {
@@ -96,6 +125,27 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
         if (videoRef.current) {
             videoRef.current.currentTime = seconds;
             videoRef.current.play();
+        }
+    };
+
+    const openGallery = (index: number) => {
+        setCurrentImageIndex(index);
+        setIsGalleryOpen(true);
+    };
+
+    const closeGallery = () => {
+        setIsGalleryOpen(false);
+    };
+
+    const goToPrevious = () => {
+        if (reportData && currentImageIndex > 0) {
+            setCurrentImageIndex(currentImageIndex - 1);
+        }
+    };
+
+    const goToNext = () => {
+        if (reportData && currentImageIndex < reportData.activity_logs.screenshots.length - 1) {
+            setCurrentImageIndex(currentImageIndex + 1);
         }
     };
 
@@ -189,294 +239,711 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                     {/* Reporte completo */}
                     {reportData && normalizeStatus(statusData?.analysis?.status) === 'completado' && (
                         <div className="space-y-6">
-                            {/* Video Player */}
-                            <div className="bg-white rounded-lg border border-gray-200 p-6">
-                                <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                                    <Activity className="w-5 h-5 text-blue-600" />
-                                    Video de la Evaluación
-                                </h2>
-                                <div className="relative bg-black rounded-lg overflow-hidden" style={{ maxHeight: '500px' }}>
-                                    <video
-                                        ref={videoRef}
-                                        src={reportData.analysis.video_link}
-                                        controls
-                                        className="w-full h-full"
-                                        style={{ maxHeight: '500px' }}
+                            {/* Tabs de Navegación */}
+                            <div className="bg-white rounded-lg border border-gray-200">
+                                <div className="flex border-b border-gray-200">
+                                    <button
+                                        onClick={() => setActiveTab('resumen')}
+                                        className={`px-6 py-4 text-sm font-medium transition-colors ${activeTab === 'resumen'
+                                            ? 'border-b-2 border-blue-600 text-blue-600'
+                                            : 'text-gray-600 hover:text-gray-900'
+                                            }`}
                                     >
-                                        Tu navegador no soporta la reproducción de video.
-                                    </video>
+                                        📊 Resumen General
+                                    </button>
+                                    <button
+                                        onClick={() => setActiveTab('comportamiento')}
+                                        className={`px-6 py-4 text-sm font-medium transition-colors ${activeTab === 'comportamiento'
+                                            ? 'border-b-2 border-blue-600 text-blue-600'
+                                            : 'text-gray-600 hover:text-gray-900'
+                                            }`}
+                                    >
+                                        🎥 Análisis de Comportamiento
+                                    </button>
+                                    <button
+                                        onClick={() => setActiveTab('actividad')}
+                                        className={`px-6 py-4 text-sm font-medium transition-colors ${activeTab === 'actividad'
+                                            ? 'border-b-2 border-blue-600 text-blue-600'
+                                            : 'text-gray-600 hover:text-gray-900'
+                                            }`}
+                                    >
+                                        📝 Logs de Actividad
+                                    </button>
                                 </div>
-                            </div>
 
-                            {/* Estadísticas Generales */}
-                            <div className="bg-white rounded-lg border border-gray-200 p-6">
-                                <h2 className="text-lg font-semibold text-gray-900 mb-4">Resumen de Estadísticas</h2>
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    <div className="bg-blue-50 p-4 rounded-lg">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <User className="w-4 h-4 text-blue-600" />
-                                            <p className="text-xs text-gray-600">Rostros</p>
-                                        </div>
-                                        <p className="text-2xl font-bold text-blue-700">{reportData.statistics.total_rostros_detectados}</p>
-                                    </div>
+                                {/* Contenido de las pestañas */}
+                                <div className="p-6">
+                                    {/* Tab: Resumen General */}
+                                    {activeTab === 'resumen' && (
+                                        <div className="space-y-6">
+                                            {/* Estadísticas Principales */}
+                                            <div>
+                                                <h2 className="text-xl font-bold text-gray-900 mb-4">Estadísticas Generales</h2>
+                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                                    <div className="bg-blue-50 p-4 rounded-lg text-center">
+                                                        <User className="w-8 h-8 text-blue-600 mx-auto mb-2" />
+                                                        <p className="text-3xl font-bold text-blue-700">{reportData.statistics.total_rostros_detectados}</p>
+                                                        <p className="text-sm text-gray-600 mt-1">Rostros Detectados</p>
+                                                    </div>
+                                                    <div className="bg-purple-50 p-4 rounded-lg text-center">
+                                                        <Eye className="w-8 h-8 text-purple-600 mx-auto mb-2" />
+                                                        <p className="text-3xl font-bold text-purple-700">{reportData.statistics.total_gestos}</p>
+                                                        <p className="text-sm text-gray-600 mt-1">Gestos Detectados</p>
+                                                    </div>
+                                                    <div className="bg-red-50 p-4 rounded-lg text-center">
+                                                        <UserX className="w-8 h-8 text-red-600 mx-auto mb-2" />
+                                                        <p className="text-3xl font-bold text-red-700">{reportData.statistics.total_ausencias}</p>
+                                                        <p className="text-sm text-gray-600 mt-1">Ausencias</p>
+                                                    </div>
+                                                    <div className="bg-gray-50 p-4 rounded-lg text-center">
+                                                        <Clock className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+                                                        <p className="text-3xl font-bold text-gray-700">
+                                                            {formatTime(reportData.statistics.tiempo_total_ausencia_segundos)}
+                                                        </p>
+                                                        <p className="text-sm text-gray-600 mt-1">Tiempo Ausente</p>
+                                                    </div>
+                                                    <div className="bg-green-50 p-4 rounded-lg text-center">
+                                                        <Volume2 className="w-8 h-8 text-green-600 mx-auto mb-2" />
+                                                        <p className="text-3xl font-bold text-green-700">{reportData.statistics.total_hablantes}</p>
+                                                        <p className="text-sm text-gray-600 mt-1">Voces Detectadas</p>
+                                                    </div>
+                                                    <div className="bg-yellow-50 p-4 rounded-lg text-center">
+                                                        <Lightbulb className="w-8 h-8 text-yellow-600 mx-auto mb-2" />
+                                                        <p className="text-3xl font-bold text-yellow-700">{reportData.statistics.total_anomalias_iluminacion}</p>
+                                                        <p className="text-sm text-gray-600 mt-1">Anomalías Iluminación</p>
+                                                    </div>
+                                                    <div className="bg-pink-50 p-4 rounded-lg text-center">
+                                                        <MessageSquare className="w-8 h-8 text-pink-600 mx-auto mb-2" />
+                                                        <p className="text-3xl font-bold text-pink-700">{reportData.statistics.total_anomalias_lipsync}</p>
+                                                        <p className="text-sm text-gray-600 mt-1">Anomalías Lipsync</p>
+                                                    </div>
+                                                    <div className="bg-orange-50 p-4 rounded-lg text-center">
+                                                        <AlertTriangle className="w-8 h-8 text-orange-600 mx-auto mb-2" />
+                                                        <p className="text-3xl font-bold text-orange-700">{reportData.statistics.total_anomalias_voz}</p>
+                                                        <p className="text-sm text-gray-600 mt-1">Susurros</p>
+                                                    </div>
+                                                </div>
+                                            </div>
 
-                                    <div className="bg-purple-50 p-4 rounded-lg">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <Eye className="w-4 h-4 text-purple-600" />
-                                            <p className="text-xs text-gray-600">Gestos</p>
-                                        </div>
-                                        <p className="text-2xl font-bold text-purple-700">{reportData.statistics.total_gestos}</p>
-                                    </div>
+                                            {/* Información de Monitoreo */}
+                                            <div>
+                                                <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                                    <Timer className="w-6 h-6 text-indigo-600" />
+                                                    Información de Monitoreo
+                                                </h2>
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                    <div className="bg-indigo-50 p-6 rounded-lg text-center">
+                                                        <p className="text-sm text-gray-600 mb-2">Tiempo Total de Monitoreo</p>
+                                                        <p className="text-3xl font-bold text-indigo-700">
+                                                            {formatTime(reportData.monitoring.total_duration_seconds)}
+                                                        </p>
+                                                    </div>
+                                                    <div className="bg-indigo-50 p-6 rounded-lg text-center">
+                                                        <p className="text-sm text-gray-600 mb-2">Sesiones de Monitoreo</p>
+                                                        <p className="text-3xl font-bold text-indigo-700">{reportData.monitoring.sessions_count}</p>
+                                                    </div>
+                                                    <div className="bg-indigo-50 p-6 rounded-lg text-center">
+                                                        <p className="text-sm text-gray-600 mb-2">Último Registro de Monitoreo</p>
+                                                        <p className="text-lg font-medium text-indigo-700">
+                                                            {reportData.monitoring.last_change
+                                                                ? new Date(reportData.monitoring.last_change).toLocaleString('es-ES')
+                                                                : 'N/A'}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
 
-                                    <div className="bg-yellow-50 p-4 rounded-lg">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <Lightbulb className="w-4 h-4 text-yellow-600" />
-                                            <p className="text-xs text-gray-600">Iluminación</p>
+                                            {/* Actividad Registrada */}
+                                            <div>
+                                                <h2 className="text-xl font-bold text-gray-900 mb-4">Actividad Registrada</h2>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <div className="bg-cyan-50 p-6 rounded-lg text-center">
+                                                        <Camera className="w-10 h-10 text-cyan-600 mx-auto mb-3" />
+                                                        <p className="text-4xl font-bold text-cyan-700 mb-2">{reportData.statistics.total_screenshots}</p>
+                                                        <p className="text-sm text-gray-600">Capturas de Pantalla</p>
+                                                    </div>
+                                                    <div className="bg-red-50 p-6 rounded-lg text-center">
+                                                        <Shield className="w-10 h-10 text-red-600 mx-auto mb-3" />
+                                                        <p className="text-4xl font-bold text-red-700 mb-2">{reportData.statistics.total_blocked_requests}</p>
+                                                        <p className="text-sm text-gray-600">Peticiones Bloqueadas</p>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <p className="text-2xl font-bold text-yellow-700">{reportData.statistics.total_anomalias_iluminacion}</p>
-                                    </div>
+                                    )}
 
-                                    <div className="bg-red-50 p-4 rounded-lg">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <UserX className="w-4 h-4 text-red-600" />
-                                            <p className="text-xs text-gray-600">Ausencias</p>
-                                        </div>
-                                        <p className="text-2xl font-bold text-red-700">{reportData.statistics.total_ausencias}</p>
-                                    </div>
+                                    {/* Tab: Análisis de Comportamiento */}
+                                    {activeTab === 'comportamiento' && (
+                                        <div className="flex flex-col lg:flex-row gap-6">
+                                            {/* Video Player - Lado Izquierdo */}
+                                            <div className="lg:w-[55%]">
+                                                <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                                    <Activity className="w-6 h-6 text-blue-600" />
+                                                    Video de la Evaluación
+                                                </h2>
+                                                <div className="relative bg-black rounded-lg overflow-hidden sticky top-4">
+                                                    <video
+                                                        ref={videoRef}
+                                                        src={reportData.analysis.video_link}
+                                                        controls
+                                                        className="w-full"
+                                                        style={{ maxHeight: '70vh' }}
+                                                    >
+                                                        Tu navegador no soporta la reproducción de video.
+                                                    </video>
+                                                </div>
+                                                <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                                    <p className="text-sm text-blue-800">
+                                                        <strong>💡 Tip:</strong> Haz clic en cualquier detección para ir a ese momento en el video.
+                                                    </p>
+                                                </div>
+                                            </div>
 
-                                    <div className="bg-green-50 p-4 rounded-lg">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <Volume2 className="w-4 h-4 text-green-600" />
-                                            <p className="text-xs text-gray-600">Hablantes</p>
-                                        </div>
-                                        <p className="text-2xl font-bold text-green-700">{reportData.statistics.total_hablantes}</p>
-                                    </div>
+                                            {/* Detecciones - Lado Derecho */}
+                                            <div className="lg:w-[45%] flex flex-col">
+                                                <h2 className="text-xl font-bold text-gray-900 mb-4">Detecciones</h2>
 
-                                    <div className="bg-orange-50 p-4 rounded-lg">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <MessageSquare className="w-4 h-4 text-orange-600" />
-                                            <p className="text-xs text-gray-600">Susurros</p>
-                                        </div>
-                                        <p className="text-2xl font-bold text-orange-700">{reportData.statistics.total_anomalias_voz}</p>
-                                    </div>
+                                                {/* Tabs de Detecciones */}
+                                                <div className="bg-white border border-gray-200 rounded-lg overflow-hidden flex flex-col h-[600px]">
+                                                    {/* Botones de detección distribuidos en varias filas si hay espacio */}
+                                                    <div className="flex flex-wrap gap-2 border-b border-gray-200 px-2 py-2">
+                                                        {reportData.registros.ausencias.length > 0 && (
+                                                            <button
+                                                                onClick={() => setActiveDetectionTab('ausencias')}
+                                                                className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${activeDetectionTab === 'ausencias'
+                                                                    ? 'border-b-2 border-red-600 text-red-600 bg-red-50'
+                                                                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                                                                    }`}
+                                                            >
+                                                                <UserX className="w-4 h-4 inline-block mr-1" />
+                                                                Ausencias ({reportData.registros.ausencias.length})
+                                                            </button>
+                                                        )}
+                                                        {reportData.registros.gestos.length > 0 && (
+                                                            <button
+                                                                onClick={() => setActiveDetectionTab('gestos')}
+                                                                className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${activeDetectionTab === 'gestos'
+                                                                    ? 'border-b-2 border-purple-600 text-purple-600 bg-purple-50'
+                                                                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                                                                    }`}
+                                                            >
+                                                                <Eye className="w-4 h-4 inline-block mr-1" />
+                                                                Gestos ({reportData.registros.gestos.length})
+                                                            </button>
+                                                        )}
+                                                        {reportData.registros.iluminacion.length > 0 && (
+                                                            <button
+                                                                onClick={() => setActiveDetectionTab('iluminacion')}
+                                                                className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${activeDetectionTab === 'iluminacion'
+                                                                    ? 'border-b-2 border-yellow-600 text-yellow-600 bg-yellow-50'
+                                                                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                                                                    }`}
+                                                            >
+                                                                <Lightbulb className="w-4 h-4 inline-block mr-1" />
+                                                                Iluminación ({reportData.registros.iluminacion.length})
+                                                            </button>
+                                                        )}
+                                                        {reportData.registros.voz.length > 0 && (
+                                                            <button
+                                                                onClick={() => setActiveDetectionTab('voz')}
+                                                                className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${activeDetectionTab === 'voz'
+                                                                    ? 'border-b-2 border-green-600 text-green-600 bg-green-50'
+                                                                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                                                                    }`}
+                                                            >
+                                                                <Volume2 className="w-4 h-4 inline-block mr-1" />
+                                                                Voz ({reportData.registros.voz.length})
+                                                            </button>
+                                                        )}
+                                                        {reportData.registros.lipsync.length > 0 && (
+                                                            <button
+                                                                onClick={() => setActiveDetectionTab('lipsync')}
+                                                                className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${activeDetectionTab === 'lipsync'
+                                                                    ? 'border-b-2 border-pink-600 text-pink-600 bg-pink-50'
+                                                                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                                                                    }`}
+                                                            >
+                                                                <MessageSquare className="w-4 h-4 inline-block mr-1" />
+                                                                Lipsync ({reportData.registros.lipsync.length})
+                                                            </button>
+                                                        )}
+                                                        {reportData.registros.rostros.length > 0 && (
+                                                            <button
+                                                                onClick={() => setActiveDetectionTab('rostros')}
+                                                                className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${activeDetectionTab === 'rostros'
+                                                                    ? 'border-b-2 border-blue-600 text-blue-600 bg-blue-50'
+                                                                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                                                                    }`}
+                                                            >
+                                                                <User className="w-4 h-4 inline-block mr-1" />
+                                                                Rostros ({reportData.registros.rostros.length})
+                                                            </button>
+                                                        )}
+                                                    </div>
 
-                                    <div className="bg-pink-50 p-4 rounded-lg">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <AlertTriangle className="w-4 h-4 text-pink-600" />
-                                            <p className="text-xs text-gray-600">Lipsync</p>
-                                        </div>
-                                        <p className="text-2xl font-bold text-pink-700">{reportData.statistics.total_anomalias_lipsync}</p>
-                                    </div>
+                                                    {/* Contenido de Detecciones */}
+                                                    <div className="flex-1 p-6 overflow-y-auto">
+                                                        {/* Ausencias */}
+                                                        {activeDetectionTab === 'ausencias' && reportData.registros.ausencias.length > 0 && (
+                                                            <div>
+                                                                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                                                                    <UserX className="w-5 h-5 text-red-600" />
+                                                                    Ausencias Detectadas
+                                                                </h3>
+                                                                <div className="flex flex-wrap gap-2 overflow-y-auto">
+                                                                    {reportData.registros.ausencias.map((ausencia) => (
+                                                                        <div
+                                                                            key={ausencia.id}
+                                                                            className="p-3 bg-red-50 rounded-lg hover:bg-red-100 transition cursor-pointer min-w-[180px] max-w-xs flex-1"
+                                                                            onClick={() => seekToTime(ausencia.tiempo_inicio)}
+                                                                        >
+                                                                            <p className="text-sm font-medium text-gray-900">
+                                                                                Duración: {formatTime(ausencia.duracion)}
+                                                                            </p>
+                                                                            <p className="text-xs text-gray-600">
+                                                                                {formatTime(ausencia.tiempo_inicio)} - {formatTime(ausencia.tiempo_fin)}
+                                                                            </p>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
 
-                                    <div className="bg-gray-50 p-4 rounded-lg">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <Clock className="w-4 h-4 text-gray-600" />
-                                            <p className="text-xs text-gray-600">Tiempo Ausente</p>
+                                                        {/* Gestos */}
+                                                        {activeDetectionTab === 'gestos' && reportData.registros.gestos.length > 0 && (
+                                                            <div>
+                                                                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                                                                    <Eye className="w-5 h-5 text-purple-600" />
+                                                                    Gestos Detectados
+                                                                </h3>
+                                                                {/* Agrupar por tipo_gesto */}
+                                                                {Object.entries(
+                                                                    reportData.registros.gestos.reduce<Record<string, typeof reportData.registros.gestos>>((acc, gesto) => {
+                                                                        const key = gesto.tipo_gesto || 'Sin tipo';
+                                                                        if (!acc[key]) acc[key] = [];
+                                                                        acc[key].push(gesto);
+                                                                        return acc;
+                                                                    }, {})
+                                                                ).map(([tipoGesto, gestos]) => {
+                                                                    const groupKey = `gestos-${tipoGesto}`;
+                                                                    const isCollapsed = collapsedGroups[groupKey];
+                                                                    return (
+                                                                        <div key={tipoGesto} className="mb-6 w-full">
+                                                                            <button
+                                                                                className="flex items-center gap-1 text-md font-semibold text-purple-700 mb-2 focus:outline-none"
+                                                                                onClick={() => toggleGroup(groupKey)}
+                                                                            >
+                                                                                {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                                                                                <span className="text-lg">👁️</span> {tipoGesto}
+                                                                            </button>
+                                                                            {!isCollapsed && (
+                                                                                <div className="flex flex-wrap gap-2 overflow-y-auto">
+                                                                                    {gestos.map((gesto) => (
+                                                                                        <div
+                                                                                            key={gesto.id}
+                                                                                            className="p-3 bg-purple-50 rounded-lg hover:bg-purple-100 transition cursor-pointer min-w-[180px] max-w-xs flex-1"
+                                                                                            onClick={() => seekToTime(gesto.tiempo_inicio)}
+                                                                                        >
+                                                                                            <p className="text-sm font-medium text-gray-900">
+                                                                                                {formatTime(gesto.tiempo_inicio)} - {formatTime(gesto.tiempo_fin)}
+                                                                                            </p>
+                                                                                            <p className="text-xs text-gray-600">
+                                                                                                Duración: {formatTime(gesto.duracion)}
+                                                                                            </p>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Iluminación */}
+                                                        {activeDetectionTab === 'iluminacion' && reportData.registros.iluminacion.length > 0 && (
+                                                            <div>
+                                                                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                                                                    <Lightbulb className="w-5 h-5 text-yellow-600" />
+                                                                    Anomalías de Iluminación
+                                                                </h3>
+                                                                <div className="flex flex-wrap gap-2 overflow-y-auto">
+                                                                    {reportData.registros.iluminacion.map((ilum) => (
+                                                                        <div
+                                                                            key={ilum.id}
+                                                                            className="p-3 bg-yellow-50 rounded-lg hover:bg-yellow-100 transition cursor-pointer min-w-[180px] max-w-xs flex-1"
+                                                                            onClick={() => seekToTime(ilum.tiempo_inicio)}
+                                                                        >
+                                                                            <p className="text-sm font-medium text-gray-900">Anomalía</p>
+                                                                            <p className="text-xs text-gray-600">
+                                                                                {formatTime(ilum.tiempo_inicio)} - {formatTime(ilum.tiempo_fin)}
+                                                                            </p>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Voz */}
+                                                        {activeDetectionTab === 'voz' && reportData.registros.voz.length > 0 && (
+                                                            <div>
+                                                                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                                                                    <Volume2 className="w-5 h-5 text-green-600" />
+                                                                    Análisis de Voz
+                                                                </h3>
+                                                                {/* Susurros */}
+                                                                {reportData.registros.voz.some(v => v.tipo_log === 'susurro') && (
+                                                                    <div className="mb-6 w-full">
+                                                                        <button
+                                                                            className="flex items-center gap-1 text-md font-semibold text-green-700 mb-2 focus:outline-none"
+                                                                            onClick={() => toggleGroup('voz-susurros')}
+                                                                        >
+                                                                            {collapsedGroups['voz-susurros'] ? <ChevronRight className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                                                                            <span className="text-lg">🤫</span> Susurros
+                                                                        </button>
+                                                                        {!collapsedGroups['voz-susurros'] && (
+                                                                            <div className="flex flex-wrap gap-2 overflow-y-auto">
+                                                                                {reportData.registros.voz.filter(v => v.tipo_log === 'susurro').map((voz) => (
+                                                                                    <div
+                                                                                        key={voz.id}
+                                                                                        className="p-3 bg-green-50 rounded-lg hover:bg-green-100 transition cursor-pointer min-w-[180px] max-w-xs flex-1"
+                                                                                        onClick={() => seekToTime(voz.tiempo_inicio)}
+                                                                                    >
+                                                                                        <p className="text-sm font-medium text-gray-900">
+                                                                                            {formatTime(voz.tiempo_inicio)} - {formatTime(voz.tiempo_fin)}
+                                                                                        </p>
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                                {/* Hablantes agrupados por etiqueta_hablante */}
+                                                                {reportData.registros.voz.some(v => v.tipo_log !== 'susurro') && (
+                                                                    <div className="w-full">
+                                                                        <button
+                                                                            className="flex items-center gap-1 text-md font-semibold text-green-700 mb-2 focus:outline-none"
+                                                                            onClick={() => toggleGroup('voz-hablantes')}
+                                                                        >
+                                                                            {collapsedGroups['voz-hablantes'] ? <ChevronRight className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                                                                            <span className="text-lg">🗣️</span> Hablantes
+                                                                        </button>
+                                                                        {!collapsedGroups['voz-hablantes'] && (
+                                                                            <div>
+                                                                                {Object.entries(
+                                                                                    reportData.registros.voz.filter(v => v.tipo_log !== 'susurro').reduce<Record<string, typeof reportData.registros.voz>>((acc, voz) => {
+                                                                                        const key = voz.etiqueta_hablante || 'Hablante';
+                                                                                        if (!acc[key]) acc[key] = [];
+                                                                                        acc[key].push(voz);
+                                                                                        return acc;
+                                                                                    }, {})
+                                                                                ).map(([etiqueta, voces]) => {
+                                                                                    const groupKey = `voz-hablante-${etiqueta}`;
+                                                                                    const isCollapsed = collapsedGroups[groupKey];
+                                                                                    return (
+                                                                                        <div key={etiqueta} className="mb-4 w-full">
+                                                                                            <button
+                                                                                                className="flex items-center gap-1 text-sm font-semibold text-green-600 mb-2 focus:outline-none"
+                                                                                                onClick={() => toggleGroup(groupKey)}
+                                                                                            >
+                                                                                                {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                                                                                {etiqueta}
+                                                                                            </button>
+                                                                                            {!isCollapsed && (
+                                                                                                <div className="flex flex-wrap gap-2 overflow-y-auto">
+                                                                                                    {voces.map((voz) => (
+                                                                                                        <div
+                                                                                                            key={voz.id}
+                                                                                                            className="p-3 bg-green-50 rounded-lg hover:bg-green-100 transition cursor-pointer min-w-[180px] max-w-xs flex-1"
+                                                                                                            onClick={() => seekToTime(voz.tiempo_inicio)}
+                                                                                                        >
+                                                                                                            <p className="text-sm font-medium text-gray-900">
+                                                                                                                {formatTime(voz.tiempo_inicio)} - {formatTime(voz.tiempo_fin)}
+                                                                                                            </p>
+                                                                                                        </div>
+                                                                                                    ))}
+                                                                                                </div>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    );
+                                                                                })}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Lipsync */}
+                                                        {activeDetectionTab === 'lipsync' && reportData.registros.lipsync.length > 0 && (
+                                                            <div>
+                                                                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                                                                    <MessageSquare className="w-5 h-5 text-pink-600" />
+                                                                    Anomalías Lipsync
+                                                                </h3>
+                                                                {/* Agrupar por tipo_anomalia */}
+                                                                {Object.entries(
+                                                                    reportData.registros.lipsync.reduce<Record<string, typeof reportData.registros.lipsync>>((acc, lipsync) => {
+                                                                        const key = lipsync.tipo_anomalia || 'Sin tipo';
+                                                                        if (!acc[key]) acc[key] = [];
+                                                                        acc[key].push(lipsync);
+                                                                        return acc;
+                                                                    }, {})
+                                                                ).map(([tipoAnomalia, lipsyncs]) => {
+                                                                    const groupKey = `lipsync-${tipoAnomalia}`;
+                                                                    const isCollapsed = collapsedGroups[groupKey];
+                                                                    return (
+                                                                        <div key={tipoAnomalia} className="mb-6 w-full">
+                                                                            <button
+                                                                                className="flex items-center gap-1 text-md font-semibold text-pink-700 mb-2 focus:outline-none"
+                                                                                onClick={() => toggleGroup(groupKey)}
+                                                                            >
+                                                                                {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                                                                                <span className="text-lg">👄</span> {tipoAnomalia}
+                                                                            </button>
+                                                                            {!isCollapsed && (
+                                                                                <div className="flex flex-wrap gap-2 overflow-y-auto">
+                                                                                    {lipsyncs.map((lipsync) => (
+                                                                                        <div
+                                                                                            key={lipsync.id}
+                                                                                            className="p-3 bg-pink-50 rounded-lg hover:bg-pink-100 transition cursor-pointer min-w-[180px] max-w-xs flex-1"
+                                                                                            onClick={() => seekToTime(lipsync.tiempo_inicio)}
+                                                                                        >
+                                                                                            <p className="text-sm font-medium text-gray-900">
+                                                                                                {formatTime(lipsync.tiempo_inicio)} - {formatTime(lipsync.tiempo_fin)}
+                                                                                            </p>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Rostros */}
+                                                        {activeDetectionTab === 'rostros' && reportData.registros.rostros.length > 0 && (
+                                                            <div>
+                                                                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                                                                    <User className="w-5 h-5 text-blue-600" />
+                                                                    Detección de Rostros
+                                                                </h3>
+                                                                {/* Agrupar por persona_id */}
+                                                                {Object.entries(
+                                                                    reportData.registros.rostros.reduce<Record<string, typeof reportData.registros.rostros>>((acc, rostro) => {
+                                                                        const key = rostro.persona_id?.toString() ?? 'Sin ID';
+                                                                        if (!acc[key]) acc[key] = [];
+                                                                        acc[key].push(rostro);
+                                                                        return acc;
+                                                                    }, {})
+                                                                ).map(([personaId, rostros]) => {
+                                                                    const groupKey = `rostros-${personaId}`;
+                                                                    const isCollapsed = collapsedGroups[groupKey];
+                                                                    return (
+                                                                        <div key={personaId} className="mb-6 w-full">
+                                                                            <button
+                                                                                className="flex items-center gap-1 text-md font-semibold text-blue-700 mb-2 focus:outline-none"
+                                                                                onClick={() => toggleGroup(groupKey)}
+                                                                            >
+                                                                                {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                                                                                <span className="text-lg">🧑</span> Persona #{personaId}
+                                                                            </button>
+                                                                            {!isCollapsed && (
+                                                                                <div className="flex flex-wrap gap-2 overflow-y-auto">
+                                                                                    {rostros.map((rostro) => (
+                                                                                        <div
+                                                                                            key={rostro.id}
+                                                                                            className="p-3 bg-blue-50 rounded-lg hover:bg-blue-100 transition cursor-pointer min-w-[180px] max-w-xs flex-1"
+                                                                                            onClick={() => seekToTime(rostro.tiempo_inicio)}
+                                                                                        >
+                                                                                            <p className="text-sm font-medium text-gray-900">
+                                                                                                {formatTime(rostro.tiempo_inicio)} - {formatTime(rostro.tiempo_fin)}
+                                                                                            </p>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <p className="text-xl font-bold text-gray-700">
-                                            {formatTime(reportData.statistics.tiempo_total_ausencia_segundos)}
-                                        </p>
-                                    </div>
+                                    )}
+
+                                    {/* Tab: Logs de Actividad */}
+                                    {activeTab === 'actividad' && (
+                                        <div className="space-y-6">
+                                            <div className="grid grid-cols-1 gap-6">
+                                                {/* Capturas de Pantalla */}
+                                                <div className="bg-white border border-gray-200 rounded-lg p-6 lg:col-span-2">
+                                                    <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                                                        <Camera className="w-6 h-6 text-cyan-600" />
+                                                        Capturas de Pantalla ({reportData.statistics.total_screenshots})
+                                                    </h3>
+                                                    {reportData.activity_logs.screenshots.length > 0 ? (
+                                                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-h-96 overflow-y-auto">
+                                                            {reportData.activity_logs.screenshots.map((screenshot, index) => (
+                                                                <div
+                                                                    key={screenshot.id}
+                                                                    className="group relative bg-gray-100 rounded-lg overflow-hidden aspect-video hover:ring-2 hover:ring-blue-500 transition cursor-pointer"
+                                                                    onClick={() => screenshot.url && openGallery(index)}
+                                                                >
+                                                                    {screenshot.url ? (
+                                                                        <>
+                                                                            <img
+                                                                                src={screenshot.url}
+                                                                                alt={`Captura ${screenshot.id}`}
+                                                                                className="w-full h-full object-cover"
+                                                                            />
+                                                                            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-all flex items-center justify-center">
+                                                                                <span className="text-white opacity-0 group-hover:opacity-100 text-sm font-medium">
+                                                                                    Ver completa
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2">
+                                                                                <p className="text-white text-xs">
+                                                                                    {new Date(screenshot.timestamp).toLocaleString('es-ES', {
+                                                                                        hour: '2-digit',
+                                                                                        minute: '2-digit',
+                                                                                        day: '2-digit',
+                                                                                        month: '2-digit'
+                                                                                    })}
+                                                                                </p>
+                                                                            </div>
+                                                                        </>
+                                                                    ) : (
+                                                                        <div className="w-full h-full flex items-center justify-center">
+                                                                            <Camera className="w-8 h-8 text-gray-400" />
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <p className="text-gray-500 text-center py-8">No hay capturas registradas</p>
+                                                    )}
+                                                </div>
+
+                                                {/* Peticiones Bloqueadas */}
+                                                <div className="bg-white border border-gray-200 rounded-lg p-6">
+                                                    <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                                                        <Shield className="w-6 h-6 text-red-600" />
+                                                        Peticiones Bloqueadas ({reportData.statistics.total_blocked_requests})
+                                                    </h3>
+                                                    {reportData.activity_logs.blocked_requests.length > 0 ? (
+                                                        <div className="space-y-2 max-h-96 overflow-y-auto">
+                                                            {reportData.activity_logs.blocked_requests.map((request) => (
+                                                                <div
+                                                                    key={request.id}
+                                                                    className="p-3 bg-red-50 rounded-lg hover:bg-red-100 transition"
+                                                                >
+                                                                    <div className="flex items-start gap-2">
+                                                                        <Shield className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <p className="text-sm font-medium text-gray-900 break-words">
+                                                                                {request.message.replace(/⛔/g, '').replace(/Blocked URL:/g, '').trim()}
+                                                                            </p>
+                                                                            <p className="text-xs text-gray-600 mt-1">
+                                                                                {new Date(request.timestamp).toLocaleString('es-ES')}
+                                                                            </p>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <p className="text-gray-500 text-center py-8">No hay peticiones bloqueadas</p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
-
-                            {/* Detalle de Registros */}
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                {/* Ausencias */}
-                                {reportData.registros.ausencias.length > 0 && (
-                                    <div className="bg-white rounded-lg border border-gray-200 p-6">
-                                        <h3 className="text-md font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                                            <UserX className="w-5 h-5 text-red-600" />
-                                            Ausencias Detectadas ({reportData.registros.ausencias.length})
-                                        </h3>
-                                        <div className="space-y-2 max-h-64 overflow-y-auto">
-                                            {reportData.registros.ausencias.map((ausencia) => (
-                                                <div
-                                                    key={ausencia.id}
-                                                    className="flex items-center justify-between p-3 bg-red-50 rounded-lg hover:bg-red-100 transition cursor-pointer"
-                                                    onClick={() => seekToTime(ausencia.tiempo_inicio)}
-                                                >
-                                                    <div>
-                                                        <p className="text-sm font-medium text-gray-900">
-                                                            Duración: {formatTime(ausencia.duracion)}
-                                                        </p>
-                                                        <p className="text-xs text-gray-600">
-                                                            {formatTime(ausencia.tiempo_inicio)} - {formatTime(ausencia.tiempo_fin)}
-                                                        </p>
-                                                    </div>
-                                                    <button className="text-blue-600 hover:text-blue-800 text-xs">
-                                                        Ver
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Gestos */}
-                                {reportData.registros.gestos.length > 0 && (
-                                    <div className="bg-white rounded-lg border border-gray-200 p-6">
-                                        <h3 className="text-md font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                                            <Eye className="w-5 h-5 text-purple-600" />
-                                            Gestos Detectados ({reportData.registros.gestos.length})
-                                        </h3>
-                                        <div className="space-y-2 max-h-64 overflow-y-auto">
-                                            {reportData.registros.gestos.map((gesto) => (
-                                                <div
-                                                    key={gesto.id}
-                                                    className="flex items-center justify-between p-3 bg-purple-50 rounded-lg hover:bg-purple-100 transition cursor-pointer"
-                                                    onClick={() => seekToTime(gesto.tiempo_inicio)}
-                                                >
-                                                    <div>
-                                                        <p className="text-sm font-medium text-gray-900">{gesto.tipo_gesto}</p>
-                                                        <p className="text-xs text-gray-600">
-                                                            {formatTime(gesto.tiempo_inicio)} - Duración: {formatTime(gesto.duracion)}
-                                                        </p>
-                                                    </div>
-                                                    <button className="text-blue-600 hover:text-blue-800 text-xs">
-                                                        Ver
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Iluminación */}
-                                {reportData.registros.iluminacion.length > 0 && (
-                                    <div className="bg-white rounded-lg border border-gray-200 p-6">
-                                        <h3 className="text-md font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                                            <Lightbulb className="w-5 h-5 text-yellow-600" />
-                                            Anomalías de Iluminación ({reportData.registros.iluminacion.length})
-                                        </h3>
-                                        <div className="space-y-2 max-h-64 overflow-y-auto">
-                                            {reportData.registros.iluminacion.map((ilum) => (
-                                                <div
-                                                    key={ilum.id}
-                                                    className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg hover:bg-yellow-100 transition cursor-pointer"
-                                                    onClick={() => seekToTime(ilum.tiempo_inicio)}
-                                                >
-                                                    <div>
-                                                        <p className="text-sm font-medium text-gray-900">Problema de iluminación</p>
-                                                        <p className="text-xs text-gray-600">
-                                                            {formatTime(ilum.tiempo_inicio)} - {formatTime(ilum.tiempo_fin)}
-                                                        </p>
-                                                    </div>
-                                                    <button className="text-blue-600 hover:text-blue-800 text-xs">
-                                                        Ver
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Voz */}
-                                {reportData.registros.voz.length > 0 && (
-                                    <div className="bg-white rounded-lg border border-gray-200 p-6">
-                                        <h3 className="text-md font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                                            <Volume2 className="w-5 h-5 text-green-600" />
-                                            Análisis de Voz ({reportData.registros.voz.length})
-                                        </h3>
-                                        <div className="space-y-2 max-h-64 overflow-y-auto">
-                                            {reportData.registros.voz.map((voz) => (
-                                                <div
-                                                    key={voz.id}
-                                                    className="flex items-center justify-between p-3 bg-green-50 rounded-lg hover:bg-green-100 transition cursor-pointer"
-                                                    onClick={() => seekToTime(voz.tiempo_inicio)}
-                                                >
-                                                    <div>
-                                                        <p className="text-sm font-medium text-gray-900">
-                                                            {voz.tipo_log === 'susurro' ? '🤫 Susurro' : `🗣️ ${voz.etiqueta_hablante || 'Hablante'}`}
-                                                        </p>
-                                                        <p className="text-xs text-gray-600">
-                                                            {formatTime(voz.tiempo_inicio)} - {formatTime(voz.tiempo_fin)}
-                                                        </p>
-                                                    </div>
-                                                    <button className="text-blue-600 hover:text-blue-800 text-xs">
-                                                        Ver
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Lipsync */}
-                                {reportData.registros.lipsync.length > 0 && (
-                                    <div className="bg-white rounded-lg border border-gray-200 p-6">
-                                        <h3 className="text-md font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                                            <MessageSquare className="w-5 h-5 text-pink-600" />
-                                            Anomalías Lipsync ({reportData.registros.lipsync.length})
-                                        </h3>
-                                        <div className="space-y-2 max-h-64 overflow-y-auto">
-                                            {reportData.registros.lipsync.map((lipsync) => (
-                                                <div
-                                                    key={lipsync.id}
-                                                    className="flex items-center justify-between p-3 bg-pink-50 rounded-lg hover:bg-pink-100 transition cursor-pointer"
-                                                    onClick={() => seekToTime(lipsync.tiempo_inicio)}
-                                                >
-                                                    <div>
-                                                        <p className="text-sm font-medium text-gray-900">{lipsync.tipo_anomalia}</p>
-                                                        <p className="text-xs text-gray-600">
-                                                            {formatTime(lipsync.tiempo_inicio)} - {formatTime(lipsync.tiempo_fin)}
-                                                        </p>
-                                                    </div>
-                                                    <button className="text-blue-600 hover:text-blue-800 text-xs">
-                                                        Ver
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Rostros */}
-                                {reportData.registros.rostros.length > 0 && (
-                                    <div className="bg-white rounded-lg border border-gray-200 p-6">
-                                        <h3 className="text-md font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                                            <User className="w-5 h-5 text-blue-600" />
-                                            Detección de Rostros ({reportData.registros.rostros.length} registros)
-                                        </h3>
-                                        <div className="space-y-2 max-h-64 overflow-y-auto">
-                                            {reportData.registros.rostros.slice(0, 10).map((rostro) => (
-                                                <div
-                                                    key={rostro.id}
-                                                    className="flex items-center justify-between p-3 bg-blue-50 rounded-lg hover:bg-blue-100 transition cursor-pointer"
-                                                    onClick={() => seekToTime(rostro.tiempo_inicio)}
-                                                >
-                                                    <div>
-                                                        <p className="text-sm font-medium text-gray-900">Persona #{rostro.persona_id}</p>
-                                                        <p className="text-xs text-gray-600">
-                                                            {formatTime(rostro.tiempo_inicio)} - {formatTime(rostro.tiempo_fin)}
-                                                        </p>
-                                                    </div>
-                                                    <button className="text-blue-600 hover:text-blue-800 text-xs">
-                                                        Ver
-                                                    </button>
-                                                </div>
-                                            ))}
-                                            {reportData.registros.rostros.length > 10 && (
-                                                <p className="text-xs text-gray-500 text-center pt-2">
-                                                    ... y {reportData.registros.rostros.length - 10} registros más
-                                                </p>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Información adicional */}
-                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                                <p className="text-sm text-blue-800">
-                                    <strong>Nota:</strong> Haz clic en cualquier registro para ver ese momento en el video.
-                                    Los tiempos mostrados corresponden a las marcas temporales detectadas durante el análisis.
-                                </p>
                             </div>
                         </div>
                     )}
                 </div>
             </div>
+
+            {/* Modal de Galería de Capturas */}
+            {isGalleryOpen && reportData && reportData.activity_logs.screenshots[currentImageIndex] && (
+                <div
+                    className="fixed inset-0 bg-black bg-opacity-95 flex items-center justify-center z-50"
+                    onClick={closeGallery}
+                >
+                    {/* Botón Cerrar */}
+                    <button
+                        onClick={closeGallery}
+                        className="absolute top-6 right-6 z-20 p-3 bg-white rounded-full hover:bg-gray-200 transition shadow-lg"
+                    >
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+
+                    {/* Botón Anterior (fuera de la imagen) */}
+                    {currentImageIndex > 0 && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                goToPrevious();
+                            }}
+                            className="absolute left-8 z-20 p-4 bg-white rounded-full hover:bg-gray-200 transition shadow-lg"
+                        >
+                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                            </svg>
+                        </button>
+                    )}
+
+                    {/* Contenedor de Imagen */}
+                    <div
+                        className="flex flex-col items-center justify-center max-w-[85vw] max-h-screen px-24"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <img
+                            src={reportData.activity_logs.screenshots[currentImageIndex].url || ''}
+                            alt={`Captura ${currentImageIndex + 1}`}
+                            className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                        />
+                        <div className="mt-4 text-white text-center">
+                            <p className="text-lg font-semibold">
+                                Captura {currentImageIndex + 1} de {reportData.activity_logs.screenshots.length}
+                            </p>
+                            <p className="text-sm text-gray-300 mt-1">
+                                {new Date(reportData.activity_logs.screenshots[currentImageIndex].timestamp).toLocaleString('es-ES', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                    second: '2-digit'
+                                })}
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Botón Siguiente (fuera de la imagen) */}
+                    {currentImageIndex < reportData.activity_logs.screenshots.length - 1 && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                goToNext();
+                            }}
+                            className="absolute right-8 z-20 p-4 bg-white rounded-full hover:bg-gray-200 transition shadow-lg"
+                        >
+                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                        </button>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
