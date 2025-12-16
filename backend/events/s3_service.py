@@ -212,32 +212,9 @@ class S3Service:
             logger.error(f"Error uploading media fragment: {e}")
             return {"success": False, "error": f"Upload failed: {str(e)}"}
 
-    def generate_public_url(self, key):
-        """
-        Genera una URL pública permanente para acceder a un archivo en S3.
-        Esta URL no expira y funciona siempre que el archivo sea público.
-
-        Args:
-            key (str): Clave del archivo en S3
-
-        Returns:
-            str: URL pública o None si hay error
-        """
-        if not self.is_configured():
-            return None
-
-        try:
-            # Generar URL pública sin firma
-            url = f"https://{self.bucket_name}.s3.{self.region}.amazonaws.com/{key}"
-            return url
-        except Exception as e:
-            logger.error(f"Error generating public URL for {key}: {e}")
-            return None
-
     def generate_presigned_url(self, key, expiration=3600):
         """
         Genera una URL pre-firmada para acceder a un archivo privado en S3.
-        NOTA: Para URLs permanentes, usar generate_public_url() en su lugar.
 
         Args:
             key (str): Clave del archivo en S3
