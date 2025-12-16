@@ -18,7 +18,7 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
     const [reportData, setReportData] = useState<AnalysisReport | null>(null);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
-    const [activeTab, setActiveTab] = useState<'resumen' | 'comportamiento' | 'actividad'>('resumen');
+    const [activeTab, setActiveTab] = useState<'resumen' | 'comportamiento' | 'actividad' | 'puntuaciones'>('resumen');
     const videoRef = useRef<HTMLVideoElement>(null);
     const videoRefreshAttempts = useRef<number>(0);
     const screenshotRefreshAttempts = useRef<number>(0);
@@ -300,6 +300,15 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                     >
                                         📝 Logs de Actividad
                                     </button>
+                                    <button
+                                        onClick={() => setActiveTab('puntuaciones')}
+                                        className={`px-6 py-4 text-sm font-medium transition-colors ${activeTab === 'puntuaciones'
+                                            ? 'border-b-2 border-blue-600 text-blue-600'
+                                            : 'text-gray-600 hover:text-gray-900'
+                                            }`}
+                                    >
+                                        📊 Puntuaciones
+                                    </button>
                                 </div>
 
                                 {/* Contenido de las pestañas */}
@@ -307,6 +316,34 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                     {/* Tab: Resumen General */}
                                     {activeTab === 'resumen' && (
                                         <div className="space-y-6">
+                                            {/* Información de Monitoreo */}
+                                            <div>
+                                                <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                                    <Timer className="w-6 h-6 text-indigo-600" />
+                                                    Información de Monitoreo
+                                                </h2>
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                    <div className="bg-indigo-50 p-6 rounded-lg text-center">
+                                                        <p className="text-sm text-gray-600 mb-2">Tiempo Total de Monitoreo</p>
+                                                        <p className="text-3xl font-bold text-indigo-700">
+                                                            {formatTime(reportData.monitoring.total_duration_seconds)}
+                                                        </p>
+                                                    </div>
+                                                    <div className="bg-indigo-50 p-6 rounded-lg text-center">
+                                                        <p className="text-sm text-gray-600 mb-2">Sesiones de Monitoreo</p>
+                                                        <p className="text-3xl font-bold text-indigo-700">{reportData.monitoring.sessions_count}</p>
+                                                    </div>
+                                                    <div className="bg-indigo-50 p-6 rounded-lg text-center">
+                                                        <p className="text-sm text-gray-600 mb-2">Último Registro de Monitoreo</p>
+                                                        <p className="text-lg font-medium text-indigo-700">
+                                                            {reportData.monitoring.last_change
+                                                                ? new Date(reportData.monitoring.last_change).toLocaleString('es-ES')
+                                                                : 'N/A'}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+
                                             {/* Estadísticas Principales */}
                                             <div>
                                                 <h2 className="text-xl font-bold text-gray-900 mb-4">Estadísticas Generales</h2>
@@ -352,34 +389,6 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                         <AlertTriangle className="w-8 h-8 text-orange-600 mx-auto mb-2" />
                                                         <p className="text-3xl font-bold text-orange-700">{reportData.statistics.total_anomalias_voz}</p>
                                                         <p className="text-sm text-gray-600 mt-1">Susurros</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Información de Monitoreo */}
-                                            <div>
-                                                <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                                                    <Timer className="w-6 h-6 text-indigo-600" />
-                                                    Información de Monitoreo
-                                                </h2>
-                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                                    <div className="bg-indigo-50 p-6 rounded-lg text-center">
-                                                        <p className="text-sm text-gray-600 mb-2">Tiempo Total de Monitoreo</p>
-                                                        <p className="text-3xl font-bold text-indigo-700">
-                                                            {formatTime(reportData.monitoring.total_duration_seconds)}
-                                                        </p>
-                                                    </div>
-                                                    <div className="bg-indigo-50 p-6 rounded-lg text-center">
-                                                        <p className="text-sm text-gray-600 mb-2">Sesiones de Monitoreo</p>
-                                                        <p className="text-3xl font-bold text-indigo-700">{reportData.monitoring.sessions_count}</p>
-                                                    </div>
-                                                    <div className="bg-indigo-50 p-6 rounded-lg text-center">
-                                                        <p className="text-sm text-gray-600 mb-2">Último Registro de Monitoreo</p>
-                                                        <p className="text-lg font-medium text-indigo-700">
-                                                            {reportData.monitoring.last_change
-                                                                ? new Date(reportData.monitoring.last_change).toLocaleString('es-ES')
-                                                                : 'N/A'}
-                                                        </p>
                                                     </div>
                                                 </div>
                                             </div>
@@ -804,6 +813,313 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                     </div>
                                                 </div>
                                             </div>
+                                        </div>
+                                    )}
+
+                                    {/* Tab: Puntuaciones */}
+                                    {activeTab === 'puntuaciones' && (
+                                        <div className="space-y-6">
+                                            {/* Función auxiliar para calcular puntuaciones */}
+                                            {(() => {
+                                                const duracionTotal = reportData.monitoring.total_duration_seconds || 1;
+
+                                                // 1. Presencia Continua (100 - penalización por ausencias)
+                                                const tiempoAusencia = reportData.statistics.tiempo_total_ausencia_segundos;
+                                                const porcentajeAusencia = (tiempoAusencia / duracionTotal) * 100;
+                                                const puntuacionPresencia = Math.max(0, 100 - (porcentajeAusencia * 2));
+
+                                                // 2. Comportamiento Visual (penalización por gestos sospechosos)
+                                                const gestosTotal = reportData.statistics.total_gestos;
+                                                const penalizacionGestos = Math.min(40, gestosTotal * 2);
+                                                const puntuacionComportamiento = Math.max(0, 100 - penalizacionGestos);
+
+                                                // 3. Calidad de Audio (penalización por susurros y múltiples hablantes)
+                                                const susurros = reportData.statistics.total_anomalias_voz;
+                                                const hablantes = reportData.statistics.total_hablantes;
+                                                const penalizacionAudio = Math.min(50, (susurros * 5) + ((hablantes - 1) * 10));
+                                                const puntuacionAudio = Math.max(0, 100 - penalizacionAudio);
+
+                                                // 4. Sincronización Labial
+                                                const anomaliasLipsync = reportData.statistics.total_anomalias_lipsync;
+                                                const penalizacionLipsync = Math.min(60, anomaliasLipsync * 8);
+                                                const puntuacionLipsync = Math.max(0, 100 - penalizacionLipsync);
+
+                                                // 5. Condiciones de Iluminación
+                                                const anomaliasIlum = reportData.statistics.total_anomalias_iluminacion;
+                                                const penalizacionIlum = Math.min(50, anomaliasIlum * 6);
+                                                const puntuacionIluminacion = Math.max(0, 100 - penalizacionIlum);
+
+                                                // 6. Consistencia de Identidad (basado en personas únicas detectadas)
+                                                const personasUnicas = new Set(
+                                                    reportData.registros.rostros
+                                                        .map(r => r.persona_id)
+                                                        .filter(id => id !== null && id !== undefined)
+                                                ).size;
+                                                const totalRegistrosRostro = reportData.registros.rostros.length;
+
+                                                // Base: 100 puntos si solo hay 1 persona
+                                                let puntuacionIdentidad = 100;
+
+                                                // Penalización por personas adicionales (muy grave)
+                                                if (personasUnicas > 1) {
+                                                    puntuacionIdentidad -= (personasUnicas - 1) * 40; // -40 puntos por cada persona extra
+                                                }
+
+                                                // Penalización leve si hay muy pocos registros (podría ser evasión)
+                                                if (totalRegistrosRostro < 3) {
+                                                    puntuacionIdentidad -= 20;
+                                                }
+
+                                                puntuacionIdentidad = Math.max(0, puntuacionIdentidad);
+
+                                                // 7. Navegación y Actividad (penalización por peticiones bloqueadas)
+                                                const peticionesBloqueadas = reportData.statistics.total_blocked_requests;
+                                                const penalizacionNavegacion = Math.min(70, peticionesBloqueadas * 5);
+                                                const puntuacionNavegacion = Math.max(0, 100 - penalizacionNavegacion);
+
+                                                // 8. Continuidad de la Sesión (basado en interrupciones)
+                                                const sesiones = reportData.monitoring.sessions_count;
+                                                const penalizacionContinuidad = Math.min(50, (sesiones - 1) * 15); // Penaliza cada sesión adicional
+                                                const puntuacionContinuidad = Math.max(0, 100 - penalizacionContinuidad);
+
+                                                // Puntuación General (promedio ponderado)
+                                                const puntuacionGeneral = (
+                                                    puntuacionPresencia * 0.28 +
+                                                    puntuacionComportamiento * 0.14 +
+                                                    puntuacionAudio * 0.14 +
+                                                    puntuacionLipsync * 0.14 +
+                                                    puntuacionIluminacion * 0.10 +
+                                                    puntuacionIdentidad * 0.10 +
+                                                    puntuacionNavegacion * 0.05 +
+                                                    puntuacionContinuidad * 0.05
+                                                );
+
+                                                const getColorClass = (score: number) => {
+                                                    if (score >= 85) return 'text-green-600 bg-green-50 border-green-200';
+                                                    if (score >= 70) return 'text-yellow-600 bg-yellow-50 border-yellow-200';
+                                                    if (score >= 50) return 'text-orange-600 bg-orange-50 border-orange-200';
+                                                    return 'text-red-600 bg-red-50 border-red-200';
+                                                };
+
+                                                const getColorBar = (score: number) => {
+                                                    if (score >= 85) return 'bg-green-500';
+                                                    if (score >= 70) return 'bg-yellow-500';
+                                                    if (score >= 50) return 'bg-orange-500';
+                                                    return 'bg-red-500';
+                                                };
+
+                                                const dimensiones = [
+                                                    {
+                                                        nombre: 'Presencia Continua',
+                                                        puntuacion: puntuacionPresencia,
+                                                        descripcion: 'Evaluación de la presencia del participante durante la evaluación',
+                                                        icono: '👤',
+                                                        metricas: [
+                                                            { label: 'Tiempo total de ausencia', valor: formatTime(tiempoAusencia) },
+                                                            { label: 'Porcentaje de ausencia', valor: `${porcentajeAusencia.toFixed(1)}%` },
+                                                            { label: 'Ausencias detectadas', valor: reportData.statistics.total_ausencias }
+                                                        ]
+                                                    },
+                                                    {
+                                                        nombre: 'Comportamiento Visual',
+                                                        puntuacion: puntuacionComportamiento,
+                                                        descripcion: 'Análisis de gestos y comportamientos visuales durante la evaluación',
+                                                        icono: '👁️',
+                                                        metricas: [
+                                                            { label: 'Gestos detectados', valor: gestosTotal },
+                                                            { label: 'Frecuencia promedio', valor: `${(gestosTotal / (duracionTotal / 60)).toFixed(1)}/min` }
+                                                        ]
+                                                    },
+                                                    {
+                                                        nombre: 'Calidad de Audio',
+                                                        puntuacion: puntuacionAudio,
+                                                        descripcion: 'Evaluación de la calidad del audio y detección de múltiples voces',
+                                                        icono: '🎤',
+                                                        metricas: [
+                                                            { label: 'Susurros detectados', valor: susurros },
+                                                            { label: 'Hablantes identificados', valor: hablantes }
+                                                        ]
+                                                    },
+                                                    {
+                                                        nombre: 'Sincronización Labial',
+                                                        puntuacion: puntuacionLipsync,
+                                                        descripcion: 'Análisis de sincronización entre labios y audio',
+                                                        icono: '💬',
+                                                        metricas: [
+                                                            { label: 'Anomalías detectadas', valor: anomaliasLipsync },
+                                                            { label: 'Tasa de anomalías', valor: `${((anomaliasLipsync / (duracionTotal / 60)) || 0).toFixed(1)}/min` }
+                                                        ]
+                                                    },
+                                                    {
+                                                        nombre: 'Condiciones de Iluminación',
+                                                        puntuacion: puntuacionIluminacion,
+                                                        descripcion: 'Evaluación de las condiciones de iluminación durante la evaluación',
+                                                        icono: '💡',
+                                                        metricas: [
+                                                            { label: 'Anomalías detectadas', valor: anomaliasIlum },
+                                                            { label: 'Frecuencia', valor: `${((anomaliasIlum / (duracionTotal / 60)) || 0).toFixed(1)}/min` }
+                                                        ]
+                                                    },
+                                                    {
+                                                        nombre: 'Consistencia de Identidad',
+                                                        puntuacion: puntuacionIdentidad,
+                                                        descripcion: 'Verificación de personas únicas detectadas durante la evaluación',
+                                                        icono: '🎭',
+                                                        metricas: [
+                                                            { label: 'Personas únicas detectadas', valor: personasUnicas },
+                                                            { label: 'Intervalos de detección', valor: totalRegistrosRostro },
+                                                            { label: 'Estado', valor: personasUnicas === 1 ? '✅ Solo el participante' : `⚠️ ${personasUnicas} personas diferentes` }
+                                                        ]
+                                                    },
+                                                    {
+                                                        nombre: 'Navegación y Seguridad',
+                                                        puntuacion: puntuacionNavegacion,
+                                                        descripcion: 'Evaluación de intentos de navegación no permitida',
+                                                        icono: '🔒',
+                                                        metricas: [
+                                                            { label: 'Peticiones bloqueadas', valor: peticionesBloqueadas },
+                                                            { label: 'Intentos por minuto', valor: `${((peticionesBloqueadas / (duracionTotal / 60)) || 0).toFixed(1)}/min` }
+                                                        ]
+                                                    },
+                                                    {
+                                                        nombre: 'Continuidad de la Sesión',
+                                                        puntuacion: puntuacionContinuidad,
+                                                        descripcion: 'Evaluación de interrupciones y pausas durante la evaluación',
+                                                        icono: '🔄',
+                                                        metricas: [
+                                                            { label: 'Sesiones de monitoreo', valor: sesiones },
+                                                            { label: 'Interrupciones', valor: sesiones > 1 ? sesiones - 1 : 0 },
+                                                            { label: 'Duración', valor: formatTime(duracionTotal / sesiones) }
+                                                        ]
+                                                    }
+                                                ];
+
+                                                return (
+                                                    <>
+                                                        {/* Puntuación General */}
+                                                        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-xl p-8 shadow-lg">
+                                                            <div className="text-center">
+                                                                <h2 className="text-3xl font-bold text-gray-900 mb-2">Puntuación General</h2>
+                                                                <div className={`inline-block px-8 py-6 rounded-2xl border-2 ${getColorClass(puntuacionGeneral)} mb-4`}>
+                                                                    <p className="text-7xl font-bold">{puntuacionGeneral.toFixed(1)}</p>
+                                                                    <p className="text-xl font-semibold mt-2">de 100</p>
+                                                                </div>
+                                                                <p className="text-gray-600 mt-4 text-lg">
+                                                                    {puntuacionGeneral >= 85 && '🎉 Excelente desempeño. No se detectaron anomalías significativas.'}
+                                                                    {puntuacionGeneral >= 70 && puntuacionGeneral < 85 && '✅ Buen desempeño. Se detectaron algunas anomalías menores.'}
+                                                                    {puntuacionGeneral >= 50 && puntuacionGeneral < 70 && '⚠️ Desempeño regular. Se detectaron varias anomalías que requieren atención.'}
+                                                                    {puntuacionGeneral < 50 && '🚨 Desempeño deficiente. Se detectaron múltiples anomalías significativas.'}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Dimensiones Evaluadas */}
+                                                        <div>
+                                                            <h2 className="text-2xl font-bold text-gray-900 mb-6">Evaluación por Dimensiones</h2>
+                                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                                                {dimensiones.map((dim, index) => (
+                                                                    <div key={index} className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-lg transition">
+                                                                        <div className="flex items-start gap-4">
+                                                                            <div className="text-5xl">{dim.icono}</div>
+                                                                            <div className="flex-1">
+                                                                                <h3 className="text-xl font-bold text-gray-900 mb-2">{dim.nombre}</h3>
+                                                                                <p className="text-sm text-gray-600 mb-4">{dim.descripcion}</p>
+
+                                                                                {/* Barra de Progreso */}
+                                                                                <div className="mb-4">
+                                                                                    <div className="flex justify-between items-center mb-2">
+                                                                                        <span className="text-sm font-semibold text-gray-700">Puntuación</span>
+                                                                                        <span className={`text-lg font-bold ${getColorClass(dim.puntuacion).split(' ')[0]}`}>
+                                                                                            {dim.puntuacion.toFixed(1)}/100
+                                                                                        </span>
+                                                                                    </div>
+                                                                                    <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                                                                                        <div
+                                                                                            className={`h-full rounded-full transition-all duration-500 ${getColorBar(dim.puntuacion)}`}
+                                                                                            style={{ width: `${dim.puntuacion}%` }}
+                                                                                        />
+                                                                                    </div>
+                                                                                </div>
+
+                                                                                {/* Métricas */}
+                                                                                <div className="space-y-2">
+                                                                                    {dim.metricas.map((metrica, idx) => (
+                                                                                        <div key={idx} className="flex justify-between items-center text-sm">
+                                                                                            <span className="text-gray-600">{metrica.label}:</span>
+                                                                                            <span className="font-semibold text-gray-900">{metrica.valor}</span>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Gráfico Radar de Dimensiones */}
+                                                        <div className="bg-white border border-gray-200 rounded-xl p-6">
+                                                            <h2 className="text-xl font-bold text-gray-900 mb-6">Resumen Visual de Dimensiones</h2>
+                                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                                                {dimensiones.map((dim, index) => (
+                                                                    <div key={index} className="text-center">
+                                                                        <div className={`inline-block px-4 py-3 rounded-lg border ${getColorClass(dim.puntuacion)}`}>
+                                                                            <div className="text-3xl mb-1">{dim.icono}</div>
+                                                                            <p className="text-2xl font-bold">{dim.puntuacion.toFixed(0)}</p>
+                                                                        </div>
+                                                                        <p className="text-xs text-gray-600 mt-2 font-medium">{dim.nombre}</p>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Recomendaciones */}
+                                                        <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
+                                                            <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                                                <span className="text-2xl">💡</span>
+                                                                Observaciones y Recomendaciones
+                                                            </h2>
+                                                            <div className="space-y-3">
+                                                                {puntuacionPresencia < 70 && (
+                                                                    <div className="bg-white p-4 rounded-lg border border-red-200">
+                                                                        <p className="text-sm text-gray-800">
+                                                                            <strong className="text-red-600">⚠️ Presencia:</strong> Se detectaron ausencias significativas durante la evaluación. Revisar los momentos específicos de ausencia.
+                                                                        </p>
+                                                                    </div>
+                                                                )}
+                                                                {puntuacionComportamiento < 70 && (
+                                                                    <div className="bg-white p-4 rounded-lg border border-yellow-200">
+                                                                        <p className="text-sm text-gray-800">
+                                                                            <strong className="text-yellow-600">⚠️ Comportamiento:</strong> Se detectaron múltiples gestos sospechosos. Revisar el análisis de comportamiento visual.
+                                                                        </p>
+                                                                    </div>
+                                                                )}
+                                                                {puntuacionAudio < 70 && (
+                                                                    <div className="bg-white p-4 rounded-lg border border-orange-200">
+                                                                        <p className="text-sm text-gray-800">
+                                                                            <strong className="text-orange-600">⚠️ Audio:</strong> Se detectaron anomalías en el audio (susurros o múltiples voces). Revisar los registros de voz.
+                                                                        </p>
+                                                                    </div>
+                                                                )}
+                                                                {peticionesBloqueadas > 5 && (
+                                                                    <div className="bg-white p-4 rounded-lg border border-red-200">
+                                                                        <p className="text-sm text-gray-800">
+                                                                            <strong className="text-red-600">🚨 Seguridad:</strong> Se detectaron múltiples intentos de navegación no permitida. Revisar las peticiones bloqueadas.
+                                                                        </p>
+                                                                    </div>
+                                                                )}
+                                                                {puntuacionGeneral >= 85 && (
+                                                                    <div className="bg-white p-4 rounded-lg border border-green-200">
+                                                                        <p className="text-sm text-gray-800">
+                                                                            <strong className="text-green-600">✅ Evaluación Normal:</strong> No se detectaron anomalías significativas. El participante completó la evaluación de manera satisfactoria.
+                                                                        </p>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </>
+                                                );
+                                            })()}
                                         </div>
                                     )}
 
