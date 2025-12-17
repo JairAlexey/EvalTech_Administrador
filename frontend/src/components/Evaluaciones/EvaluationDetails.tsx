@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Users, Calendar, Clock, User, Monitor, FileText, Loader, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Users, Calendar, Clock, User, Monitor, FileText, Loader, AlertCircle, Lock, Unlock } from 'lucide-react';
 import Sidebar from '../utils/Sidebar';
 import evaluationService, { type EvaluationDetail } from '../../services/evaluationService';
+import eventService from '../../services/eventService';
 
 interface EvaluationDetailsProps {
   evaluationId: string;
@@ -16,6 +17,13 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
   const [evaluation, setEvaluation] = useState<EvaluationDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedParticipants, setSelectedParticipants] = useState<string[]>([]);
+  const [blockingParticipants, setBlockingParticipants] = useState(false);
+  
+  // Estados para el modal
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalType, setModalType] = useState<'success' | 'error'>('success');
+  const [modalMessage, setModalMessage] = useState('');
 
   useEffect(() => {
     const fetchEvaluationDetails = async () => {
@@ -43,6 +51,24 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
     }
   }, [evaluationId]);
 
+  // Modal Component
+  const Modal = () => modalVisible ? (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+        <h3 className={`text-lg font-semibold mb-2 ${modalType === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+          {modalType === 'success' ? '✓ Éxito' : '✗ Error'}
+        </h3>
+        <p className="text-gray-700 mb-4">{modalMessage}</p>
+        <button
+          onClick={() => setModalVisible(false)}
+          className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        >
+          Cerrar
+        </button>
+      </div>
+    </div>
+  ) : null;
+
   const handleMonitoring = (participantId: string) => {
     if (onViewMonitoring) {
       onViewMonitoring(participantId);
@@ -53,6 +79,86 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
     console.log('Generar informe para participante:', participantId, participantName);
     if (onViewReport) {
       onViewReport(participantId);
+    }
+  };
+
+  // Selección de participantes
+  const handleSelectParticipant = (participantId: string, checked: boolean) => {
+    if (checked) {
+      setSelectedParticipants([...selectedParticipants, participantId]);
+    } else {
+      setSelectedParticipants(selectedParticipants.filter(id => id !== participantId));
+    }
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked && evaluation) {
+      setSelectedParticipants(evaluation.participants.map(p => p.id));
+    } else {
+      setSelectedParticipants([]);
+    }
+  };
+
+  const allSelected = evaluation ? selectedParticipants.length === evaluation.participants.length && evaluation.participants.length > 0 : false;
+
+  // Verificar si hay participantes bloqueados y desbloqueados seleccionados
+  const selectedParticipantsData = evaluation?.participants.filter(p => selectedParticipants.includes(p.id)) || [];
+  const hasBlockedSelected = selectedParticipantsData.some(p => (p as any).is_blocked);
+  const hasUnblockedSelected = selectedParticipantsData.some(p => !(p as any).is_blocked);
+
+  // Bloquear participantes
+  const handleBlockParticipants = async () => {
+    if (!evaluationId || selectedParticipants.length === 0) return;
+    
+    if (!confirm(`¿Estás seguro de bloquear ${selectedParticipants.length} participante(s)? No podrán iniciar monitoreo.`)) {
+      return;
+    }
+    
+    setBlockingParticipants(true);
+    try {
+      await eventService.blockParticipants(evaluationId, selectedParticipants);
+      setModalType('success');
+      setModalMessage(`${selectedParticipants.length} participante(s) bloqueado(s) exitosamente`);
+      setModalVisible(true);
+      setSelectedParticipants([]);
+      
+      // Recargar datos
+      const data = await evaluationService.getEvaluationDetails(evaluationId);
+      setEvaluation(data);
+    } catch (err: any) {
+      setModalType('error');
+      setModalMessage(err?.message || 'Error al bloquear participantes');
+      setModalVisible(true);
+    } finally {
+      setBlockingParticipants(false);
+    }
+  };
+
+  // Desbloquear participantes
+  const handleUnblockParticipants = async () => {
+    if (!evaluationId || selectedParticipants.length === 0) return;
+    
+    if (!confirm(`¿Estás seguro de desbloquear ${selectedParticipants.length} participante(s)?`)) {
+      return;
+    }
+    
+    setBlockingParticipants(true);
+    try {
+      await eventService.unblockParticipants(evaluationId, selectedParticipants);
+      setModalType('success');
+      setModalMessage(`${selectedParticipants.length} participante(s) desbloqueado(s) exitosamente`);
+      setModalVisible(true);
+      setSelectedParticipants([]);
+      
+      // Recargar datos
+      const data = await evaluationService.getEvaluationDetails(evaluationId);
+      setEvaluation(data);
+    } catch (err: any) {
+      setModalType('error');
+      setModalMessage(err?.message || 'Error al desbloquear participantes');
+      setModalVisible(true);
+    } finally {
+      setBlockingParticipants(false);
     }
   };
 
@@ -247,6 +353,36 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
                     Participantes ({evaluation.participants.length})
                   </h2>
                 </div>
+                <div className="flex gap-3">
+                  {hasUnblockedSelected && (
+                    <button
+                      className={`px-6 py-3 rounded-xl font-medium text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl flex items-center gap-2`}
+                      disabled={selectedParticipants.length === 0 || blockingParticipants}
+                      onClick={handleBlockParticipants}
+                    >
+                      {blockingParticipants ? (
+                        <Loader className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Lock className="w-4 h-4" />
+                      )}
+                      Bloquear ({selectedParticipants.length})
+                    </button>
+                  )}
+                  {hasBlockedSelected && (
+                    <button
+                      className={`px-6 py-3 rounded-xl font-medium text-white bg-green-600 hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl flex items-center gap-2`}
+                      disabled={selectedParticipants.length === 0 || blockingParticipants}
+                      onClick={handleUnblockParticipants}
+                    >
+                      {blockingParticipants ? (
+                        <Loader className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Unlock className="w-4 h-4" />
+                      )}
+                      Desbloquear ({selectedParticipants.length})
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -254,6 +390,15 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
+                    <th className="px-6 py-3 text-center w-16">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={e => handleSelectAll(e.target.checked)}
+                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        aria-label="Seleccionar todos"
+                      />
+                    </th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                       Participante
                     </th>
@@ -268,13 +413,22 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
                 <tbody className="bg-white divide-y divide-gray-200">
                   {evaluation.participants.length === 0 ? (
                     <tr>
-                      <td colSpan={3} className="px-6 py-12 text-center text-gray-500">
+                      <td colSpan={4} className="px-6 py-12 text-center text-gray-500">
                         No hay participantes asignados a esta evaluación
                       </td>
                     </tr>
                   ) : (
                     evaluation.participants.map((participant) => (
                       <tr key={participant.id} className="hover:bg-gray-50 transition">
+                        <td className="px-6 py-4 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedParticipants.includes(participant.id)}
+                            onChange={e => handleSelectParticipant(participant.id, e.target.checked)}
+                            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            aria-label={`Seleccionar ${participant.name}`}
+                          />
+                        </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
                             <div className={`w-10 h-10 rounded-full ${participant.color} flex items-center justify-center`}>
@@ -324,6 +478,8 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
           </div>
         </div>
       </div>
+      {/* Modal para mensajes */}
+      <Modal />
     </div>
   );
 }
