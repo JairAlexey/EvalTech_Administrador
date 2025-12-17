@@ -51,6 +51,15 @@ def validate_event_access(participant_event, now):
     """
     event = participant_event.event
     
+    # Verificar si el participante está bloqueado por el administrador
+    if participant_event.is_blocked:
+        return {
+            "allowed": False,
+            "reason": "Tu acceso ha sido bloqueado por el administrador.",
+            "monitoring_allowed": False,
+            "is_first_connection": False,
+        }
+    
     # Determinar si es primera conexión basado en si ha monitoreado antes
     is_first_connection = participant_event.monitoring_sessions_count == 0
     has_connected_before = not is_first_connection
@@ -1240,16 +1249,24 @@ def event_detail(request, event_id):
     if request.method == "GET":
         # Obtener detalles del evento
         participants = Participant.objects.filter(events=event)
-        participants_data = [
-            {
+        participants_data = []
+        
+        for participant in participants:
+            # Obtener el ParticipantEvent para acceder a is_blocked
+            participant_event = ParticipantEvent.objects.filter(
+                event=event,
+                participant=participant
+            ).first()
+            
+            participants_data.append({
                 "id": participant.id,
                 "name": participant.name,
                 "email": participant.email,
                 "initials": participant.get_initials(),
                 "color": f"bg-{['blue', 'green', 'purple', 'red', 'yellow', 'indigo', 'pink'][participant.id % 7]}-200",
-            }
-            for participant in participants
-        ]
+                "is_blocked": participant_event.is_blocked if participant_event else False,
+                "is_monitoring": participant_event.is_monitoring if participant_event else False,
+            })
 
         # Formatear hora para el frontend
         close_time_str = (
@@ -2200,5 +2217,65 @@ def participant_connection_stats(request, event_id, participant_id):
         return JsonResponse({"error": "Event not found"}, status=404)
     except Participant.DoesNotExist:
         return JsonResponse({"error": "Participant not found"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+@jwt_required(roles=["admin", "superadmin"])
+@require_POST
+def block_participants(request, event_id):
+    """Bloquea participantes seleccionados de un evento"""
+    try:
+        event = Event.objects.get(id=event_id)
+        data = json.loads(request.body)
+        participant_ids = data.get('participant_ids', [])
+        
+        if not participant_ids:
+            return JsonResponse({"error": "No se especificaron participantes"}, status=400)
+        
+        # Bloquear los participantes seleccionados
+        blocked_count = ParticipantEvent.objects.filter(
+            event=event,
+            participant_id__in=participant_ids
+        ).update(is_blocked=True, is_monitoring=False)
+        
+        return JsonResponse({
+            "success": True,
+            "message": f"{blocked_count} participante(s) bloqueado(s) exitosamente"
+        })
+        
+    except Event.DoesNotExist:
+        return JsonResponse({"error": "Evento no encontrado"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+@jwt_required(roles=["admin", "superadmin"])
+@require_POST
+def unblock_participants(request, event_id):
+    """Desbloquea participantes seleccionados de un evento"""
+    try:
+        event = Event.objects.get(id=event_id)
+        data = json.loads(request.body)
+        participant_ids = data.get('participant_ids', [])
+        
+        if not participant_ids:
+            return JsonResponse({"error": "No se especificaron participantes"}, status=400)
+        
+        # Desbloquear los participantes seleccionados
+        unblocked_count = ParticipantEvent.objects.filter(
+            event=event,
+            participant_id__in=participant_ids
+        ).update(is_blocked=False)
+        
+        return JsonResponse({
+            "success": True,
+            "message": f"{unblocked_count} participante(s) desbloqueado(s) exitosamente"
+        })
+        
+    except Event.DoesNotExist:
+        return JsonResponse({"error": "Evento no encontrado"}, status=404)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)

@@ -80,6 +80,8 @@ class ParticipantEvent(models.Model):
     # Indica si el participante pulsó "Empezar monitoreo" y por tanto las capturas/logs
     # deben contarse y mostrarse como activo
     is_monitoring = models.BooleanField(default=False)
+    # Indica si el participante está bloqueado por el administrador
+    is_blocked = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     # Campos de monitoreo (separados del proxy connection)
