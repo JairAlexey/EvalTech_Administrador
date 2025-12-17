@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import Sidebar from '../utils/Sidebar';
 import behaviorAnalysisService, { type AnalysisStatus, type AnalysisReport } from '../../services/behaviorAnalysisService';
-import { User, Clock, AlertTriangle, Eye, Volume2, Lightbulb, MessageSquare, UserX, Activity, Camera, Shield, Timer } from 'lucide-react';
+import { User, Clock, AlertTriangle, Eye, Volume2, Lightbulb, MessageSquare, UserX, Activity, Camera, Shield, Timer, Film } from 'lucide-react';
 
 interface ReportPageProps {
     eventId: string;
@@ -396,11 +396,16 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                             {/* Actividad Registrada */}
                                             <div>
                                                 <h2 className="text-xl font-bold text-gray-900 mb-4">Actividad Registrada</h2>
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                                     <div className="bg-cyan-50 p-6 rounded-lg text-center">
                                                         <Camera className="w-10 h-10 text-cyan-600 mx-auto mb-3" />
                                                         <p className="text-4xl font-bold text-cyan-700 mb-2">{reportData.statistics.total_screenshots}</p>
                                                         <p className="text-sm text-gray-600">Capturas de Pantalla</p>
+                                                    </div>
+                                                    <div className="bg-purple-50 p-6 rounded-lg text-center">
+                                                        <Film className="w-10 h-10 text-purple-600 mx-auto mb-3" />
+                                                        <p className="text-4xl font-bold text-purple-700 mb-2">{reportData.statistics.total_videos}</p>
+                                                        <p className="text-sm text-gray-600">Videos</p>
                                                     </div>
                                                     <div className="bg-red-50 p-6 rounded-lg text-center">
                                                         <Shield className="w-10 h-10 text-red-600 mx-auto mb-3" />

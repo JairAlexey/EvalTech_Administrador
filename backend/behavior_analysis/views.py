@@ -267,7 +267,6 @@ def analysis_report(request, event_id, participant_id):
             "id", "tiempo_inicio", "tiempo_fin", "duracion"
         )
     )
-
     # Obtener logs de actividad del participante (excluyendo keylogger)
     from events.models import ParticipantLog
 
@@ -288,6 +287,11 @@ def analysis_report(request, event_id, participant_id):
             "url": _get_presigned_url(log["url"]) if log["url"] else None,
         }
         screenshots_logs.append(screenshot_data)
+
+    # Contar videos
+    total_videos = ParticipantLog.objects.filter(
+        participant_event=participant_event, name="audio/video"
+    ).count()
 
     # Solo peticiones bloqueadas (las únicas que se guardan en logs HTTP)
     blocked_requests = list(
@@ -341,6 +345,7 @@ def analysis_report(request, event_id, participant_id):
             "total_ausencias": total_ausencias,
             "tiempo_total_ausencia_segundos": round(tiempo_total_ausencia, 2),
             "total_screenshots": len(screenshots_logs),
+            "total_videos": total_videos,
             "total_blocked_requests": len(blocked_requests),
         },
         "registros": {

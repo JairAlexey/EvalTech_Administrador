@@ -45,6 +45,7 @@ export interface AnalysisReport {
     total_ausencias: number;
     tiempo_total_ausencia_segundos: number;
     total_screenshots: number;
+    total_videos: number;
     total_blocked_requests: number;
   };
   registros: {
