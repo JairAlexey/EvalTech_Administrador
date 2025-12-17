@@ -23,6 +23,9 @@ urlpatterns = [
     # Rutas para la gestión de participantes
     path("api/participants", views.participants),
     path("api/participants/<int:participant_id>", views.participant_detail),
+    # Bloquear/desbloquear participantes de un evento
+    path("api/events/<int:event_id>/participants/block", views.block_participants),
+    path("api/events/<int:event_id>/participants/unblock", views.unblock_participants),
     # Importación masiva de participantes y plantilla
     path(
         "api/participants/import", views.import_participants, name="participants_import"

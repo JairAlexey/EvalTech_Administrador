@@ -290,6 +290,68 @@ export const eventService = {
       console.error(`Error al enviar correos para el evento ${eventId}:`, error);
       throw error;
     }
+  },
+
+  /**
+   * Bloquea participantes de un evento
+   * @param eventId ID del evento
+   * @param participantIds IDs de participantes a bloquear
+   */
+  async blockParticipants(eventId: string, participantIds: string[]): Promise<void> {
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        throw new Error('No hay token de autenticación');
+      }
+
+      const response = await fetch(`${API_URL}/events/api/events/${eventId}/participants/block`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ participant_ids: participantIds })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Error al bloquear participantes');
+      }
+    } catch (error) {
+      console.error(`Error al bloquear participantes del evento ${eventId}:`, error);
+      throw error;
+    }
+  },
+
+  /**
+   * Desbloquea participantes de un evento
+   * @param eventId ID del evento
+   * @param participantIds IDs de participantes a desbloquear
+   */
+  async unblockParticipants(eventId: string, participantIds: string[]): Promise<void> {
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        throw new Error('No hay token de autenticación');
+      }
+
+      const response = await fetch(`${API_URL}/events/api/events/${eventId}/participants/unblock`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ participant_ids: participantIds })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Error al desbloquear participantes');
+      }
+    } catch (error) {
+      console.error(`Error al desbloquear participantes del evento ${eventId}:`, error);
+      throw error;
+    }
   }
 };
 
