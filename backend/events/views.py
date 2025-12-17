@@ -11,6 +11,7 @@ from .models import (
     BlockedHost,
     ParticipantEvent,
 )
+from .s3_service import s3_service
 
 from django.views.decorators.csrf import csrf_exempt
 from django.core.serializers.json import DjangoJSONEncoder
@@ -21,8 +22,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.db.models.deletion import RestrictedError
-from authentication.models import CustomUser
-from authentication.models import UserRole
+from authentication.models import CustomUser, UserRole
 from authentication.views import verify_token, get_user_data
 from openpyxl import load_workbook
 from openpyxl.workbook import Workbook
@@ -63,7 +63,7 @@ def validate_event_access(participant_event, now):
     # Determinar si es primera conexión basado en si ha monitoreado antes
     is_first_connection = participant_event.monitoring_sessions_count == 0
     has_connected_before = not is_first_connection
-    
+
     # Regla 1: Nadie puede entrar después de end_date (fecha final absoluta)
     if now > event.end_date:
         return {
@@ -168,14 +168,14 @@ def verify_event_key(request):
                 "isValid": True,
                 "dateIsValid": dateIsValid,
                 "participant": {
-                    "name": participant.name, 
+                    "name": participant.name,
                     "email": participant.email,
-                    "monitoring_total_duration": participant_event.monitoring_total_duration
+                    "monitoring_total_duration": participant_event.monitoring_total_duration,
                 },
                 "event": {
-                    "name": event.name, 
+                    "name": event.name,
                     "id": event.id,
-                    "duration": event.duration
+                    "duration": event.duration,
                 },
                 "connectionInfo": connection_info,
             }
@@ -210,8 +210,21 @@ def get_participant_event(event_key):
 
 
 def _validate_participant_fields(
-    first_name: str, last_name: str, email: str, seen_emails: set
+    first_name: str, last_name: str, email: str, seen_emails: set, participant_id: int = None, ids_in_excel: set = None
 ):
+    """Valida campos de participante.
+    
+    Args:
+        first_name: Nombre del participante
+        last_name: Apellidos del participante
+        email: Email del participante
+        seen_emails: Set de emails ya vistos en el lote actual
+        participant_id: ID del participante (para actualizaciones, excluye self de validación de duplicados)
+        ids_in_excel: Set de IDs que están siendo actualizados en este lote
+    
+    Returns:
+        Tupla (first_name, last_name, email, errors)
+    """
     errors = []
     fn = (first_name or "").strip()
     ln = (last_name or "").strip()
@@ -236,9 +249,43 @@ def _validate_participant_fields(
         else:
             seen_emails.add(em)
 
-    # Duplicado en BD
-    if em and Participant.objects.filter(email__iexact=em).exists():
-        errors.append("Email ya existe en el sistema")
+    # Duplicado en BD (excluir el propio participante si es actualización)
+    if em:
+        qs = Participant.objects.filter(email__iexact=em)
+        if participant_id:
+            qs = qs.exclude(id=participant_id)
+        
+        # Obtener conflictos potenciales
+        conflicts = list(qs.values_list('id', flat=True))
+        
+        if conflicts:
+            # Si hay conflictos, verificar si todos los conflictos están siendo actualizados en este Excel
+            # Si el ID conflictivo está en el Excel, asumimos que su correo será sobrescrito (o es el mismo, validado por seen_emails)
+            
+            # Si ids_in_excel es None, comportamiento antiguo (error directo)
+            if ids_in_excel is None:
+                 errors.append("Email ya existe en el sistema")
+            else:
+                # Verificar si hay algún conflicto que NO esté en el Excel
+                # Si hay un conflicto con un ID que NO está en el Excel, es un error real.
+                # NOTA: Si el ID no está en el Excel, será eliminado, por lo que el correo quedará libre.
+                # Por lo tanto, si estamos en modo "full sync" (ids_in_excel != None), 
+                # NO deberíamos marcar error si el conflicto es con alguien que no está en el Excel.
+                
+                # Conflictos reales: IDs que existen en BD, tienen ese email, Y TAMBIÉN están en el Excel (pero con otro ID, obvio)
+                # Si el conflicto está en el Excel, significa que ese usuario está siendo actualizado.
+                # Si ese usuario actualizado MANTIENE su email, entonces seen_emails lo habría detectado (duplicado en Excel).
+                # Si ese usuario actualizado CAMBIA su email, entonces libera este email.
+                
+                # Por lo tanto, la única validación necesaria es seen_emails (duplicados dentro del Excel).
+                # Los conflictos con la BD se resuelven solos:
+                # 1. Si el conflicto NO está en Excel -> Se elimina -> Email libre.
+                # 2. Si el conflicto SÍ está en Excel -> Se actualiza.
+                #    a. Si mantiene email -> Duplicado en Excel -> Error en seen_emails.
+                #    b. Si cambia email -> Email libre.
+                
+                # Conclusión: En modo full sync, NO necesitamos validar contra BD, solo contra seen_emails.
+                pass
 
     return fn, ln, em, errors
 
@@ -361,13 +408,32 @@ def log_participant_screen_event(request: HttpRequest):
             return JsonResponse({"error": "Monitoring not started"}, status=403)
 
         file = request.FILES["screenshot"]
-        ParticipantLog.objects.create(
-            name="screen",
-            file=file,
-            message="Desktop Screenshot",
-            participant_event=participant_event,
+
+        # Subir archivo a S3
+        upload_result = s3_service.upload_media_fragment(
+            file, participant_event.id, media_type="screen", timestamp=timezone.now()
         )
-        return JsonResponse({"status": "success"})
+
+        if upload_result["success"]:
+            # Guardar el log con la URL de S3
+            ParticipantLog.objects.create(
+                name="screen",
+                url=upload_result["key"],  # guardamos la key en el campo url
+                message="Desktop Screenshot",
+                participant_event=participant_event,
+            )
+            return JsonResponse(
+                {
+                    "status": "success",
+                    "s3_key": upload_result["key"],
+                    "url": upload_result.get("presigned_url"),
+                }
+            )
+        else:
+            return JsonResponse(
+                {"error": f"Failed to upload screenshot: {upload_result['error']}"},
+                status=500,
+            )
 
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=400)
@@ -390,13 +456,35 @@ def log_participant_audio_video_event(request: HttpRequest):
             return JsonResponse({"error": "Monitoring not started"}, status=403)
 
         file = request.FILES["media"]
-        ParticipantLog.objects.create(
-            name="audio/video",
-            file=file,
-            message="Media Capture",
-            participant_event=participant_event,
+
+        # Subir archivo de audio/video a S3
+        upload_result = s3_service.upload_media_fragment(
+            file,
+            participant_event.id,
+            media_type="video",  # Asumimos video por defecto, se puede detectar del archivo
+            timestamp=timezone.now(),
         )
-        return JsonResponse({"status": "success"})
+
+        if upload_result["success"]:
+            # Guardar el log con la URL de S3
+            ParticipantLog.objects.create(
+                name="audio/video",
+                url=upload_result["key"],  # guardamos la key en el campo url
+                message="Media Capture",
+                participant_event=participant_event,
+            )
+            return JsonResponse(
+                {
+                    "status": "success",
+                    "s3_key": upload_result["key"],
+                    "url": upload_result.get("presigned_url"),
+                }
+            )
+        else:
+            return JsonResponse(
+                {"error": f"Failed to upload media fragment: {upload_result['error']}"},
+                status=500,
+            )
 
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=400)
@@ -569,27 +657,31 @@ def participants(request):
 @csrf_exempt
 @jwt_required()
 @require_GET
-def participants_template(request):
-    """Devuelve una plantilla Excel con columnas requeridas: Nombre, Apellidos, Email"""
-
+def export_participants(request):
+    """Exporta participantes existentes a Excel con columnas: ID, Nombre, Apellidos, Email."""
+    
+    participants = Participant.objects.all().order_by("created_at")
+    filename = "participantes.xlsx"
+    
+    # Crear Excel
     wb = Workbook()
     ws = wb.active
     ws.title = "Participantes"
-    ws.append(["Nombre", "Apellidos", "Email"])
-    # Fila ejemplo vacía (opcional)
-    ws.append(["", "", ""])
-
+    ws.append(["ID", "Nombre", "Apellidos", "Email"])
+    
+    # Agregar datos existentes
+    for p in participants:
+        ws.append([p.id, p.first_name, p.last_name, p.email])
+    
     bio = BytesIO()
     wb.save(bio)
     bio.seek(0)
-
+    
     response = HttpResponse(
         bio.getvalue(),
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-    response["Content-Disposition"] = (
-        'attachment; filename="plantilla_participantes.xlsx"'
-    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 
 
@@ -597,157 +689,233 @@ def participants_template(request):
 @jwt_required()
 @require_POST
 def import_participants(request):
-    """Importa participantes desde Excel (modo previsualización o creación) .
-
-    - POST multipart/form-data con campo 'file': parsea Excel y devuelve filas validadas (no crea si dry_run=1).
-    - POST application/json con 'rows': valida y crea participantes, devolviendo resumen.
+    """Importa participantes desde Excel con validación previa completa.
+    
+    Flujo:
+    1. Valida TODAS las filas primero
+    2. Si hay errores: retorna solo filas con error (no crea nada)
+    3. Si todo válido: crea/actualiza todo en transacción atómica
     """
-
-    # Determinar dry_run
-    dry_raw = request.GET.get("dry_run") or request.POST.get("dry_run")
-    dry_run = str(dry_raw).lower() in {"1", "true", "yes"}
-
-    results = []
-
-    # Modo archivo Excel (previsualización)
-    if "file" in request.FILES:
-        up_file = request.FILES["file"]
-
-        # Validar tipo de archivo por extensión y content_type
-        filename = getattr(up_file, "name", "")
-        content_type = getattr(up_file, "content_type", "")
-        if not (
-            filename.lower().endswith(".xlsx")
-            or content_type
-            == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        ):
-            return JsonResponse(
-                {"error": "El archivo debe ser un Excel (.xlsx)"}, status=400
-            )
-
-        try:
-            wb = load_workbook(up_file, data_only=True)
-            ws = wb.active
-        except Exception as e:
-            return JsonResponse(
-                {"error": f"No se pudo leer el Excel: {str(e)}"}, status=400
-            )
-
-        # Leer cabeceras
-        headers = []
-        for cell in ws[1]:
-            value = (
-                (cell.value or "").strip()
-                if isinstance(cell.value, str)
-                else (cell.value or "")
-            )
-            headers.append(str(value))
-
-        normalized = [h.strip().lower() for h in headers]
-        expected = ["nombre", "apellidos", "email"]
-        if normalized[:3] != expected:
-            return JsonResponse(
-                {
-                    "error": "Formato inválido. Las primeras 3 columnas deben ser: Nombre, Apellidos, Email",
-                    "headers": headers,
-                },
-                status=400,
-            )
-
-        col_idx = {"nombre": 1, "apellidos": 2, "email": 3}
-
-        seen_emails = set()
-        for row_idx in range(2, ws.max_row + 1):
-            fn = ws.cell(row=row_idx, column=col_idx["nombre"]).value
-            ln = ws.cell(row=row_idx, column=col_idx["apellidos"]).value
-            em = ws.cell(row=row_idx, column=col_idx["email"]).value
-
-            fn, ln, em, errs = _validate_participant_fields(fn, ln, em, seen_emails)
-            results.append(
-                {
-                    "row_number": row_idx,
-                    "first_name": fn,
-                    "last_name": ln,
-                    "email": em,
-                    "errors": errs,
-                }
-            )
-
-        # En modo archivo siempre devolvemos previsualización (no creamos), a menos que dry_run sea falso explícitamente.
-        if dry_run or True:
-            valid_count = sum(1 for r in results if not r["errors"])
-            invalid_count = len(results) - valid_count
-            return JsonResponse(
-                {
-                    "rows": results,
-                    "valid_count": valid_count,
-                    "invalid_count": invalid_count,
-                }
-            )
-
-    # Modo JSON
+    
+    # Validar que sea archivo Excel
+    if "file" not in request.FILES:
+        return JsonResponse({"error": "Se requiere un archivo Excel"}, status=400)
+    
+    up_file = request.FILES["file"]
+    
+    # Validar tipo de archivo
+    filename = getattr(up_file, "name", "")
+    content_type = getattr(up_file, "content_type", "")
+    if not (
+        filename.lower().endswith(".xlsx")
+        or content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    ):
+        return JsonResponse({"error": "El archivo debe ser un Excel (.xlsx)"}, status=400)
+    
+    # Leer Excel
     try:
-        data = json.loads(request.body or b"{}")
-    except Exception:
-        data = {}
-
-    rows = data.get("rows", [])
-    if not isinstance(rows, list) or not rows:
+        wb = load_workbook(up_file, data_only=True)
+        ws = wb.active
+    except Exception as e:
+        return JsonResponse({"error": f"No se pudo leer el Excel: {str(e)}"}, status=400)
+    
+    # Validar cabeceras
+    headers = []
+    for cell in ws[1]:
+        value = (cell.value or "").strip() if isinstance(cell.value, str) else (cell.value or "")
+        headers.append(str(value))
+    
+    normalized = [h.strip().lower() for h in headers]
+    expected = ["id", "nombre", "apellidos", "email"]
+    if normalized[:4] != expected:
         return JsonResponse(
-            {"error": "Se requiere un arreglo 'rows' para importar"}, status=400
+            {
+                "error": "Formato inválido. Las primeras 4 columnas deben ser: ID, Nombre, Apellidos, Email",
+                "headers": headers,
+            },
+            status=400,
         )
-
-    created = 0
-    output_rows = []
+    
+    # FASE 1: VALIDAR TODAS LAS FILAS
+    rows_to_process = []
     seen_emails = set()
-
-    for idx, r in enumerate(rows, start=1):
-        fn, ln, em = r.get("first_name"), r.get("last_name"), r.get("email")
-        fn, ln, em, errs = _validate_participant_fields(fn, ln, em, seen_emails)
-        if errs:
-            output_rows.append(
-                {
-                    "index": idx,
-                    "first_name": fn,
-                    "last_name": ln,
-                    "email": em,
-                    "errors": errs,
-                }
-            )
+    has_errors = False
+    
+    # Pre-lectura para obtener todos los IDs presentes en el Excel
+    ids_in_excel = set()
+    raw_data = []
+    
+    for row_idx in range(2, ws.max_row + 1):
+        pid = ws.cell(row=row_idx, column=1).value
+        fn = ws.cell(row=row_idx, column=2).value
+        ln = ws.cell(row=row_idx, column=3).value
+        em = ws.cell(row=row_idx, column=4).value
+        
+        if not any([pid, fn, ln, em]):
             continue
+            
+        raw_data.append({
+            "row_idx": row_idx,
+            "pid": pid,
+            "fn": fn,
+            "ln": ln,
+            "em": em
+        })
+        
+        if pid:
+            try:
+                ids_in_excel.add(int(pid))
+            except (ValueError, TypeError):
+                pass # Se validará después
 
-        try:
-            Participant.objects.create(
-                first_name=fn, last_name=ln, name=f"{fn} {ln}".strip(), email=em
-            )
-            created += 1
-            output_rows.append(
-                {
-                    "index": idx,
-                    "first_name": fn,
-                    "last_name": ln,
-                    "email": em,
-                    "errors": [],
-                }
-            )
-        except Exception as e:
-            output_rows.append(
-                {
-                    "index": idx,
-                    "first_name": fn,
-                    "last_name": ln,
-                    "email": em,
-                    "errors": [str(e)],
-                }
-            )
+    for item in raw_data:
+        row_idx = item["row_idx"]
+        pid = item["pid"]
+        fn = item["fn"]
+        ln = item["ln"]
+        em = item["em"]
+        
+        # Procesar ID
+        participant_id = None
+        id_errors = []
+        if pid:
+            try:
+                participant_id = int(pid)
+                # Verificar que el ID existe
+                if not Participant.objects.filter(id=participant_id).exists():
+                    id_errors.append(f"ID {participant_id} no existe en el sistema")
+            except (ValueError, TypeError):
+                id_errors.append("ID debe ser un número válido")
+        
+        # Validar campos
+        fn, ln, em, field_errors = _validate_participant_fields(fn, ln, em, seen_emails, participant_id, ids_in_excel)
+        
+        errors = id_errors + field_errors
+        
+        rows_to_process.append({
+            "row_number": row_idx,
+            "id": participant_id,
+            "first_name": fn,
+            "last_name": ln,
+            "email": em,
+            "errors": errors,
+            "is_update": bool(participant_id),
+        })
+        
+        if errors:
+            has_errors = True
+    
+    # Si hay errores: retornar SOLO las filas con error
+    if has_errors:
+        error_rows = [r for r in rows_to_process if r["errors"]]
+        return JsonResponse(
+            {
+                "success": False,
+                "message": "Se encontraron errores. Corrija el archivo y vuelva a importar.",
+                "rows": error_rows,
+                "total_errors": len(error_rows),
+            },
+            status=400,
+        )
+    
+    # FASE 2: CREAR/ACTUALIZAR TODO EN TRANSACCIÓN ATÓMICA
+    created_count = 0
+    updated_count = 0
+    deleted_count = 0
+    
+    try:
+        with transaction.atomic():
+            # 1. Eliminar participantes que no están en el Excel
+            # ids_in_excel contiene todos los IDs válidos del archivo
+            participants_to_delete = Participant.objects.exclude(id__in=ids_in_excel)
+            deleted_count = participants_to_delete.count()
+            
+            if deleted_count > 0:
+                try:
+                    participants_to_delete.delete()
+                except RestrictedError:
+                    # Identificar qué participantes causaron el error
+                    restricted_participants = participants_to_delete.filter(
+                        participant_events__isnull=False
+                    ).distinct()
+                    
+                    restricted_names = [f"<strong>{name}</strong>" for name in restricted_participants.values_list('name', flat=True)]
+                    
+                    if len(restricted_names) > 3:
+                        names_str = ", ".join(restricted_names[:3]) + f" y {len(restricted_names) - 3} más"
+                    else:
+                        names_str = ", ".join(restricted_names)
 
-    return JsonResponse(
-        {
-            "created": created,
-            "failed": len(output_rows) - created,
-            "rows": output_rows,
-        }
-    )
+                    return JsonResponse(
+                        {
+                            "success": False,
+                            "message": f"No se pudieron eliminar los siguientes participantes porque están asociados a uno o más eventos: {names_str}. Desvincúlelos de los eventos antes de proceder.",
+                        },
+                        status=400
+                    )
+            
+            # 2. Actualizar/Crear
+            # Para evitar errores de unicidad al intercambiar emails (swap),
+            # primero actualizamos todos los emails de los registros a actualizar a un valor temporal.
+            # Solo es necesario si hay actualizaciones.
+            
+            updates = [r for r in rows_to_process if r["is_update"]]
+            creates = [r for r in rows_to_process if not r["is_update"]]
+            
+            if updates:
+                update_ids = [r["id"] for r in updates]
+                # Usamos update() masivo con Case/When o iteramos?
+                # Iterar y guardar es lento pero seguro para señales (si las hubiera).
+                # Para evitar unique constraint, seteamos emails temporales.
+                for r in updates:
+                    # Solo necesitamos hacerlo si el email cambia, pero para simplificar lo hacemos a todos
+                    # o mejor, solo a aquellos cuyo nuevo email ya existe en BD (aunque sea en otro usuario que también se actualizará).
+                    # La estrategia más robusta es setear todos a temporal.
+                    p = Participant.objects.get(id=r["id"])
+                    p.email = f"temp_{p.id}_{timezone.now().timestamp()}@temp.com"
+                    p.save()
+
+            # Ahora aplicamos los valores reales
+            for row in updates:
+                participant = Participant.objects.get(id=row["id"])
+                participant.first_name = row["first_name"]
+                participant.last_name = row["last_name"]
+                participant.name = f"{row['first_name']} {row['last_name']}".strip()
+                participant.email = row["email"]
+                participant.save()
+                updated_count += 1
+                
+                # Actualizar claves de eventos asociados (igual que en edición individual)
+                # Al cambiar el email, el hash del event_key cambia
+                for pe in ParticipantEvent.objects.filter(participant=participant):
+                    pe.save() # El método save() llama a generate_event_key()
+
+            for row in creates:
+                Participant.objects.create(
+                    first_name=row["first_name"],
+                    last_name=row["last_name"],
+                    name=f"{row['first_name']} {row['last_name']}".strip(),
+                    email=row["email"],
+                )
+                created_count += 1
+            
+            response_data = {
+                "success": True,
+                "message": "Importación exitosa",
+                "created": created_count,
+                "updated": updated_count,
+                "deleted": deleted_count,
+                "total_processed": len(rows_to_process),
+            }
+            
+            return JsonResponse(response_data)
+    
+    except Exception as e:
+        logger.error(f"Error en importación de participantes: {str(e)}")
+        return JsonResponse(
+            {"error": f"Error al procesar la importación: {str(e)}"},
+            status=500,
+        )
 
 
 @csrf_exempt
@@ -1217,11 +1385,13 @@ def notify_proxy_blocked_hosts_update(request, event_id):
     if request.method == "POST":
         try:
             # Sistema de señales eliminado - ya no es necesario con arquitectura HTTP directa
-            return JsonResponse({
-                "success": True,
-                "message": f"Signal system deprecated - using direct HTTP architecture for event {event_id}"
-            })
-            
+            return JsonResponse(
+                {
+                    "success": True,
+                    "message": f"Signal system deprecated - using direct HTTP architecture for event {event_id}",
+                }
+            )
+
         except Exception as e:
             logger.error(f"Error notifying proxy of blocked hosts update: {str(e)}")
             return JsonResponse(
@@ -1660,10 +1830,12 @@ def event_detail(request, event_id):
                     BlockedHost.objects.filter(
                         event=event, website_id__in=list(to_remove)
                     ).delete()
-                
+
                 # Sistema de notificación eliminado - ya no necesario con HTTP directo
                 if to_add or to_remove:
-                    print(f"🔄 | Blocked hosts updated for event {event_id}: +{len(to_add)} -{len(to_remove)}")
+                    print(
+                        f"🔄 | Blocked hosts updated for event {event_id}: +{len(to_add)} -{len(to_remove)}"
+                    )
 
             return JsonResponse({"success": True, "updated": changed})
 
@@ -1966,25 +2138,28 @@ def event_participant_logs(request, event_id, participant_id):
 
         logs_data = []
         for log in logs:
-            # Si el modelo ParticipantLog tuviera un campo created_at lo usamos,
-            # si no existe (compatibilidad) usamos el id como fallback para
-            # mantener un valor entero ordenable usado por el frontend.
-            created_ts = None
-            if hasattr(log, "created_at") and getattr(log, "created_at"):
+            # Formatear timestamp como string legible
+            created_at_formatted = ""
+            if hasattr(log, "timestamp") and getattr(log, "timestamp"):
                 try:
-                    created_ts = int(log.created_at.timestamp())
+                    created_at_formatted = log.timestamp.strftime("%d/%m/%Y %H:%M:%S")
                 except Exception:
-                    created_ts = None
-            if created_ts is None:
-                created_ts = int(log.id)
+                    created_at_formatted = "N/A"
+            else:
+                created_at_formatted = "N/A"
+
+            presigned_url = None
+            if log.url and s3_service.is_configured():
+                presigned_url = s3_service.generate_presigned_url(log.url)
 
             log_data = {
                 "id": log.id,
                 "name": log.name,
                 "message": log.message,
-                "created_at": created_ts,
-                "has_file": bool(log.file),
-                "file_url": log.file.url if log.file else None,
+                "created_at": created_at_formatted,
+                "has_file": bool(log.url),
+                "file_url": presigned_url,
+                "s3_key": log.url,
             }
             logs_data.append(log_data)
 
@@ -2032,11 +2207,13 @@ def participant_connection_stats(request, event_id, participant_id):
 
         if participant_event:
             # Todos los datos desde ParticipantEvent
-            connection_data.update({
-                "monitoring_is_active": participant_event.is_monitoring,
-                "total_time_minutes": participant_event.get_total_monitoring_time(),
-                "monitoring_last_change": participant_event.monitoring_last_change,
-            })
+            connection_data.update(
+                {
+                    "monitoring_is_active": participant_event.is_monitoring,
+                    "total_time_minutes": participant_event.get_total_monitoring_time(),
+                    "monitoring_last_change": participant_event.monitoring_last_change,
+                }
+            )
 
         return JsonResponse(connection_data)
 
@@ -2149,8 +2326,10 @@ def get_proxy_status(request, event_id):
     if request.method == "GET":
         try:
             # Obtener participant_events del evento
-            participant_events = ParticipantEvent.objects.filter(event_id=event_id).select_related("participant")
-            
+            participant_events = ParticipantEvent.objects.filter(
+                event_id=event_id
+            ).select_related("participant")
+
             monitoring_instances = []
             for pe in participant_events:
                 monitoring_info = {
@@ -2161,18 +2340,24 @@ def get_proxy_status(request, event_id):
                     "last_change": pe.monitoring_last_change,
                 }
                 monitoring_instances.append(monitoring_info)
-            
-            return JsonResponse({
-                "success": True,
-                "event_id": event_id,
-                "total_participants": len(monitoring_instances),
-                "monitoring_instances": monitoring_instances
-            })
-            
+
+            return JsonResponse(
+                {
+                    "success": True,
+                    "event_id": event_id,
+                    "total_participants": len(monitoring_instances),
+                    "monitoring_instances": monitoring_instances,
+                }
+            )
+
         except Exception as e:
-            logger.error(f"Error getting monitoring status for event {event_id}: {str(e)}")
-            return JsonResponse({"error": "Failed to get monitoring status"}, status=500)
-    
+            logger.error(
+                f"Error getting monitoring status for event {event_id}: {str(e)}"
+            )
+            return JsonResponse(
+                {"error": "Failed to get monitoring status"}, status=500
+            )
+
     return JsonResponse({"error": "Method not allowed"}, status=405)
 
 
@@ -2180,7 +2365,7 @@ def get_proxy_status(request, event_id):
 @jwt_required()
 def participant_connection_stats(request, event_id, participant_id):
     """Endpoint para obtener estadísticas de conexión de un participante en un evento específico"""
-    
+
     try:
         event = Event.objects.get(id=event_id)
         participant = Participant.objects.get(id=participant_id)
@@ -2204,12 +2389,14 @@ def participant_connection_stats(request, event_id, participant_id):
 
         if participant_event:
             # Todos los datos desde ParticipantEvent del evento específico
-            connection_data.update({
-                "monitoring_is_active": participant_event.is_monitoring,
-                "total_time_minutes": participant_event.get_total_monitoring_time(),
-                "monitoring_last_change": participant_event.monitoring_last_change,
-                "monitoring_sessions_count": participant_event.monitoring_sessions_count,
-            })
+            connection_data.update(
+                {
+                    "monitoring_is_active": participant_event.is_monitoring,
+                    "total_time_minutes": participant_event.get_total_monitoring_time(),
+                    "monitoring_last_change": participant_event.monitoring_last_change,
+                    "monitoring_sessions_count": participant_event.monitoring_sessions_count,
+                }
+            )
 
         return JsonResponse(connection_data)
 
@@ -2222,6 +2409,154 @@ def participant_connection_stats(request, event_id, participant_id):
 
 
 @csrf_exempt
+@jwt_required()
+def participant_media_files(request, event_id, participant_id):
+    """
+    Endpoint para listar archivos multimedia de un participante en S3.
+    """
+    if request.method == "GET":
+        try:
+            # Verificar que el evento y participante existen
+            event = Event.objects.get(id=event_id)
+            participant = Participant.objects.get(id=participant_id)
+
+            # Obtener el ParticipantEvent
+            participant_event = ParticipantEvent.objects.filter(
+                event=event, participant=participant
+            ).first()
+
+            if not participant_event:
+                return JsonResponse(
+                    {"error": "Participant not enrolled in this event"}, status=404
+                )
+
+            # Verificar si S3 está configurado
+            if not s3_service.is_configured():
+                return JsonResponse({"error": "S3 service not configured"}, status=503)
+
+            # Obtener parámetros de filtro
+            media_type = request.GET.get("media_type")  # video, audio, screen
+            start_date = request.GET.get("start_date")
+            end_date = request.GET.get("end_date")
+
+            # Parsear fechas si se proporcionan
+            start_datetime = None
+            end_datetime = None
+            if start_date:
+                try:
+                    start_datetime = datetime.fromisoformat(start_date)
+                except ValueError:
+                    return JsonResponse(
+                        {"error": "Invalid start_date format"}, status=400
+                    )
+            if end_date:
+                try:
+                    end_datetime = datetime.fromisoformat(end_date)
+                except ValueError:
+                    return JsonResponse(
+                        {"error": "Invalid end_date format"}, status=400
+                    )
+
+            # Listar archivos multimedia del participante
+            media_files = s3_service.list_participant_media(
+                participant_event.id,
+                media_type=media_type,
+                start_date=start_datetime,
+                end_date=end_datetime,
+            )
+
+            # Organizar archivos por tipo
+            files_by_type = {"video": [], "audio": [], "screen": [], "unknown": []}
+
+            total_size = 0
+            for file_info in media_files:
+                file_type = file_info.get("media_type", "unknown")
+                if file_type in files_by_type:
+                    files_by_type[file_type].append(file_info)
+                else:
+                    files_by_type["unknown"].append(file_info)
+                total_size += file_info.get("size", 0)
+
+            return JsonResponse(
+                {
+                    "success": True,
+                    "participant": {
+                        "id": participant.id,
+                        "name": participant.name,
+                        "email": participant.email,
+                    },
+                    "event": {"id": event.id, "name": event.name},
+                    "files_by_type": files_by_type,
+                    "summary": {
+                        "total_files": len(media_files),
+                        "total_size_bytes": total_size,
+                        "video_files": len(files_by_type["video"]),
+                        "audio_files": len(files_by_type["audio"]),
+                        "screen_files": len(files_by_type["screen"]),
+                    },
+                }
+            )
+
+        except Event.DoesNotExist:
+            return JsonResponse({"error": "Event not found"}, status=404)
+        except Participant.DoesNotExist:
+            return JsonResponse({"error": "Participant not found"}, status=404)
+        except Exception as e:
+            logger.error(
+                f"Error listing media files for participant {participant_id} in event {event_id}: {e}"
+            )
+            return JsonResponse({"error": str(e)}, status=500)
+
+    return JsonResponse({"error": "Method not allowed"}, status=405)
+
+
+@csrf_exempt
+@jwt_required()
+def create_s3_bucket(request):
+    """
+    Endpoint para crear el bucket de S3 si no existe.
+    Solo para administradores.
+    """
+    if request.method == "POST":
+        try:
+            # Verificar permisos de administrador
+            user_data = get_user_data(request)
+            if not user_data or user_data.get("role") != UserRole.ADMIN.value:
+                return JsonResponse({"error": "Admin privileges required"}, status=403)
+
+            if not s3_service.is_configured():
+                return JsonResponse(
+                    {
+                        "error": "S3 service not configured. Please check AWS credentials and settings."
+                    },
+                    status=503,
+                )
+
+            # Intentar crear el bucket
+            success = s3_service.create_bucket_if_not_exists()
+
+            if success:
+                return JsonResponse(
+                    {
+                        "success": True,
+                        "message": f"Bucket '{s3_service.bucket_name}' is ready for use.",
+                        "bucket_name": s3_service.bucket_name,
+                        "region": s3_service.region,
+                    }
+                )
+            else:
+                return JsonResponse(
+                    {
+                        "error": "Failed to create or access S3 bucket. Check AWS credentials and permissions."
+                    },
+                    status=500,
+                )
+
+        except Exception as e:
+            logger.error(f"Error creating S3 bucket: {e}")
+            return JsonResponse({"error": str(e)}, status=500)
+
+    return JsonResponse({"error": "Method not allowed"}, status=405)
 @jwt_required(roles=["admin", "superadmin"])
 @require_POST
 def block_participants(request, event_id):

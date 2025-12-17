@@ -32,10 +32,12 @@ export interface ParticipantDetail {
 export interface ImportRow {
   row_number?: number;
   index?: number;
+  id?: number | null;
   first_name: string;
   last_name: string;
   email: string;
   errors?: string[];
+  is_update?: boolean;
 }
 
 export const participantService = {
@@ -261,73 +263,80 @@ export const participantService = {
   ,
 
   /**
-   * Descarga la plantilla de Excel para importar participantes
+   * Exporta participantes a Excel
+   * @returns Promise con el archivo Excel
    */
-  async downloadParticipantsTemplate(): Promise<Blob> {
+  async exportParticipants(): Promise<Blob> {
     const token = localStorage.getItem('auth_token');
     if (!token) {
       throw new Error('No hay token de autenticación');
     }
 
-    const res = await fetch(`${API_URL}/events/api/participants/template`, {
+    let url = `${API_URL}/events/api/participants/export`;
+
+    console.log('URL de exportación:', url);
+
+    const res = await fetch(url, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`
       }
     });
     if (!res.ok) {
-      throw new Error('No se pudo descargar la plantilla');
+      throw new Error('No se pudo exportar los participantes');
     }
     return await res.blob();
   },
 
   /**
-   * Previsualiza la importación desde un archivo Excel (no crea registros)
+   * Importa participantes desde un archivo Excel
+   * Valida todas las filas primero. Si hay errores, retorna solo filas con error.
+   * Si todo es válido, crea/actualiza todos los participantes.
+   * @param file Archivo Excel a importar
+   * @returns Promise con resultado de la importación
    */
-  async previewImportParticipants(file: File): Promise<{ rows: ImportRow[]; valid_count: number; invalid_count: number; }> {
+  async importParticipants(
+    file: File
+  ): Promise<{
+    success: boolean;
+    message?: string;
+    created?: number;
+    updated?: number;
+    deleted?: number;
+    total_processed?: number;
+    rows?: ImportRow[];
+    total_errors?: number;
+  }> {
     const token = localStorage.getItem('auth_token');
     if (!token) {
       throw new Error('No hay token de autenticación');
     }
+
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('dry_run', '1');
 
-    const res = await fetch(`${API_URL}/events/api/participants/import?dry_run=1`, {
+    let url = `${API_URL}/events/api/participants/import`;
+
+    const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`
       },
       body: formData
     });
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(errText || 'Error al previsualizar la importación');
-    }
-    return await res.json();
-  },
 
-  /**
-   * Envía filas corregidas para creación en lote
-   */
-  async commitImportParticipants(rows: ImportRow[]): Promise<{ created: number; failed: number; rows: ImportRow[]; }> {
-    const token = localStorage.getItem('auth_token');
-    if (!token) {
-      throw new Error('No hay token de autenticación');
+    const data = await res.json();
+
+    // Si hay errores (status 400), aún retornamos los datos para mostrar errores
+    if (!res.ok && res.status === 400) {
+      return data;
     }
-    const res = await fetch(`${API_URL}/events/api/participants/import`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ rows })
-    });
+
     if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(errText || 'Error al importar participantes');
+      throw new Error(data.error || 'Error al importar participantes');
     }
-    return await res.json();
+
+    return data;
   }
 };
 

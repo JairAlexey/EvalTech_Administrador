@@ -143,7 +143,7 @@ class ParticipantEvent(models.Model):
 
 class ParticipantLog(models.Model):
     name = models.CharField(max_length=200)
-    file = models.FileField(upload_to="logs", null=True, blank=True)
+    url = models.URLField(max_length=1000, null=True, blank=True)
     message = models.TextField()
     participant_event = models.ForeignKey(
         ParticipantEvent, on_delete=models.CASCADE, null=True
@@ -185,6 +185,3 @@ class BlockedHost(models.Model):
 
     def __str__(self):
         return f"{self.website.hostname} ({self.event.name})"
-
-
-# ProxyUpdateSignal model removed - no longer needed with direct HTTP architecture
