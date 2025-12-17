@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Loader, Calendar, Clock, User, Globe, Users, CheckCircle, XCircle, AlertCircle, Play, Info } from 'lucide-react';
+import { ArrowLeft, Loader, Calendar, Clock, User, Globe, Users, CheckCircle, XCircle, AlertCircle, Play, Info, Shield, ShieldOff } from 'lucide-react';
 import Sidebar from '../utils/Sidebar';
 import eventService, { type EventDetail } from '../../services/eventService';
 
@@ -211,6 +211,8 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
       setSendingEmails(false);
     }
   };
+
+
 
   // Modal JSX
   const Modal = () => (
@@ -465,20 +467,22 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
                         </p>
                       </div>
                     </div>
-                    <button
-                      className={`px-6 py-3 rounded-xl font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl`}
-                      disabled={selectedParticipants.length === 0 || sendingEmails}
-                      onClick={handleSendEmails}
-                    >
-                      {sendingEmails ? (
-                        <span className="flex items-center gap-2">
-                          <Loader className="w-4 h-4 animate-spin" />
-                          Enviando...
-                        </span>
-                      ) : (
-                        `Enviar correo (${selectedParticipants.length})`
-                      )}
-                    </button>
+                    <div className="flex gap-3">
+                      <button
+                        className={`px-6 py-3 rounded-xl font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl`}
+                        disabled={selectedParticipants.length === 0 || sendingEmails}
+                        onClick={handleSendEmails}
+                      >
+                        {sendingEmails ? (
+                          <span className="flex items-center gap-2">
+                            <Loader className="w-4 h-4 animate-spin" />
+                            Enviando...
+                          </span>
+                        ) : (
+                          `Enviar correo (${selectedParticipants.length})`
+                        )}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Participants Table */}
@@ -498,6 +502,7 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
                             </th>
                             <th className="px-8 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Participante</th>
                             <th className="px-8 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Email</th>
+                            <th className="px-8 py-4 text-center text-xs font-bold text-gray-600 uppercase tracking-wider">Estado</th>
                           </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-100">
@@ -527,11 +532,29 @@ export default function EventDetails({ onBack, onNavigate, onLogout, eventId }: 
                                 <td className="px-8 py-6 whitespace-nowrap">
                                   <p className="text-sm text-gray-600">{participant.email}</p>
                                 </td>
+                                <td className="px-8 py-6 text-center">
+                                  {(participant as any).is_blocked ? (
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-200">
+                                      <ShieldOff className="w-3.5 h-3.5" />
+                                      Bloqueado
+                                    </span>
+                                  ) : (participant as any).is_monitoring ? (
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
+                                      <Play className="w-3.5 h-3.5" />
+                                      Monitoreando
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600 border border-gray-200">
+                                      <Shield className="w-3.5 h-3.5" />
+                                      Activo
+                                    </span>
+                                  )}
+                                </td>
                               </tr>
                             ))
                           ) : (
                             <tr>
-                              <td colSpan={3} className="px-8 py-16 text-center">
+                              <td colSpan={4} className="px-8 py-16 text-center">
                                 <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
                                 <p className="text-gray-500 text-lg font-medium mb-2">Sin participantes</p>
                                 <p className="text-gray-400 text-sm">No hay participantes asignados a este evento</p>

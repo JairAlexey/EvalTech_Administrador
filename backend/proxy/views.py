@@ -156,8 +156,18 @@ def proxy_validate_url(request):
     - Verifica hosts bloqueados por evento + hosts por defecto
     - Envía logs automáticamente cuando participant.is_monitoring=True  
     - Retorna blocked/allowed para que LocalProxyServer tome acción
+    
+    SEGURIDAD: Valida que las peticiones vengan del proxy local configurado
     """
     try:
+        # VALIDACIÓN ADICIONAL: Verificar header personalizado del proxy local
+        proxy_signature = request.headers.get('X-Proxy-Signature', '')
+        expected_signature = 'LocalProxyServer-v1'
+        
+        if proxy_signature != expected_signature:
+            logger.warning(f"Petición sin firma de proxy válida desde {request.META.get('REMOTE_ADDR')}")
+            # No bloquear por completo, solo advertir (por compatibilidad)
+        
         # Validar token
         auth_header = request.headers.get('Authorization', '')
         if not auth_header.startswith('Bearer '):

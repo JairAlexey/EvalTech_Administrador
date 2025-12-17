@@ -18,7 +18,6 @@ class AnalisisComportamiento(models.Model):
     video_link = models.CharField(max_length=500)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pendiente")
     fecha_procesamiento = models.DateTimeField(auto_now_add=True)
-
     class Meta:
         db_table = "analisis_comportamiento"
 
