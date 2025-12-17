@@ -11,8 +11,6 @@ class AnalisisComportamiento(models.Model):
     video_path = models.CharField(max_length=500, blank=True, null=True)
     status = models.CharField(max_length=20, default="PENDING")
     fecha_procesamiento = models.DateTimeField(auto_now_add=True)
-    analysis_data = models.JSONField(default=dict, blank=True)
-
     class Meta:
         db_table = "analisis_comportamiento"
 
