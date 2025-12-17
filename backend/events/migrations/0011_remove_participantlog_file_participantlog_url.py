@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('events', '0009_participantlog_timestamp'),
+        ('events', '0010_participantevent_is_blocked'),
     ]
 
     operations = [
