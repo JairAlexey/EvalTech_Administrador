@@ -11,6 +11,7 @@ import Home from './components/Home';
 import EvaluationsList from './components/Evaluaciones/EvaluationsList';
 import EvaluationDetails from './components/Evaluaciones/EvaluationDetails';
 import MonitoringPage from './components/Evaluaciones/MonitoringPage';
+import ReportPage from './components/Evaluaciones/ReportPage';
 import UserRoleManagement from './components/Roles/UserRoleManagement';
 import { useAuth } from './contexts/AuthContext';
 import CreateParticipant from './components/Participantes/CreateParticipant';
@@ -18,7 +19,7 @@ import Profile from './components/Perfil/Profile';
 import AccessDeniedPage from './components/utils/AccessDenied';
 import NotFoundPage from './components/utils/NotFound';
 
-type Page = 'home' | 'login' | 'dashboard' | 'eventos' | 'create-event' | 'event-details' | 'edit-event' | 'participants' | 'edit-participant' | 'create-participant' | 'evaluaciones' | 'evaluation-details' | 'monitoring' | 'estadisticas' | 'exportar' | 'cuenta' | 'roles';
+type Page = 'home' | 'login' | 'dashboard' | 'eventos' | 'create-event' | 'event-details' | 'edit-event' | 'participants' | 'edit-participant' | 'create-participant' | 'evaluaciones' | 'evaluation-details' | 'monitoring' | 'report' | 'estadisticas' | 'exportar' | 'cuenta' | 'roles';
 
 function App() {
     // Recuperar el estado guardado de localStorage o usar valores por defecto
@@ -38,6 +39,7 @@ function App() {
     const [currentPage, setCurrentPage] = useState<Page>(getInitialPage);
     const [selectedEventId, setSelectedEventId] = useState<string | null>(getInitialEventId);
     const [selectedParticipantId, setSelectedParticipantId] = useState<string | null>(getInitialParticipantId);
+    const [filterEventId, setFilterEventId] = useState<string | null>(null);
     const [loginError, setLoginError] = useState<string | null>(null);
 
     const { isAuthenticated, isLoading, logout, user, hasAnyRole, login, refreshUserInfo } = useAuth();
@@ -46,12 +48,19 @@ function App() {
     const isEvaluator = user?.role === 'evaluator';
 
     // Navigation handler for sidebar and component navigation
-    const handleNavigate = async (page: string) => {
-        console.log("Navigating to:", page);
+    const handleNavigate = async (page: string, eventIdForFilter?: string) => {
+        console.log("Navigating to:", page, eventIdForFilter ? `with filter: ${eventIdForFilter}` : '');
 
         // Si está autenticado, verificar y renovar token si es necesario
         if (isAuthenticated) {
             await refreshUserInfo();
+        }
+
+        // Si navegamos a participantes con filtro de evento
+        if (page === 'participants' && eventIdForFilter) {
+            setFilterEventId(eventIdForFilter);
+        } else {
+            setFilterEventId(null);
         }
 
         // Secciones principales
@@ -112,6 +121,7 @@ function App() {
             'evaluaciones',
             'evaluation-details',
             'monitoring',
+            'report',
             'estadisticas',
             'exportar',
             'cuenta'
@@ -130,6 +140,7 @@ function App() {
             'evaluaciones',
             'evaluation-details',
             'monitoring',
+            'report',
             'estadisticas',
             'exportar',
             'cuenta'
@@ -187,6 +198,11 @@ function App() {
     const handleViewMonitoring = (participantId: string) => {
         setSelectedParticipantId(participantId);
         handleNavigate('monitoring');
+    };
+
+    const handleViewReport = (participantId: string) => {
+        setSelectedParticipantId(participantId);
+        handleNavigate('report');
     };
 
     // Controladores de regreso
@@ -322,6 +338,7 @@ function App() {
                         onBack={handleBackToEvents}
                         eventId={selectedEventId}
                         onNavigate={handleNavigate}
+                        onLogout={handleLogout}
                     />
                 );
 
@@ -330,6 +347,7 @@ function App() {
                     <CreateEvent
                         onBack={handleBackToEvents}
                         onNavigate={handleNavigate}
+                        onLogout={handleLogout}
                     />
                 );
 
@@ -338,6 +356,8 @@ function App() {
                     <Participant
                         onNavigate={handleNavigate}
                         canAccess={hasPermissionForPage}
+                        onLogout={handleLogout}
+                        filterEventId={filterEventId}
                     />
                 );
 
@@ -371,6 +391,7 @@ function App() {
                     <EvaluationsList
                         onNavigate={handleNavigate}
                         onViewEvaluation={handleViewEvaluationDetails}
+                        onLogout={handleLogout}
                     />
                 );
 
@@ -385,6 +406,8 @@ function App() {
                         evaluationId={selectedEventId}
                         onNavigate={handleNavigate}
                         onViewMonitoring={handleViewMonitoring}
+                        onViewReport={handleViewReport}
+                        onLogout={handleLogout}
                     />
                 );
 
@@ -404,6 +427,27 @@ function App() {
                             localStorage.setItem('currentPage', 'evaluation-details');
                         }}
                         onNavigate={handleNavigate}
+                        onLogout={handleLogout}
+                    />
+                );
+
+            case 'report':
+                if (!selectedEventId || !selectedParticipantId) {
+                    handleNavigate('evaluaciones');
+                    return null;
+                }
+                return (
+                    <ReportPage
+                        eventId={selectedEventId}
+                        participantId={selectedParticipantId}
+                        onBack={() => {
+                            setSelectedParticipantId(null);
+                            localStorage.removeItem('selectedParticipantId');
+                            setCurrentPage('evaluation-details');
+                            localStorage.setItem('currentPage', 'evaluation-details');
+                        }}
+                        onNavigate={handleNavigate}
+                        onLogout={handleLogout}
                     />
                 );
 
@@ -416,7 +460,7 @@ function App() {
                 );
 
             case 'cuenta':
-                return <Profile onNavigate={handleNavigate} />;
+                return <Profile onNavigate={handleNavigate} onLogout={handleLogout} />;
 
             default:
                 return (

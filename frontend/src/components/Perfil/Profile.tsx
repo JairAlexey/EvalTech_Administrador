@@ -6,9 +6,10 @@ import { profileService } from '../../services/profileService';
 
 interface ProfileProps {
     onNavigate?: (page: string) => void;
+    onLogout?: () => void;
 }
 
-export default function Profile({ onNavigate }: ProfileProps) {
+export default function Profile({ onNavigate, onLogout }: ProfileProps) {
     const { user, logout, updateUser } = useAuth();
     const [firstName, setFirstName] = useState(user?.firstName || '');
     const [lastName, setLastName] = useState(user?.lastName || '');
@@ -68,7 +69,7 @@ export default function Profile({ onNavigate }: ProfileProps) {
 
     return (
         <div className="flex h-screen bg-gray-100">
-            <Sidebar onNavigate={onNavigate} onLogout={logout} currentPage="cuenta" />
+            <Sidebar onNavigate={onNavigate} onLogout={onLogout || logout} currentPage="cuenta" />
 
             <div className="flex-1 overflow-auto">
                 <div className="p-8">

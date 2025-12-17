@@ -9,9 +9,10 @@ interface MonitoringPageProps {
     participantId: string;
     onBack: () => void;
     onNavigate: (page: string) => void;
+    onLogout?: () => void;
 }
 
-const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: MonitoringPageProps) => {
+const MonitoringPage = ({ eventId, participantId, onBack, onNavigate, onLogout }: MonitoringPageProps) => {
     const [logs, setLogs] = useState<ParticipantLog[]>([]);
     const [eventName, setEventName] = useState<string>('');
     const [loading, setLoading] = useState<boolean>(true);
@@ -20,8 +21,85 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
     const [filterType, setFilterType] = useState<string>('all');
     const [currentPage, setCurrentPage] = useState<number>(1);
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
+    const [selectedLogId, setSelectedLogId] = useState<number | null>(null);
     const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+    const [hasRetried, setHasRetried] = useState<boolean>(false);
     const LOGS_PER_PAGE = 4;
+
+    // Función para convertir timestamp UTC a zona horaria local
+    function parseUTCTimestamp(
+        timestamp?: string | number,
+        targetTimeZone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
+    ) {
+        if (!timestamp) {
+            return '';
+        }
+
+        let utcDate: Date;
+
+        if (typeof timestamp === 'number') {
+            // Si es un número, asumimos que es un timestamp Unix (segundos desde epoch)
+            utcDate = new Date(timestamp * 1000);
+        } else {
+            // Verificar si es formato ISO (contiene 'T' y posiblemente 'Z')
+            if (timestamp.includes('T')) {
+                // Formato ISO: "2025-12-11T22:55:02.684Z" o similar
+                utcDate = new Date(timestamp);
+            } else {
+                // Formato personalizado: "DD/MM/YYYY HH:MM:SS" (en UTC desde el backend)
+                const [dateStr, timeStr] = timestamp.split(' ');
+                if (!dateStr || !timeStr) return timestamp;
+
+                const [day, month, year] = dateStr.split('/');
+                const [hStr, mStr, sStr] = timeStr.split(':');
+
+                if (!day || !month || !year || !hStr || !mStr || !sStr) return timestamp;
+
+                // Construir fecha UTC
+                const utcMs = Date.UTC(
+                    parseInt(year, 10),
+                    parseInt(month, 10) - 1,
+                    parseInt(day, 10),
+                    parseInt(hStr, 10),
+                    parseInt(mStr, 10),
+                    parseInt(sStr, 10),
+                    0
+                );
+
+                utcDate = new Date(utcMs);
+            }
+        }
+
+        if (isNaN(utcDate.getTime())) {
+            return typeof timestamp === 'string' ? timestamp : '';
+        }
+
+        // Formatear en la zona horaria local
+        const fmt = new Intl.DateTimeFormat('es-EC', {
+            timeZone: targetTimeZone,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        });
+
+        // Extraer partes
+        const parts = fmt.formatToParts(utcDate);
+        const get = (type: Intl.DateTimeFormatPartTypes) =>
+            parts.find(p => p.type === type)?.value ?? '';
+
+        const localDay = get('day');
+        const localMonth = get('month');
+        const localYear = get('year');
+        const localHour = get('hour');
+        const localMinute = get('minute');
+        const localSecond = get('second');
+
+        return `${localDay}/${localMonth}/${localYear} ${localHour}:${localMinute}:${localSecond}`;
+    }
 
     // Cargar logs y estadísticas al montar o cambiar eventId/participantId
     useEffect(() => {
@@ -97,7 +175,7 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
         return imageExtensions.some(ext => lowerUrl.includes(ext));
     };
 
-    const openMediaModal = (fileUrl: string) => {
+    const normalizeUrl = (fileUrl: string) => {
         let normalizedUrl = fileUrl;
         try {
             if (normalizedUrl.startsWith('/')) {
@@ -108,18 +186,39 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
         } catch (e) {
             console.error('Error normalizando file_url:', e);
         }
-        setSelectedImage(normalizedUrl);
+        return normalizedUrl;
+    };
+
+    const openMediaModal = (fileUrl: string, logId: number) => {
+        setHasRetried(false);
+        setSelectedLogId(logId);
+        setSelectedImage(normalizeUrl(fileUrl));
         setIsModalOpen(true);
     };
 
     const closeModal = () => {
         setIsModalOpen(false);
         setSelectedImage(null);
+        setSelectedLogId(null);
+        setHasRetried(false);
+    };
+
+    const refreshAndReopen = async () => {
+        if (selectedLogId === null) return;
+        // Evitar loops infinitos: solo reintentar una vez
+        if (hasRetried) return;
+        setHasRetried(true);
+        await handleRefresh();
+        const updatedLog = logs.find((l) => l.id === selectedLogId);
+        if (updatedLog?.file_url) {
+            setSelectedImage(normalizeUrl(updatedLog.file_url));
+            setIsModalOpen(true);
+        }
     };
 
     return (
         <div className="flex min-h-screen bg-gray-100">
-            <Sidebar onNavigate={onNavigate} />
+            <Sidebar currentPage="evaluaciones" onNavigate={onNavigate} onLogout={onLogout} />
 
             <div className="flex-1 p-8">
                 {/* Header */}
@@ -208,7 +307,7 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                                 <p className="text-sm text-gray-600">Último cambio monitoreo</p>
                                 <p className="text-sm font-semibold text-yellow-700">
                                     {connectionStats.monitoring_last_change
-                                        ? new Date(connectionStats.monitoring_last_change).toLocaleString('es-ES')
+                                        ? parseUTCTimestamp(connectionStats.monitoring_last_change)
                                         : 'N/A'}
                                 </p>
                             </div>
@@ -267,31 +366,32 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                                     </button>
                                 </div>
                             </div>
-                            <div className="flex justify-center">
-                                {isVideoFile(selectedImage) ? (
-                                    <video
-                                        src={selectedImage}
-                                        controls
-                                        className="max-w-full h-auto rounded-lg"
-                                        style={{ maxHeight: '70vh' }}
-                                        preload="metadata"
-                                        onError={(e) => {
-                                            console.error('Error cargando video:', e);
-                                            // Mostrar mensaje de error si no se puede cargar
-                                        }}
-                                    >
-                                        Tu navegador no soporta la reproducción de video.
-                                    </video>
-                                ) : isImageFile(selectedImage) ? (
-                                    <img
-                                        src={selectedImage}
-                                        alt="Vista previa"
-                                        className="max-w-full h-auto rounded-lg"
-                                        onError={(e) => {
-                                            console.error('Error cargando imagen:', e);
-                                        }}
-                                    />
-                                ) : (
+                                <div className="flex justify-center">
+                                    {isVideoFile(selectedImage) ? (
+                                        <video
+                                            src={selectedImage}
+                                            controls
+                                            className="max-w-full h-auto rounded-lg"
+                                            style={{ maxHeight: '70vh' }}
+                                            preload="metadata"
+                                            onError={(e) => {
+                                                console.error('Error cargando video:', e);
+                                                refreshAndReopen();
+                                            }}
+                                        >
+                                            Tu navegador no soporta la reproducción de video.
+                                        </video>
+                                    ) : isImageFile(selectedImage) ? (
+                                        <img
+                                            src={selectedImage}
+                                            alt="Vista previa"
+                                            className="max-w-full h-auto rounded-lg"
+                                            onError={(e) => {
+                                                console.error('Error cargando imagen:', e);
+                                                refreshAndReopen();
+                                            }}
+                                        />
+                                    ) : (
                                     <div className="text-center text-gray-600 p-8">
                                         <svg className="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -348,6 +448,9 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                                                     Tipo
                                                 </th>
                                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                    Tiempo
+                                                </th>
+                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                     Mensaje
                                                 </th>
                                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -369,6 +472,9 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                                                             {log.name}
                                                         </span>
                                                     </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                                        {parseUTCTimestamp(log.created_at)}
+                                                    </td>
                                                     <td className="px-6 py-4 text-sm text-gray-600">
                                                         {log.message}
                                                     </td>
@@ -387,7 +493,7 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                                                         {log.has_file && log.file_url && (
                                                             <button
-                                                                onClick={() => log.file_url && openMediaModal(log.file_url)}
+                                                                onClick={() => log.file_url && openMediaModal(log.file_url, log.id)}
                                                                 className="text-blue-600 hover:text-blue-800 p-2 hover:bg-blue-50 rounded-full transition-colors"
                                                                 title="Ver archivo"
                                                             >
@@ -412,6 +518,16 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                                         </div>
                                         <div className="flex items-center space-x-2">
                                             <button
+                                                onClick={() => setCurrentPage(1)}
+                                                disabled={currentPage === 1}
+                                                className="p-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                title="Primera página"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                                                </svg>
+                                            </button>
+                                            <button
                                                 onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                                                 disabled={currentPage === 1}
                                                 className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -427,6 +543,16 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate }: Monitori
                                                 className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                                             >
                                                 Siguiente
+                                            </button>
+                                            <button
+                                                onClick={() => setCurrentPage(totalPages)}
+                                                disabled={currentPage === totalPages}
+                                                className="p-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                title="Última página"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                                                </svg>
                                             </button>
                                         </div>
                                     </div>

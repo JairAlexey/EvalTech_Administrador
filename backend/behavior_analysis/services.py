@@ -2,7 +2,9 @@ import cv2
 import mediapipe as mp
 import threading
 import os
+import tempfile
 from django.utils import timezone
+from events.s3_service import s3_service
 from .models import (
     AnalisisComportamiento,
     RegistroRostro,
@@ -24,29 +26,74 @@ from .analyzers.absence import AnalizadorAusencia
 def procesar_video_completo(video_path, participant_event_id):
     print(f"Iniciando análisis unificado para: {video_path}")
 
+    temp_file_path = None
+    local_video_path = video_path
+
+    def _cleanup_temp():
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except Exception as e:
+                print(f"No se pudo eliminar el archivo temporal: {e}")
+
     try:
         pe = ParticipantEvent.objects.get(id=participant_event_id)
     except ParticipantEvent.DoesNotExist:
         print(f"Error: ParticipantEvent {participant_event_id} no existe.")
+        _cleanup_temp()
         return None
 
     # Obtener registro existente y actualizar estado
     try:
         analisis = AnalisisComportamiento.objects.get(participant_event=pe)
-        analisis.status = "PROCESSING"
+        analisis.status = "procesando"
         analisis.save()
     except AnalisisComportamiento.DoesNotExist:
         print(
             f"Error: No existe registro de análisis para el evento {participant_event_id}"
         )
+        _cleanup_temp()
         return None
 
-    # Inicializar analizadores
+    # Descargar el video si viene como URL o clave de S3 para procesarlo localmente
+    try:
+        if isinstance(video_path, str):
+            key = None
+            if video_path.startswith("http"):
+                # Extraer la key del objeto desde la URL p�blica de S3
+                key = video_path.split(".amazonaws.com/")[-1].split("?")[0]
+            elif not os.path.exists(video_path):
+                # No es una ruta local existente, asumir que es la key de S3
+                key = video_path
+
+            if key:
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".webm")
+                temp_file_path = temp_file.name
+                temp_file.close()
+
+                download_result = s3_service.download_file(key, temp_file_path)
+                if not download_result.get("success"):
+                    print(
+                        f"Error: no se pudo descargar el video desde S3: {download_result.get('error')}"
+                    )
+                    analisis.status = "error"
+                    analisis.save()
+                    _cleanup_temp()
+                    return None
+
+                local_video_path = temp_file_path
+    except Exception as e:
+        print(f"Error descargando video remoto: {e}")
+        analisis.status = "error"
+        analisis.save()
+        _cleanup_temp()
+        return None
+    # Inicializar analizadores con la ruta local (descargada o original)
     rostros = AnalizadorRostros()
     gestos = AnalizadorGestos()
     iluminacion = AnalizadorIluminacion()
-    lipsync = AnalizadorLipsync(video_path)
-    voz = AnalizadorVoz(video_path)
+    lipsync = AnalizadorLipsync(local_video_path)
+    voz = AnalizadorVoz(local_video_path)
     ausencia = AnalizadorAusencia()
 
     # Ejecutar análisis de voz en hilo separado
@@ -69,25 +116,59 @@ def procesar_video_completo(video_path, participant_event_id):
         min_tracking_confidence=0.5,
     )
 
+    # Fallback: si todav�a tenemos una referencia remota, intenta descargar ahora
+    if isinstance(local_video_path, str) and (
+        local_video_path.startswith("http") or not os.path.exists(local_video_path)
+    ):
+        try:
+            if local_video_path.startswith("http"):
+                key = local_video_path.split(".amazonaws.com/")[-1].split("?")[0]
+            else:
+                key = local_video_path
+
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".webm")
+            temp_file_path = temp_file.name
+            temp_file.close()
+
+            download_result = s3_service.download_file(key, temp_file_path)
+            if not download_result.get("success"):
+                print(
+                    f"Error: no se pudo descargar el video (fallback) desde S3: {download_result.get('error')}"
+                )
+                analisis.status = "error"
+                analisis.save()
+                _cleanup_temp()
+                return None
+
+            print(f"Video descargado de S3 a: {temp_file_path}")
+            local_video_path = temp_file_path
+        except Exception as e:
+            print(f"Error descargando video remoto (fallback): {e}")
+            analisis.status = "error"
+            analisis.save()
+            _cleanup_temp()
+            return None
     # Verificar existencia de archivo
-    if not os.path.exists(video_path):
-        print(f"Error: archivo no existe: {video_path}")
+    if not os.path.exists(local_video_path):
+        print(f"Error: archivo no existe: {local_video_path}")
         try:
             analisis = AnalisisComportamiento.objects.get(
                 participant_event_id=participant_event_id
             )
-            analisis.status = "ERROR"
+            analisis.status = "error"
             analisis.save()
         except AnalisisComportamiento.DoesNotExist:
             pass
+        _cleanup_temp()
         return None
 
     # Abrir video
-    cap = cv2.VideoCapture(video_path)
+    cap = cv2.VideoCapture(local_video_path)
     if not cap.isOpened():
         print("Error al abrir el video.")
-        analisis.status = "ERROR"
+        analisis.status = "error"
         analisis.save()
+        _cleanup_temp()
         return None
 
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -232,7 +313,12 @@ def procesar_video_completo(video_path, participant_event_id):
                 tiempo_fin=hab["tiempo_fin"],
             )
 
-    analisis.status = "COMPLETED"
+    analisis.status = "completado"
     analisis.save()
     print("Análisis completado y guardado.")
-    return {"id": analisis.id, "status": "COMPLETED"}
+    _cleanup_temp()
+    return {"id": analisis.id, "status": "completado"}
+
+    # Limpieza del archivo temporal en caso de haber descargado desde S3
+    # (Se ejecutará al salir de la función)
+    # Nota: el código no llega aquí por los returns anteriores, se maneja en finally
