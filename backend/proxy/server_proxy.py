@@ -163,9 +163,9 @@ class DynamicProxyManager:
                         if getattr(participant_event, "is_monitoring", False):
                             cache_key = (event_key, hostname)
                             if self._should_log_block(cache_key):
-                                mensaje = f"-> Intento acceder a {hostname}"
+                                mensaje = f"Intento acceder a {hostname}"
                                 self._send_log_to_api(event_key, mensaje)
-                                logger.info(f"-> Log de intento bloqueado enviado: {mensaje}")
+                                logger.info(f"Log de intento bloqueado enviado: {mensaje}")
                             else:
                                 logger.debug(f"Log duplicado evitado para {hostname} y event_key {event_key}")
                         else:

@@ -64,6 +64,19 @@ def validate_event_access(participant_event, now):
     is_first_connection = participant_event.monitoring_sessions_count == 0
     has_connected_before = not is_first_connection
 
+    # Regla 0: Verificar si ya consumió todo su tiempo
+    total_time_seconds = participant_event.get_total_monitoring_time()
+    event_duration_seconds = event.duration * 60
+    
+    # Dar un margen de tolerancia de 30 segundos
+    if total_time_seconds >= (event_duration_seconds + 30):
+        return {
+            "allowed": False,
+            "reason": "Has consumido todo el tiempo disponible para este evento.",
+            "monitoring_allowed": False,
+            "is_first_connection": is_first_connection,
+        }
+
     # Regla 1: Nadie puede entrar después de end_date (fecha final absoluta)
     if now > event.end_date:
         return {
@@ -409,6 +422,7 @@ def log_participant_screen_event(request: HttpRequest):
             return JsonResponse({"error": "Monitoring not started"}, status=403)
 
         file = request.FILES["screenshot"]
+        monitor_name = request.POST.get("monitor_name", "Unknown Monitor")
 
         # Subir archivo a S3
         upload_result = s3_service.upload_media_fragment(
@@ -420,7 +434,7 @@ def log_participant_screen_event(request: HttpRequest):
             ParticipantLog.objects.create(
                 name="screen",
                 url=upload_result["key"],  # guardamos la key en el campo url
-                message="Desktop Screenshot",
+                message=f"{monitor_name}",
                 participant_event=participant_event,
             )
             return JsonResponse(
