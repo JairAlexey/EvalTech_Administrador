@@ -382,8 +382,9 @@ def log_participant_http_event(request: HttpRequest):
         if not getattr(participant_event, "is_monitoring", False):
             return JsonResponse({"error": "Monitoring not started"}, status=403)
 
+        log_type = data.get("type", "http")
         ParticipantLog.objects.create(
-            name="http", message=data["uri"], participant_event=participant_event
+            name=log_type, message=data["uri"], participant_event=participant_event
         )
         return JsonResponse({"status": "success"})
 
