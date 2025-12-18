@@ -41,10 +41,12 @@ def start_monitoring(request):
         
         # Actualizar campos de monitoreo en ParticipantEvent
         pe.is_monitoring = True
-        if pe.monitoring_current_session_time is None:
-            pe.monitoring_current_session_time = now
-            pe.monitoring_last_change = now
-            pe.monitoring_sessions_count += 1
+        
+        # SIEMPRE actualizar el tiempo de inicio de sesión al iniciar
+        # Esto corrige el bug donde si la app crasheaba, el tiempo seguía contando hasta el próximo inicio
+        pe.monitoring_current_session_time = now
+        pe.monitoring_last_change = now
+        pe.monitoring_sessions_count += 1
             
         pe.save(update_fields=[
             "is_monitoring", 
