@@ -169,6 +169,7 @@ def verify_event_key(request):
         # Obtener información del tiempo de monitoreo desde ParticipantEvent
         connection_info = {
             "totalTime": participant_event.get_total_monitoring_time(),
+            "totalTimeSeconds": participant_event.get_total_monitoring_seconds(),
             "isActive": participant_event.is_monitoring,
             "eventDuration": event.duration,
             "monitoringAllowed": access_validation["monitoring_allowed"],
