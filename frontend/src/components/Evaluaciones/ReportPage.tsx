@@ -233,6 +233,10 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
         }
     };
 
+    // Utilidad: ordenar por tiempo de inicio ascendente sin mutar el arreglo original
+    const sortByStartTime = <T extends { tiempo_inicio: number }>(arr: T[]) =>
+        [...arr].sort((a, b) => a.tiempo_inicio - b.tiempo_inicio);
+
     const openGallery = (index: number, screenType: string) => {
         setSelectedScreenGroup(screenType);
         setCurrentImageIndex(index);
@@ -637,7 +641,7 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                                     Ausencias Detectadas
                                                                 </h3>
                                                                 <div className="flex flex-wrap gap-2 overflow-y-auto">
-                                                                    {reportData.registros.ausencias.map((ausencia) => (
+                                                                    {sortByStartTime(reportData.registros.ausencias).map((ausencia) => (
                                                                         <div
                                                                             key={ausencia.id}
                                                                             className="p-3 bg-red-50 rounded-lg hover:bg-red-100 transition cursor-pointer min-w-[180px] max-w-xs flex-1"
@@ -684,7 +688,7 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                                             </button>
                                                                             {!isCollapsed && (
                                                                                 <div className="flex flex-wrap gap-2 overflow-y-auto">
-                                                                                    {gestos.map((gesto) => (
+                                                                                    {sortByStartTime(gestos).map((gesto) => (
                                                                                         <div
                                                                                             key={gesto.id}
                                                                                             className="p-3 bg-purple-50 rounded-lg hover:bg-purple-100 transition cursor-pointer min-w-[180px] max-w-xs flex-1"
@@ -714,7 +718,7 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                                     Anomalías de Iluminación
                                                                 </h3>
                                                                 <div className="flex flex-wrap gap-2 overflow-y-auto">
-                                                                    {reportData.registros.iluminacion.map((ilum) => (
+                                                                    {sortByStartTime(reportData.registros.iluminacion).map((ilum) => (
                                                                         <div
                                                                             key={ilum.id}
                                                                             className="p-3 bg-yellow-50 rounded-lg hover:bg-yellow-100 transition cursor-pointer min-w-[180px] max-w-xs flex-1"
@@ -749,7 +753,7 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                                         </button>
                                                                         {!collapsedGroups['voz-susurros'] && (
                                                                             <div className="flex flex-wrap gap-2 overflow-y-auto">
-                                                                                {reportData.registros.voz.filter(v => v.tipo_log === 'susurro').map((voz) => (
+                                                                                {sortByStartTime(reportData.registros.voz.filter(v => v.tipo_log === 'susurro')).map((voz) => (
                                                                                     <div
                                                                                         key={voz.id}
                                                                                         className="p-3 bg-green-50 rounded-lg hover:bg-green-100 transition cursor-pointer min-w-[180px] max-w-xs flex-1"
@@ -797,7 +801,7 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                                                             </button>
                                                                                             {!isCollapsed && (
                                                                                                 <div className="flex flex-wrap gap-2 overflow-y-auto">
-                                                                                                    {voces.map((voz) => (
+                                                                                                    {sortByStartTime(voces).map((voz) => (
                                                                                                         <div
                                                                                                             key={voz.id}
                                                                                                             className="p-3 bg-green-50 rounded-lg hover:bg-green-100 transition cursor-pointer min-w-[180px] max-w-xs flex-1"
@@ -849,7 +853,7 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                                             </button>
                                                                             {!isCollapsed && (
                                                                                 <div className="flex flex-wrap gap-2 overflow-y-auto">
-                                                                                    {lipsyncs.map((lipsync) => (
+                                                                                    {sortByStartTime(lipsyncs).map((lipsync) => (
                                                                                         <div
                                                                                             key={lipsync.id}
                                                                                             className="p-3 bg-pink-50 rounded-lg hover:bg-pink-100 transition cursor-pointer min-w-[180px] max-w-xs flex-1"
@@ -897,7 +901,7 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                                             </button>
                                                                             {!isCollapsed && (
                                                                                 <div className="flex flex-wrap gap-2 overflow-y-auto">
-                                                                                    {rostros.map((rostro) => (
+                                                                                    {sortByStartTime(rostros).map((rostro) => (
                                                                                         <div
                                                                                             key={rostro.id}
                                                                                             className="p-3 bg-blue-50 rounded-lg hover:bg-blue-100 transition cursor-pointer min-w-[180px] max-w-xs flex-1"
