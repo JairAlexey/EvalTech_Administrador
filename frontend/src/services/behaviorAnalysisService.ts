@@ -47,6 +47,7 @@ export interface AnalysisReport {
     total_screenshots: number;
     total_videos: number;
     total_blocked_requests: number;
+    total_proxy_disconnections: number;
   };
   registros: {
     rostros: Array<{
@@ -92,6 +93,7 @@ export interface AnalysisReport {
       id: number;
       timestamp: string;
       url: string | null;
+      message: string;
     }>;
     blocked_requests: Array<{
       id: number;

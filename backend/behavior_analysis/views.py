@@ -275,7 +275,7 @@ def analysis_report(request, event_id, participant_id):
         ParticipantLog.objects.filter(
             participant_event=participant_event, name="screen"
         )
-        .values("id", "timestamp", "url")
+        .values("id", "timestamp", "url", "message")
         .order_by("timestamp")
     )
 
@@ -285,12 +285,18 @@ def analysis_report(request, event_id, participant_id):
             "id": log["id"],
             "timestamp": log["timestamp"],
             "url": _get_presigned_url(log["url"]) if log["url"] else None,
+            "message": log["message"],
         }
         screenshots_logs.append(screenshot_data)
 
     # Contar videos
     total_videos = ParticipantLog.objects.filter(
         participant_event=participant_event, name="audio/video"
+    ).count()
+
+    # Contar desconexiones del proxy
+    total_proxy_disconnections = ParticipantLog.objects.filter(
+        participant_event=participant_event, name="proxy"
     ).count()
 
     # Solo peticiones bloqueadas (las únicas que se guardan en logs HTTP)
@@ -347,6 +353,7 @@ def analysis_report(request, event_id, participant_id):
             "total_screenshots": len(screenshots_logs),
             "total_videos": total_videos,
             "total_blocked_requests": len(blocked_requests),
+            "total_proxy_disconnections": total_proxy_disconnections,
         },
         "registros": {
             "rostros": registros_rostros,
@@ -357,7 +364,7 @@ def analysis_report(request, event_id, participant_id):
             "ausencias": registros_ausencia,
         },
         "activity_logs": {
-            "screenshots": screenshots_logs[:50],  # Limitar a últimas 50
+            "screenshots": screenshots_logs,
             "blocked_requests": blocked_requests[:100],  # Limitar a últimas 100
         },
         "monitoring": monitoring_info,
