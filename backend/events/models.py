@@ -109,22 +109,23 @@ class ParticipantEvent(models.Model):
 
     def get_total_monitoring_time(self):
         """Retorna el tiempo total de monitoreo en minutos, incluyendo sesión actual si está activa"""
+        return self.get_total_monitoring_seconds() // 60
+
+    def get_total_monitoring_seconds(self):
+        """Retorna el tiempo total de monitoreo en SEGUNDOS, incluyendo sesión actual si está activa"""
         from django.utils import timezone
         
-        # Convertir total_duration de segundos a minutos
-        total_minutes = (self.monitoring_total_duration or 0) // 60
+        total_seconds = self.monitoring_total_duration or 0
 
         # Incluir la sesión en curso SOLO si está en modo monitoreo
         if self.is_monitoring and self.monitoring_current_session_time:
             try:
                 current_seconds = int((timezone.now() - self.monitoring_current_session_time).total_seconds())
-                current_minutes = current_seconds // 60
-                total_minutes += current_minutes
+                total_seconds += current_seconds
             except Exception:
-                # En caso de error, no sumar tiempo adicional
                 pass
 
-        return total_minutes
+        return total_seconds
 
     def has_monitoring_time_remaining(self):
         """Verifica si aún hay tiempo disponible para monitoreo según la duración del evento"""

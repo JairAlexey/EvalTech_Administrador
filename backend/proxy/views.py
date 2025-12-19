@@ -1,6 +1,7 @@
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
+from django.db import transaction
 import json
 
 from events.models import ParticipantEvent
@@ -28,34 +29,47 @@ def start_monitoring(request):
 
     from django.utils import timezone
     try:
-        pe = ParticipantEvent.objects.get(event_key=event_key)
-        
-        # Validar que aún se permita el monitoreo
-        now = timezone.now()
-        access_validation = validate_event_access(pe, now)
-        
-        if not access_validation["monitoring_allowed"]:
-            return JsonResponse({
-                "error": "Ya no se permite iniciar monitoreo en este evento"
-            }, status=403)
-        
-        # Actualizar campos de monitoreo en ParticipantEvent
-        pe.is_monitoring = True
-        
-        # SIEMPRE actualizar el tiempo de inicio de sesión al iniciar
-        # Esto corrige el bug donde si la app crasheaba, el tiempo seguía contando hasta el próximo inicio
-        pe.monitoring_current_session_time = now
-        pe.monitoring_last_change = now
-        pe.monitoring_sessions_count += 1
+        with transaction.atomic():
+            pe = ParticipantEvent.objects.select_for_update().get(event_key=event_key)
             
-        pe.save(update_fields=[
-            "is_monitoring", 
-            "monitoring_current_session_time", 
-            "monitoring_last_change", 
-            "monitoring_sessions_count"
-        ])
-        
-        logger.info(f"start_monitoring called for event_key={event_key}; participant_event id={pe.id}; session #{pe.monitoring_sessions_count}")
+            # Validar que aún se permita el monitoreo
+            now = timezone.now()
+            access_validation = validate_event_access(pe, now)
+            
+            if not access_validation["monitoring_allowed"]:
+                return JsonResponse({
+                    "error": "Ya no se permite iniciar monitoreo en este evento"
+                }, status=403)
+            
+            # Si ya está monitoreando, devolver éxito sin reiniciar el contador
+            if pe.is_monitoring:
+                # CORRECCIÓN CRÍTICA: Si el estado es inconsistente (is_monitoring=True pero time=None),
+                # debemos iniciar el tiempo AHORA para que esta sesión cuente.
+                if pe.monitoring_current_session_time is None:
+                    pe.monitoring_current_session_time = now
+                    pe.monitoring_last_change = now
+                    pe.save(update_fields=["monitoring_current_session_time", "monitoring_last_change"])
+                    logger.info(f"Fixed inconsistent state (True/None) for event_key={event_key}")
+                
+                logger.info(f"start_monitoring called but already active for event_key={event_key}")
+                return JsonResponse({"status": "monitoring_already_started"})
+
+            # Actualizar campos de monitoreo en ParticipantEvent
+            pe.is_monitoring = True
+            
+            # SIEMPRE actualizar el tiempo de inicio de sesión al iniciar
+            pe.monitoring_current_session_time = now
+            pe.monitoring_last_change = now
+            pe.monitoring_sessions_count += 1
+                
+            pe.save(update_fields=[
+                "is_monitoring", 
+                "monitoring_current_session_time", 
+                "monitoring_last_change", 
+                "monitoring_sessions_count"
+            ])
+            
+            logger.info(f"start_monitoring called for event_key={event_key}; participant_event id={pe.id}; session #{pe.monitoring_sessions_count}")
 
         return JsonResponse({"status": "monitoring_started"})
     except ParticipantEvent.DoesNotExist:
@@ -77,27 +91,33 @@ def stop_monitoring(request):
 
     from django.utils import timezone
     try:
-        pe = ParticipantEvent.objects.get(event_key=event_key)
-        
-        # Calcular duración de la sesión actual y sumarla al total
-        now = timezone.now()
-        if pe.monitoring_current_session_time:
-            start_time = pe.monitoring_current_session_time
-            session_seconds = int((now - start_time).total_seconds())
-            pe.monitoring_total_duration += session_seconds
-            pe.monitoring_current_session_time = None
+        with transaction.atomic():
+            pe = ParticipantEvent.objects.select_for_update().get(event_key=event_key)
             
-        pe.is_monitoring = False
-        pe.monitoring_last_change = now
-        
-        pe.save(update_fields=[
-            "is_monitoring", 
-            "monitoring_total_duration", 
-            "monitoring_current_session_time", 
-            "monitoring_last_change"
-        ])
-        
-        logger.info(f"stop_monitoring called for event_key={event_key}; participant_event id={pe.id}; total_duration={pe.monitoring_total_duration}s")
+            # Calcular duración de la sesión actual y sumarla al total
+            now = timezone.now()
+            if pe.monitoring_current_session_time:
+                start_time = pe.monitoring_current_session_time
+                # Asegurar que no restamos si el reloj está mal (aunque usamos server time)
+                if now >= start_time:
+                    session_seconds = int((now - start_time).total_seconds())
+                    pe.monitoring_total_duration += session_seconds
+                else:
+                    logger.warning(f"Time anomaly detected: now ({now}) < start_time ({start_time})")
+                
+                pe.monitoring_current_session_time = None
+                
+            pe.is_monitoring = False
+            pe.monitoring_last_change = now
+            
+            pe.save(update_fields=[
+                "is_monitoring", 
+                "monitoring_total_duration", 
+                "monitoring_current_session_time", 
+                "monitoring_last_change"
+            ])
+            
+            logger.info(f"stop_monitoring called for event_key={event_key}; participant_event id={pe.id}; total_duration={pe.monitoring_total_duration}s")
 
         return JsonResponse({"status": "monitoring_stopped"})
     except ParticipantEvent.DoesNotExist:
