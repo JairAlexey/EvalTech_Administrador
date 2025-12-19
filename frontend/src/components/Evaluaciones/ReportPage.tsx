@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Info, X } from 'lucide-react';
 import Sidebar from '../utils/Sidebar';
 import behaviorAnalysisService, { type AnalysisStatus, type AnalysisReport } from '../../services/behaviorAnalysisService';
 import { User, Clock, AlertTriangle, Eye, Volume2, Lightbulb, MessageSquare, UserX, Activity, Camera, Shield, Timer, Film } from 'lucide-react';
@@ -12,6 +12,76 @@ interface ReportPageProps {
     onLogout?: () => void;
 }
 
+// Información de penalización para cada dimensión
+const penalizacionInfo: Record<string, { titulo: string; descripcion: string; penalizaciones: string[] }> = {
+    'Presencia Continua': {
+        titulo: 'Presencia Continua',
+        descripcion: 'Evalúa el tiempo que el participante estuvo presente frente a la cámara durante la evaluación.',
+        penalizaciones: [
+            '• Penalización base: -2 puntos por cada segundo de ausencia',
+            '• Penalización adicional: Si las ausencias superan el 10% de la duración del evento, se reduce la puntuación a la mitad',
+        ]
+    },
+    'Comportamiento Visual': {
+        titulo: 'Comportamiento Visual',
+        descripcion: 'Analiza los gestos y movimientos del participante que pueden indicar distracciones o comportamiento sospechoso.',
+        penalizaciones: [
+            '• Penalización: -3 puntos por cada gesto detectado',
+            '• Incluye: miradas hacia otro lado, hacia abajo, cabeza inclinada, ojos cerrados, etc.',
+        ]
+    },
+    'Calidad de Audio': {
+        titulo: 'Calidad de Audio',
+        descripcion: 'Evalúa la calidad y características del audio capturado durante la evaluación.',
+        penalizaciones: [
+            '• Susurros detectados: -5 puntos por cada ocurrencia',
+            '• Múltiples hablantes detectados: -20 puntos (se aplica una sola vez si hay más de un hablante)',
+        ]
+    },
+    'Sincronización Labial': {
+        titulo: 'Sincronización Labial',
+        descripcion: 'Verifica la coherencia entre el movimiento de los labios y el audio capturado.',
+        penalizaciones: [
+            '• Cada anomalía de sincronización: -6 puntos',
+            '• Indica posible uso de audio pregrabado o suplantación',
+        ]
+    },
+    'Condiciones de Iluminación': {
+        titulo: 'Condiciones de Iluminación',
+        descripcion: 'Evalúa si las condiciones de iluminación son adecuadas para la identificación del participante.',
+        penalizaciones: [
+            '• Cada anomalía de iluminación: -3 puntos',
+            '• Incluye iluminación muy baja, muy alta, o contraluz',
+        ]
+    },
+    'Consistencia de Identidad': {
+        titulo: 'Consistencia de Identidad',
+        descripcion: 'Verifica que solo el participante registrado esté presente durante la evaluación.',
+        penalizaciones: [
+            '• Ninguna persona detectada: 0 puntos (automáticamente)',
+            '• Cada persona adicional detectada: -20 puntos',
+            '• Garantiza que solo el participante autorizado realice la evaluación'
+        ]
+    },
+    'Navegación y Seguridad': {
+        titulo: 'Navegación y Seguridad',
+        descripcion: 'Monitorea intentos de acceso a sitios no permitidos y desconexiones del sistema de seguridad.',
+        penalizaciones: [
+            '• Cada petición bloqueada: -5 puntos',
+            '• Cada desconexión del proxy: -15 puntos',
+            '• Las desconexiones del proxy indican intentos de evadir el monitoreo',
+        ]
+    },
+    'Continuidad de la Sesión': {
+        titulo: 'Continuidad de la Sesión',
+        descripcion: 'Evalúa las interrupciones en el monitoreo durante la evaluación.',
+        penalizaciones: [
+            '• Cada sesión adicional de monitoreo: -10 puntos',
+            '• Primera sesión no penaliza',
+            '• Múltiples sesiones pueden indicar intentos de manipulación',
+        ]
+    }
+};
 
 export default function ReportPage({ eventId, participantId, onBack, onNavigate, onLogout }: ReportPageProps) {
     const [statusData, setStatusData] = useState<AnalysisStatus | null>(null);
@@ -24,26 +94,30 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
     const screenshotRefreshAttempts = useRef<number>(0);
     const [isGalleryOpen, setIsGalleryOpen] = useState<boolean>(false);
     const [currentImageIndex, setCurrentImageIndex] = useState<number>(0);
+    const [selectedScreenGroup, setSelectedScreenGroup] = useState<string | null>(null);
     const [activeDetectionTab, setActiveDetectionTab] = useState<'ausencias' | 'gestos' | 'iluminacion' | 'voz' | 'lipsync' | 'rostros'>('ausencias');
 
     // Estado para colapsar/expandir subcategorías agrupadas
     const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+
+    // Estado para modal de información de penalizaciones
+    const [infoModalOpen, setInfoModalOpen] = useState<string | null>(null);
 
     // Keyboard navigation for gallery
     useEffect(() => {
         if (!isGalleryOpen) return;
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'ArrowLeft') {
-                setCurrentImageIndex((prev) => (prev > 0 ? prev - 1 : prev));
+                goToPrevious();
             } else if (e.key === 'ArrowRight') {
-                setCurrentImageIndex((prev) => (reportData && prev < reportData.activity_logs.screenshots.length - 1 ? prev + 1 : prev));
+                goToNext();
             } else if (e.key === 'Escape') {
                 setIsGalleryOpen(false);
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isGalleryOpen, reportData]);
+    }, [isGalleryOpen, reportData, selectedScreenGroup, currentImageIndex]);
 
     const toggleGroup = (groupKey: string) => {
         setCollapsedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
@@ -84,6 +158,23 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
 
         loadData();
     }, [eventId, participantId]);
+
+    // Seleccionar automáticamente la primera pestaña de detección disponible
+    useEffect(() => {
+        if (!reportData) return;
+
+        const detectionOrder: Array<'ausencias' | 'gestos' | 'iluminacion' | 'voz' | 'lipsync' | 'rostros'> = [
+            'ausencias', 'gestos', 'iluminacion', 'voz', 'lipsync', 'rostros'
+        ];
+
+        for (const detection of detectionOrder) {
+            const hasData = reportData.registros[detection]?.length > 0;
+            if (hasData) {
+                setActiveDetectionTab(detection);
+                break;
+            }
+        }
+    }, [reportData]);
 
     const refreshReportData = async () => {
         try {
@@ -142,7 +233,8 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
         }
     };
 
-    const openGallery = (index: number) => {
+    const openGallery = (index: number, screenType: string) => {
+        setSelectedScreenGroup(screenType);
         setCurrentImageIndex(index);
         setIsGalleryOpen(true);
     };
@@ -152,14 +244,17 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
     };
 
     const goToPrevious = () => {
-        if (reportData && currentImageIndex > 0) {
+        if (currentImageIndex > 0) {
             setCurrentImageIndex(currentImageIndex - 1);
         }
     };
 
     const goToNext = () => {
-        if (reportData && currentImageIndex < reportData.activity_logs.screenshots.length - 1) {
-            setCurrentImageIndex(currentImageIndex + 1);
+        if (reportData && selectedScreenGroup) {
+            const filtered = reportData.activity_logs.screenshots.filter(s => s.message === selectedScreenGroup);
+            if (currentImageIndex < filtered.length - 1) {
+                setCurrentImageIndex(currentImageIndex + 1);
+            }
         }
     };
 
@@ -344,6 +439,33 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                 </div>
                                             </div>
 
+                                            {/* Actividad Registrada */}
+                                            <div>
+                                                <h2 className="text-xl font-bold text-gray-900 mb-4">Actividad Registrada</h2>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                                    <div className="bg-cyan-50 p-6 rounded-lg text-center">
+                                                        <Camera className="w-10 h-10 text-cyan-600 mx-auto mb-3" />
+                                                        <p className="text-4xl font-bold text-cyan-700 mb-2">{reportData.statistics.total_screenshots}</p>
+                                                        <p className="text-sm text-gray-600">Capturas de Pantalla</p>
+                                                    </div>
+                                                    <div className="bg-purple-50 p-6 rounded-lg text-center">
+                                                        <Film className="w-10 h-10 text-purple-600 mx-auto mb-3" />
+                                                        <p className="text-4xl font-bold text-purple-700 mb-2">{reportData.statistics.total_videos}</p>
+                                                        <p className="text-sm text-gray-600">Videos</p>
+                                                    </div>
+                                                    <div className="bg-red-50 p-6 rounded-lg text-center">
+                                                        <Shield className="w-10 h-10 text-red-600 mx-auto mb-3" />
+                                                        <p className="text-4xl font-bold text-red-700 mb-2">{reportData.statistics.total_blocked_requests}</p>
+                                                        <p className="text-sm text-gray-600">Peticiones Bloqueadas</p>
+                                                    </div>
+                                                    <div className="bg-orange-50 p-6 rounded-lg text-center">
+                                                        <AlertTriangle className="w-10 h-10 text-orange-600 mx-auto mb-3" />
+                                                        <p className="text-4xl font-bold text-orange-700 mb-2">{reportData.statistics.total_proxy_disconnections}</p>
+                                                        <p className="text-sm text-gray-600">Desconexiones del Proxy</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+
                                             {/* Estadísticas Principales */}
                                             <div>
                                                 <h2 className="text-xl font-bold text-gray-900 mb-4">Estadísticas Generales</h2>
@@ -389,28 +511,6 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                         <AlertTriangle className="w-8 h-8 text-orange-600 mx-auto mb-2" />
                                                         <p className="text-3xl font-bold text-orange-700">{reportData.statistics.total_anomalias_voz}</p>
                                                         <p className="text-sm text-gray-600 mt-1">Susurros</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Actividad Registrada */}
-                                            <div>
-                                                <h2 className="text-xl font-bold text-gray-900 mb-4">Actividad Registrada</h2>
-                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                                    <div className="bg-cyan-50 p-6 rounded-lg text-center">
-                                                        <Camera className="w-10 h-10 text-cyan-600 mx-auto mb-3" />
-                                                        <p className="text-4xl font-bold text-cyan-700 mb-2">{reportData.statistics.total_screenshots}</p>
-                                                        <p className="text-sm text-gray-600">Capturas de Pantalla</p>
-                                                    </div>
-                                                    <div className="bg-purple-50 p-6 rounded-lg text-center">
-                                                        <Film className="w-10 h-10 text-purple-600 mx-auto mb-3" />
-                                                        <p className="text-4xl font-bold text-purple-700 mb-2">{reportData.statistics.total_videos}</p>
-                                                        <p className="text-sm text-gray-600">Videos</p>
-                                                    </div>
-                                                    <div className="bg-red-50 p-6 rounded-lg text-center">
-                                                        <Shield className="w-10 h-10 text-red-600 mx-auto mb-3" />
-                                                        <p className="text-4xl font-bold text-red-700 mb-2">{reportData.statistics.total_blocked_requests}</p>
-                                                        <p className="text-sm text-gray-600">Peticiones Bloqueadas</p>
                                                     </div>
                                                 </div>
                                             </div>
@@ -831,28 +931,33 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                 // 1. Presencia Continua (100 - penalización por ausencias)
                                                 const tiempoAusencia = reportData.statistics.tiempo_total_ausencia_segundos;
                                                 const porcentajeAusencia = (tiempoAusencia / duracionTotal) * 100;
-                                                const puntuacionPresencia = Math.max(0, 100 - (porcentajeAusencia * 2));
+                                                let puntuacionPresencia = 100 - Math.round(tiempoAusencia * 2); // -2 puntos por cada segundo de ausencia
+                                                // Penalización adicional si supera el 10% de ausencia
+                                                if (porcentajeAusencia > 10) {
+                                                    puntuacionPresencia = Math.round(puntuacionPresencia / 2);
+                                                }
+                                                puntuacionPresencia = Math.min(100, Math.max(0, puntuacionPresencia));
 
                                                 // 2. Comportamiento Visual (penalización por gestos sospechosos)
                                                 const gestosTotal = reportData.statistics.total_gestos;
-                                                const penalizacionGestos = Math.min(40, gestosTotal * 2);
-                                                const puntuacionComportamiento = Math.max(0, 100 - penalizacionGestos);
+                                                const penalizacionGestos = gestosTotal * 3; // -3 puntos por cada gesto
+                                                const puntuacionComportamiento = Math.min(100, Math.max(0, 100 - penalizacionGestos));
 
                                                 // 3. Calidad de Audio (penalización por susurros y múltiples hablantes)
                                                 const susurros = reportData.statistics.total_anomalias_voz;
                                                 const hablantes = reportData.statistics.total_hablantes;
-                                                const penalizacionAudio = Math.min(50, (susurros * 5) + ((hablantes - 1) * 10));
-                                                const puntuacionAudio = Math.max(0, 100 - penalizacionAudio);
+                                                const penalizacionAudio = (susurros * 5) + (hablantes > 1 ? 20 : 0); // -5 por susurro, -20 si hay múltiples hablantes
+                                                const puntuacionAudio = Math.min(100, Math.max(0, 100 - penalizacionAudio));
 
                                                 // 4. Sincronización Labial
                                                 const anomaliasLipsync = reportData.statistics.total_anomalias_lipsync;
-                                                const penalizacionLipsync = Math.min(60, anomaliasLipsync * 8);
-                                                const puntuacionLipsync = Math.max(0, 100 - penalizacionLipsync);
+                                                const penalizacionLipsync = anomaliasLipsync * 6; // -6 puntos por cada anomalía
+                                                const puntuacionLipsync = Math.min(100, Math.max(0, 100 - penalizacionLipsync));
 
                                                 // 5. Condiciones de Iluminación
                                                 const anomaliasIlum = reportData.statistics.total_anomalias_iluminacion;
-                                                const penalizacionIlum = Math.min(50, anomaliasIlum * 6);
-                                                const puntuacionIluminacion = Math.max(0, 100 - penalizacionIlum);
+                                                const penalizacionIlum = anomaliasIlum * 3; // -3 puntos por cada anomalía
+                                                const puntuacionIluminacion = Math.min(100, Math.max(0, 100 - penalizacionIlum));
 
                                                 // 6. Consistencia de Identidad (basado en personas únicas detectadas)
                                                 const personasUnicas = new Set(
@@ -865,38 +970,38 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                 // Base: 100 puntos si solo hay 1 persona
                                                 let puntuacionIdentidad = 100;
 
+                                                // Penalización si no hay personas detectadas (muy grave)
+                                                if (personasUnicas === 0 || totalRegistrosRostro === 0) {
+                                                    puntuacionIdentidad = 0; // Sin detección = 0 puntos
+                                                }
                                                 // Penalización por personas adicionales (muy grave)
-                                                if (personasUnicas > 1) {
-                                                    puntuacionIdentidad -= (personasUnicas - 1) * 40; // -40 puntos por cada persona extra
+                                                else if (personasUnicas > 1) {
+                                                    puntuacionIdentidad -= (personasUnicas - 1) * 20; // -20 puntos por cada persona extra
                                                 }
 
-                                                // Penalización leve si hay muy pocos registros (podría ser evasión)
-                                                if (totalRegistrosRostro < 3) {
-                                                    puntuacionIdentidad -= 20;
-                                                }
+                                                puntuacionIdentidad = Math.min(100, Math.max(0, puntuacionIdentidad));
 
-                                                puntuacionIdentidad = Math.max(0, puntuacionIdentidad);
-
-                                                // 7. Navegación y Actividad (penalización por peticiones bloqueadas)
+                                                // 7. Navegación y Actividad (penalización por peticiones bloqueadas y desconexiones del proxy)
                                                 const peticionesBloqueadas = reportData.statistics.total_blocked_requests;
-                                                const penalizacionNavegacion = Math.min(70, peticionesBloqueadas * 5);
-                                                const puntuacionNavegacion = Math.max(0, 100 - penalizacionNavegacion);
+                                                const desconexionesProxy = reportData.statistics.total_proxy_disconnections;
+                                                const penalizacionNavegacion = peticionesBloqueadas * 5 + desconexionesProxy * 15; // -5 por petición, -15 por desconexión
+                                                const puntuacionNavegacion = Math.min(100, Math.max(0, 100 - penalizacionNavegacion));
 
                                                 // 8. Continuidad de la Sesión (basado en interrupciones)
                                                 const sesiones = reportData.monitoring.sessions_count;
-                                                const penalizacionContinuidad = Math.min(50, (sesiones - 1) * 15); // Penaliza cada sesión adicional
-                                                const puntuacionContinuidad = Math.max(0, 100 - penalizacionContinuidad);
+                                                const penalizacionContinuidad = (sesiones - 1) * 10; // -10 puntos por cada sesión adicional
+                                                const puntuacionContinuidad = Math.min(100, Math.max(0, 100 - penalizacionContinuidad));
 
                                                 // Puntuación General (promedio ponderado)
                                                 const puntuacionGeneral = (
-                                                    puntuacionPresencia * 0.28 +
-                                                    puntuacionComportamiento * 0.14 +
-                                                    puntuacionAudio * 0.14 +
-                                                    puntuacionLipsync * 0.14 +
-                                                    puntuacionIluminacion * 0.10 +
+                                                    puntuacionPresencia * 0.30 +
+                                                    puntuacionComportamiento * 0.15 +
+                                                    puntuacionAudio * 0.15 +
+                                                    puntuacionLipsync * 0.05 +
+                                                    puntuacionIluminacion * 0.05 +
                                                     puntuacionIdentidad * 0.10 +
-                                                    puntuacionNavegacion * 0.05 +
-                                                    puntuacionContinuidad * 0.05
+                                                    puntuacionNavegacion * 0.10 +
+                                                    puntuacionContinuidad * 0.10
                                                 );
 
                                                 const getColorClass = (score: number) => {
@@ -917,6 +1022,7 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                     {
                                                         nombre: 'Presencia Continua',
                                                         puntuacion: puntuacionPresencia,
+                                                        peso: 30,
                                                         descripcion: 'Evaluación de la presencia del participante durante la evaluación',
                                                         icono: '👤',
                                                         metricas: [
@@ -928,6 +1034,7 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                     {
                                                         nombre: 'Comportamiento Visual',
                                                         puntuacion: puntuacionComportamiento,
+                                                        peso: 15,
                                                         descripcion: 'Análisis de gestos y comportamientos visuales durante la evaluación',
                                                         icono: '👁️',
                                                         metricas: [
@@ -938,6 +1045,7 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                     {
                                                         nombre: 'Calidad de Audio',
                                                         puntuacion: puntuacionAudio,
+                                                        peso: 15,
                                                         descripcion: 'Evaluación de la calidad del audio y detección de múltiples voces',
                                                         icono: '🎤',
                                                         metricas: [
@@ -946,28 +1054,9 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                         ]
                                                     },
                                                     {
-                                                        nombre: 'Sincronización Labial',
-                                                        puntuacion: puntuacionLipsync,
-                                                        descripcion: 'Análisis de sincronización entre labios y audio',
-                                                        icono: '💬',
-                                                        metricas: [
-                                                            { label: 'Anomalías detectadas', valor: anomaliasLipsync },
-                                                            { label: 'Tasa de anomalías', valor: `${((anomaliasLipsync / (duracionTotal / 60)) || 0).toFixed(1)}/min` }
-                                                        ]
-                                                    },
-                                                    {
-                                                        nombre: 'Condiciones de Iluminación',
-                                                        puntuacion: puntuacionIluminacion,
-                                                        descripcion: 'Evaluación de las condiciones de iluminación durante la evaluación',
-                                                        icono: '💡',
-                                                        metricas: [
-                                                            { label: 'Anomalías detectadas', valor: anomaliasIlum },
-                                                            { label: 'Frecuencia', valor: `${((anomaliasIlum / (duracionTotal / 60)) || 0).toFixed(1)}/min` }
-                                                        ]
-                                                    },
-                                                    {
                                                         nombre: 'Consistencia de Identidad',
                                                         puntuacion: puntuacionIdentidad,
+                                                        peso: 10,
                                                         descripcion: 'Verificación de personas únicas detectadas durante la evaluación',
                                                         icono: '🎭',
                                                         metricas: [
@@ -979,22 +1068,47 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                     {
                                                         nombre: 'Navegación y Seguridad',
                                                         puntuacion: puntuacionNavegacion,
+                                                        peso: 10,
                                                         descripcion: 'Evaluación de intentos de navegación no permitida',
-                                                        icono: '🔒',
+                                                        icono: '🌐',
                                                         metricas: [
                                                             { label: 'Peticiones bloqueadas', valor: peticionesBloqueadas },
-                                                            { label: 'Intentos por minuto', valor: `${((peticionesBloqueadas / (duracionTotal / 60)) || 0).toFixed(1)}/min` }
+                                                            { label: 'Intentos por minuto', valor: `${((peticionesBloqueadas / (duracionTotal / 60)) || 0).toFixed(1)}/min` },
+                                                            { label: 'Desconexiones del proxy', valor: reportData.statistics.total_proxy_disconnections, destacado: reportData.statistics.total_proxy_disconnections > 0 }
                                                         ]
                                                     },
                                                     {
                                                         nombre: 'Continuidad de la Sesión',
                                                         puntuacion: puntuacionContinuidad,
+                                                        peso: 10,
                                                         descripcion: 'Evaluación de interrupciones y pausas durante la evaluación',
                                                         icono: '🔄',
                                                         metricas: [
                                                             { label: 'Sesiones de monitoreo', valor: sesiones },
                                                             { label: 'Interrupciones', valor: sesiones > 1 ? sesiones - 1 : 0 },
                                                             { label: 'Duración', valor: formatTime(duracionTotal / sesiones) }
+                                                        ]
+                                                    },
+                                                    {
+                                                        nombre: 'Sincronización Labial',
+                                                        puntuacion: puntuacionLipsync,
+                                                        peso: 5,
+                                                        descripcion: 'Análisis de sincronización entre labios y audio',
+                                                        icono: '💬',
+                                                        metricas: [
+                                                            { label: 'Anomalías detectadas', valor: anomaliasLipsync },
+                                                            { label: 'Tasa de anomalías', valor: `${((anomaliasLipsync / (duracionTotal / 60)) || 0).toFixed(1)}/min` }
+                                                        ]
+                                                    },
+                                                    {
+                                                        nombre: 'Condiciones de Iluminación',
+                                                        puntuacion: puntuacionIluminacion,
+                                                        peso: 5,
+                                                        descripcion: 'Evaluación de las condiciones de iluminación durante la evaluación',
+                                                        icono: '💡',
+                                                        metricas: [
+                                                            { label: 'Anomalías detectadas', valor: anomaliasIlum },
+                                                            { label: 'Frecuencia', valor: `${((anomaliasIlum / (duracionTotal / 60)) || 0).toFixed(1)}/min` }
                                                         ]
                                                     }
                                                 ];
@@ -1027,7 +1141,22 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                                         <div className="flex items-start gap-4">
                                                                             <div className="text-5xl">{dim.icono}</div>
                                                                             <div className="flex-1">
-                                                                                <h3 className="text-xl font-bold text-gray-900 mb-2">{dim.nombre}</h3>
+                                                                                <div className="flex items-start justify-between mb-2">
+                                                                                    <div className="flex-1">
+                                                                                        <h3 className="text-xl font-bold text-gray-900">{dim.nombre}</h3>
+                                                                                        <p className="text-sm text-blue-600 font-medium mt-1">Pesa {dim.peso}% en la nota final</p>
+                                                                                    </div>
+                                                                                    <button
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            setInfoModalOpen(dim.nombre);
+                                                                                        }}
+                                                                                        className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1 rounded-full transition"
+                                                                                        title="Ver información de penalización"
+                                                                                    >
+                                                                                        <Info className="w-5 h-5" />
+                                                                                    </button>
+                                                                                </div>
                                                                                 <p className="text-sm text-gray-600 mb-4">{dim.descripcion}</p>
 
                                                                                 {/* Barra de Progreso */}
@@ -1035,7 +1164,7 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                                                     <div className="flex justify-between items-center mb-2">
                                                                                         <span className="text-sm font-semibold text-gray-700">Puntuación</span>
                                                                                         <span className={`text-lg font-bold ${getColorClass(dim.puntuacion).split(' ')[0]}`}>
-                                                                                            {dim.puntuacion.toFixed(1)}/100
+                                                                                            {Math.round(dim.puntuacion)}/100
                                                                                         </span>
                                                                                     </div>
                                                                                     <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
@@ -1049,9 +1178,9 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                                                 {/* Métricas */}
                                                                                 <div className="space-y-2">
                                                                                     {dim.metricas.map((metrica, idx) => (
-                                                                                        <div key={idx} className="flex justify-between items-center text-sm">
-                                                                                            <span className="text-gray-600">{metrica.label}:</span>
-                                                                                            <span className="font-semibold text-gray-900">{metrica.valor}</span>
+                                                                                        <div key={idx} className={`flex justify-between items-center text-sm ${metrica.destacado ? 'bg-red-50 -mx-2 px-2 py-1 rounded' : ''}`}>
+                                                                                            <span className={metrica.destacado ? 'text-red-700 font-medium' : 'text-gray-600'}>{metrica.label}:</span>
+                                                                                            <span className={`font-semibold ${metrica.destacado ? 'text-red-700' : 'text-gray-900'}`}>{metrica.valor}</span>
                                                                                         </div>
                                                                                     ))}
                                                                                 </div>
@@ -1059,67 +1188,6 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                                         </div>
                                                                     </div>
                                                                 ))}
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Gráfico Radar de Dimensiones */}
-                                                        <div className="bg-white border border-gray-200 rounded-xl p-6">
-                                                            <h2 className="text-xl font-bold text-gray-900 mb-6">Resumen Visual de Dimensiones</h2>
-                                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                                                {dimensiones.map((dim, index) => (
-                                                                    <div key={index} className="text-center">
-                                                                        <div className={`inline-block px-4 py-3 rounded-lg border ${getColorClass(dim.puntuacion)}`}>
-                                                                            <div className="text-3xl mb-1">{dim.icono}</div>
-                                                                            <p className="text-2xl font-bold">{dim.puntuacion.toFixed(0)}</p>
-                                                                        </div>
-                                                                        <p className="text-xs text-gray-600 mt-2 font-medium">{dim.nombre}</p>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Recomendaciones */}
-                                                        <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
-                                                            <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                                                                <span className="text-2xl">💡</span>
-                                                                Observaciones y Recomendaciones
-                                                            </h2>
-                                                            <div className="space-y-3">
-                                                                {puntuacionPresencia < 70 && (
-                                                                    <div className="bg-white p-4 rounded-lg border border-red-200">
-                                                                        <p className="text-sm text-gray-800">
-                                                                            <strong className="text-red-600">⚠️ Presencia:</strong> Se detectaron ausencias significativas durante la evaluación. Revisar los momentos específicos de ausencia.
-                                                                        </p>
-                                                                    </div>
-                                                                )}
-                                                                {puntuacionComportamiento < 70 && (
-                                                                    <div className="bg-white p-4 rounded-lg border border-yellow-200">
-                                                                        <p className="text-sm text-gray-800">
-                                                                            <strong className="text-yellow-600">⚠️ Comportamiento:</strong> Se detectaron múltiples gestos sospechosos. Revisar el análisis de comportamiento visual.
-                                                                        </p>
-                                                                    </div>
-                                                                )}
-                                                                {puntuacionAudio < 70 && (
-                                                                    <div className="bg-white p-4 rounded-lg border border-orange-200">
-                                                                        <p className="text-sm text-gray-800">
-                                                                            <strong className="text-orange-600">⚠️ Audio:</strong> Se detectaron anomalías en el audio (susurros o múltiples voces). Revisar los registros de voz.
-                                                                        </p>
-                                                                    </div>
-                                                                )}
-                                                                {peticionesBloqueadas > 5 && (
-                                                                    <div className="bg-white p-4 rounded-lg border border-red-200">
-                                                                        <p className="text-sm text-gray-800">
-                                                                            <strong className="text-red-600">🚨 Seguridad:</strong> Se detectaron múltiples intentos de navegación no permitida. Revisar las peticiones bloqueadas.
-                                                                        </p>
-                                                                    </div>
-                                                                )}
-                                                                {puntuacionGeneral >= 85 && (
-                                                                    <div className="bg-white p-4 rounded-lg border border-green-200">
-                                                                        <p className="text-sm text-gray-800">
-                                                                            <strong className="text-green-600">✅ Evaluación Normal:</strong> No se detectaron anomalías significativas. El participante completó la evaluación de manera satisfactoria.
-                                                                        </p>
-                                                                    </div>
-                                                                )}
                                                             </div>
                                                         </div>
                                                     </>
@@ -1139,45 +1207,81 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                                         Capturas de Pantalla ({reportData.statistics.total_screenshots})
                                                     </h3>
                                                     {reportData.activity_logs.screenshots.length > 0 ? (
-                                                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-h-96 overflow-y-auto">
-                                                            {reportData.activity_logs.screenshots.map((screenshot, index) => (
-                                                                <div
-                                                                    key={screenshot.id}
-                                                                    className="group relative bg-gray-100 rounded-lg overflow-hidden aspect-video hover:ring-2 hover:ring-blue-500 transition cursor-pointer"
-                                                                    onClick={() => screenshot.url && openGallery(index)}
-                                                                >
-                                                                    {screenshot.url ? (
-                                                                        <>
-                                                                            <img
-                                                                                src={screenshot.url}
-                                                                                alt={`Captura ${screenshot.id}`}
-                                                                                onError={handleScreenshotError}
-                                                                                className="w-full h-full object-cover"
-                                                                            />
-                                                                            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-all flex items-center justify-center">
-                                                                                <span className="text-white opacity-0 group-hover:opacity-100 text-sm font-medium">
-                                                                                    Ver completa
-                                                                                </span>
+                                                        <>
+                                                            {(() => {
+                                                                // Agrupar por mensaje
+                                                                const grouped = reportData.activity_logs.screenshots.reduce((acc, screenshot) => {
+                                                                    const key = screenshot.message || 'Sin clasificar';
+                                                                    if (!acc[key]) acc[key] = [];
+                                                                    acc[key].push(screenshot);
+                                                                    return acc;
+                                                                }, {} as Record<string, typeof reportData.activity_logs.screenshots>);
+
+                                                                const screenTypes = Object.keys(grouped).sort();
+                                                                const hasMultipleScreens = screenTypes.length > 1;
+
+                                                                return screenTypes.map((screenType) => (
+                                                                    <div key={screenType} className="mb-6 last:mb-0">
+                                                                        {hasMultipleScreens && (
+                                                                            <div
+                                                                                className="flex items-center justify-between cursor-pointer mb-4 pb-2 border-b border-gray-200 hover:bg-gray-50 p-2 rounded"
+                                                                                onClick={() => toggleGroup(screenType)}
+                                                                            >
+                                                                                <h4 className="font-medium text-gray-800 flex items-center gap-2">
+                                                                                    {collapsedGroups[screenType] ? (
+                                                                                        <ChevronRight className="w-5 h-5" />
+                                                                                    ) : (
+                                                                                        <ChevronDown className="w-5 h-5" />
+                                                                                    )}
+                                                                                    {screenType} ({grouped[screenType].length})
+                                                                                </h4>
                                                                             </div>
-                                                                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2">
-                                                                                <p className="text-white text-xs">
-                                                                                    {new Date(screenshot.timestamp).toLocaleString('es-ES', {
-                                                                                        hour: '2-digit',
-                                                                                        minute: '2-digit',
-                                                                                        day: '2-digit',
-                                                                                        month: '2-digit'
-                                                                                    })}
-                                                                                </p>
+                                                                        )}
+                                                                        {!collapsedGroups[screenType] && (
+                                                                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-h-96 overflow-y-auto">
+                                                                                {grouped[screenType].map((screenshot, index) => (
+                                                                                    <div
+                                                                                        key={screenshot.id}
+                                                                                        className="group relative bg-gray-100 rounded-lg overflow-hidden aspect-video hover:ring-2 hover:ring-blue-500 transition cursor-pointer"
+                                                                                        onClick={() => screenshot.url && openGallery(index, screenType)}
+                                                                                    >
+                                                                                        {screenshot.url ? (
+                                                                                            <>
+                                                                                                <img
+                                                                                                    src={screenshot.url}
+                                                                                                    alt={`Captura ${screenshot.id}`}
+                                                                                                    onError={handleScreenshotError}
+                                                                                                    className="w-full h-full object-cover"
+                                                                                                />
+                                                                                                <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-all flex items-center justify-center">
+                                                                                                    <span className="text-white opacity-0 group-hover:opacity-100 text-sm font-medium">
+                                                                                                        Ver completa
+                                                                                                    </span>
+                                                                                                </div>
+                                                                                                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2">
+                                                                                                    <p className="text-white text-xs">
+                                                                                                        {new Date(screenshot.timestamp).toLocaleString('es-ES', {
+                                                                                                            hour: '2-digit',
+                                                                                                            minute: '2-digit',
+                                                                                                            day: '2-digit',
+                                                                                                            month: '2-digit'
+                                                                                                        })}
+                                                                                                    </p>
+                                                                                                </div>
+                                                                                            </>
+                                                                                        ) : (
+                                                                                            <div className="w-full h-full flex items-center justify-center">
+                                                                                                <Camera className="w-8 h-8 text-gray-400" />
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                ))}
                                                                             </div>
-                                                                        </>
-                                                                    ) : (
-                                                                        <div className="w-full h-full flex items-center justify-center">
-                                                                            <Camera className="w-8 h-8 text-gray-400" />
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            ))}
-                                                        </div>
+                                                                        )}
+                                                                    </div>
+                                                                ));
+                                                            })()}
+                                                        </>
                                                     ) : (
                                                         <p className="text-gray-500 text-center py-8">No hay capturas registradas</p>
                                                     )}
@@ -1224,81 +1328,152 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                 </div>
             </div>
 
-            {/* Modal de Galería de Capturas */}
-            {isGalleryOpen && reportData && reportData.activity_logs.screenshots[currentImageIndex] && (
+            {/* Modal de Información de Penalización */}
+            {infoModalOpen && penalizacionInfo[infoModalOpen] && (
                 <div
-                    className="fixed inset-0 bg-black bg-opacity-95 flex items-center justify-center z-50"
-                    onClick={closeGallery}
+                    className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+                    onClick={() => setInfoModalOpen(null)}
                 >
-                    {/* Botón Cerrar */}
-                    <button
-                        onClick={closeGallery}
-                        className="absolute top-6 right-6 z-20 p-3 bg-white rounded-full hover:bg-gray-200 transition shadow-lg"
-                    >
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
-
-                    {/* Botón Anterior (fuera de la imagen) */}
-                    {currentImageIndex > 0 && (
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                goToPrevious();
-                            }}
-                            className="absolute left-8 z-20 p-4 bg-white rounded-full hover:bg-gray-200 transition shadow-lg"
-                        >
-                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                            </svg>
-                        </button>
-                    )}
-
-                    {/* Contenedor de Imagen */}
                     <div
-                        className="flex flex-col items-center justify-center max-w-[85vw] max-h-screen px-24"
+                        className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <img
-                            src={reportData.activity_logs.screenshots[currentImageIndex].url || ''}
-                            alt={`Captura ${currentImageIndex + 1}`}
-                            onError={handleScreenshotError}
-                            className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
-                        />
-                        <div className="mt-4 text-white text-center">
-                            <p className="text-lg font-semibold">
-                                Captura {currentImageIndex + 1} de {reportData.activity_logs.screenshots.length}
-                            </p>
-                            <p className="text-sm text-gray-300 mt-1">
-                                {new Date(reportData.activity_logs.screenshots[currentImageIndex].timestamp).toLocaleString('es-ES', {
-                                    day: '2-digit',
-                                    month: '2-digit',
-                                    year: 'numeric',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                    second: '2-digit'
-                                })}
-                            </p>
+                        {/* Header */}
+                        <div className="bg-gradient-to-r from-gray-600 to-gray-700 text-white p-6 rounded-t-xl">
+                            <div className="flex items-start justify-between">
+                                <div className="flex items-center gap-3">
+                                    <Info className="w-8 h-8" />
+                                    <div>
+                                        <h3 className="text-2xl font-bold">{penalizacionInfo[infoModalOpen].titulo}</h3>
+                                        <p className="text-gray-100 mt-1 text-sm">Sistema de Penalización</p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => setInfoModalOpen(null)}
+                                    className="text-white hover:bg-white/20 p-2 rounded-full transition"
+                                >
+                                    <X className="w-6 h-6" />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div className="p-6">
+                            <div className="mb-6">
+                                <h4 className="text-lg font-semibold text-gray-900 mb-2">Descripción</h4>
+                                <p className="text-gray-700 leading-relaxed">
+                                    {penalizacionInfo[infoModalOpen].descripcion}
+                                </p>
+                            </div>
+
+                            <div className="bg-gradient-to-br from-gray-50 to-blue-50 rounded-lg p-5 border border-blue-100">
+                                <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                                    <AlertTriangle className="w-5 h-5 text-amber-600" />
+                                    Sistema de Penalización
+                                </h4>
+                                <ul className="space-y-3">
+                                    {penalizacionInfo[infoModalOpen].penalizaciones.map((pen, idx) => (
+                                        <li key={idx} className="text-gray-700 leading-relaxed flex items-start gap-2">
+                                            {pen.startsWith('•') ? (
+                                                <span className="text-blue-600 font-bold mt-1">•</span>
+                                            ) : null}
+                                            <span className={pen.startsWith('•') ? '' : 'font-medium text-gray-900'}>
+                                                {pen.replace('• ', '')}
+                                            </span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+
+                            <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                <p className="text-sm text-blue-900">
+                                    <strong>Nota:</strong> Las penalizaciones se aplican automáticamente según los eventos detectados durante el análisis.
+                                    La puntuación final refleja la calidad y cumplimiento de los estándares de evaluación.
+                                </p>
+                            </div>
                         </div>
                     </div>
-
-                    {/* Botón Siguiente (fuera de la imagen) */}
-                    {currentImageIndex < reportData.activity_logs.screenshots.length - 1 && (
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                goToNext();
-                            }}
-                            className="absolute right-8 z-20 p-4 bg-white rounded-full hover:bg-gray-200 transition shadow-lg"
-                        >
-                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                            </svg>
-                        </button>
-                    )}
                 </div>
             )}
+
+            {/* Modal de Galería de Capturas */}
+            {isGalleryOpen && reportData && selectedScreenGroup && (() => {
+                const filteredScreenshots = reportData.activity_logs.screenshots.filter(s => s.message === selectedScreenGroup);
+                return filteredScreenshots[currentImageIndex] ? (
+                    <div
+                        className="fixed inset-0 bg-black bg-opacity-95 flex items-center justify-center z-50"
+                        onClick={closeGallery}
+                    >
+                        {/* Botón Cerrar */}
+                        <button
+                            onClick={closeGallery}
+                            className="absolute top-6 right-6 z-20 p-3 bg-white rounded-full hover:bg-gray-200 transition shadow-lg"
+                        >
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+
+                        {/* Botón Anterior (fuera de la imagen) */}
+                        {currentImageIndex > 0 && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    goToPrevious();
+                                }}
+                                className="absolute left-8 z-20 p-4 bg-white rounded-full hover:bg-gray-200 transition shadow-lg"
+                            >
+                                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                </svg>
+                            </button>
+                        )}
+
+                        {/* Contenedor de Imagen */}
+                        <div
+                            className="flex flex-col items-center justify-center max-w-[85vw] max-h-screen px-24"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <img
+                                src={filteredScreenshots[currentImageIndex].url || ''}
+                                alt={`Captura ${currentImageIndex + 1}`}
+                                onError={handleScreenshotError}
+                                className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                            />
+                            <div className="mt-4 text-white text-center">
+                                <p className="text-lg font-semibold">
+                                    {selectedScreenGroup} - Captura {currentImageIndex + 1} de {filteredScreenshots.length}
+                                </p>
+                                <p className="text-sm text-gray-300 mt-1">
+                                    {new Date(filteredScreenshots[currentImageIndex].timestamp).toLocaleString('es-ES', {
+                                        day: '2-digit',
+                                        month: '2-digit',
+                                        year: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                        second: '2-digit'
+                                    })}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Botón Siguiente (fuera de la imagen) */}
+                        {currentImageIndex < filteredScreenshots.length - 1 && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    goToNext();
+                                }}
+                                className="absolute right-8 z-20 p-4 bg-white rounded-full hover:bg-gray-200 transition shadow-lg"
+                            >
+                                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                            </button>
+                        )}
+                    </div>
+                ) : null;
+            })()}
         </div>
     );
 }
