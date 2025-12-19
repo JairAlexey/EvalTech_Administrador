@@ -64,9 +64,9 @@ class VideoMergerService:
             if not merged_video_path:
                 return {"success": False, "error": "Failed to merge videos"}
 
-            # Re-codificar para limpiar frames corruptos antes de subir/procesar
-            sanitized_video_path = self._sanitize_video(merged_video_path)
-            upload_source = sanitized_video_path or merged_video_path
+            # Merge re-encodes to MP4 with fresh timestamps; skip extra sanitize pass
+            sanitized_video_path = None
+            upload_source = merged_video_path
 
             # Subir video unido a S3
             upload_result = self._upload_merged_video_to_s3(
@@ -158,7 +158,7 @@ class VideoMergerService:
             return False
 
     def _merge_videos_with_ffmpeg(self, video_files: List[Dict]) -> str:
-        """Une videos usando FFmpeg"""
+        """Une videos usando FFmpeg con re-encode para normalizar timestamps"""
         try:
             if not self._check_ffmpeg_available():
                 logger.error(
@@ -167,49 +167,80 @@ class VideoMergerService:
                 logger.error("Download from: https://ffmpeg.org/download.html")
                 return None
 
-            if len(video_files) == 1:
-                logger.info("Only one video file, skipping merge")
-                return video_files[0]["file"]
+            if not video_files:
+                logger.error("No input videos to merge")
+                return None
 
-            list_file = os.path.join(self.temp_dir, "video_list.txt")
-            with open(list_file, "w", encoding="utf-8") as f:
-                for video_info in video_files:
-                    safe_path = (
-                        video_info["file"].replace("\\", "\\\\").replace("'", "\\'")
-                    )
-                    f.write(f"file '{safe_path}'\n")
+            if len(video_files) == 1:
+                logger.info(
+                    "One input video, normalizing timestamps and encoding to MP4"
+                )
+
+            input_args = []
+            filter_parts = []
+            concat_inputs = []
+
+            for idx, video_info in enumerate(video_files):
+                input_args.extend(["-i", video_info["file"]])
+                filter_parts.append(f"[{idx}:v]setpts=PTS-STARTPTS[v{idx}]")
+                filter_parts.append(f"[{idx}:a]asetpts=PTS-STARTPTS[a{idx}]")
+                concat_inputs.append(f"[v{idx}][a{idx}]")
+
+            filter_complex = (
+                ";".join(filter_parts)
+                + ";"
+                + "".join(concat_inputs)
+                + f"concat=n={len(video_files)}:v=1:a=1[outv][outa]"
+            )
 
             output_file = os.path.join(
                 self.temp_dir,
-                f"merged_video_{datetime.now().strftime('%Y%m%d_%H%M%S')}.webm",
+                f"merged_video_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4",
             )
 
             cmd = [
                 "ffmpeg",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                list_file,
-                "-fflags",
-                "+genpts",
                 "-err_detect",
                 "ignore_err",
-                "-c",
-                "copy",
+                "-fflags",
+                "+genpts",
+            ]
+            cmd += input_args
+            cmd += [
+                "-filter_complex",
+                filter_complex,
+                "-map",
+                "[outv]",
+                "-map",
+                "[outa]",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "28",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-movflags",
+                "+faststart",
                 "-y",
                 "-loglevel",
                 "error",
                 output_file,
             ]
 
-            logger.info(f"Starting FFmpeg video merge with {len(video_files)} files")
+            logger.info(
+                f"Starting FFmpeg concat re-encode with {len(video_files)} files"
+            )
             logger.info(f"FFmpeg command: {' '.join(cmd[:8])}... (truncated)")
 
             result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=600
-            )  # 10 min timeout
+                cmd, capture_output=True, text=True, timeout=14400
+            )  # up to 4 hours for long videos
 
             if result.returncode == 0:
                 if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
@@ -231,7 +262,7 @@ class VideoMergerService:
             return None
 
         except subprocess.TimeoutExpired:
-            logger.error("FFmpeg timeout during video merge (600 seconds)")
+            logger.error("FFmpeg timeout during video merge (14400 seconds)")
             return None
         except FileNotFoundError:
             logger.error(

@@ -934,7 +934,9 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
 
                                                 // 1. Presencia Continua (100 - penalización por ausencias)
                                                 const tiempoAusencia = reportData.statistics.tiempo_total_ausencia_segundos;
-                                                const porcentajeAusencia = (tiempoAusencia / duracionTotal) * 100;
+                                                // Evitar porcentajes fuera de rango y división por cero
+                                                const porcentajeAusenciaRaw = duracionTotal > 0 ? (tiempoAusencia / duracionTotal) * 100 : 0;
+                                                const porcentajeAusencia = Math.min(100, Math.max(0, porcentajeAusenciaRaw));
                                                 let puntuacionPresencia = 100 - Math.round(tiempoAusencia * 2); // -2 puntos por cada segundo de ausencia
                                                 // Penalización adicional si supera el 10% de ausencia
                                                 if (porcentajeAusencia > 10) {

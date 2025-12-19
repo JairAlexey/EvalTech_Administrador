@@ -138,7 +138,7 @@ class S3Service:
 
         Returns:
             str: Clave del archivo en formato: media/participant_events/{id}/{year}/{month}/{day}/{type}_{timestamp}_{uuid}.{ext}
-            Donde ext = webm para video/audio, jpg para screen
+            Donde ext = webm para video/audio, mp4 para merged_video, jpg para screen
         """
         if timestamp is None:
             timestamp = datetime.now()
@@ -363,7 +363,7 @@ class S3Service:
             "video": "video/webm",
             "audio": "audio/webm",
             "screen": "image/jpeg",  # Screenshots como imágenes JPEG
-            "merged_video": "video/webm",
+            "merged_video": "video/mp4",
         }
         return content_types.get(media_type, "application/octet-stream")
 
@@ -373,7 +373,7 @@ class S3Service:
             "video": "webm",
             "audio": "webm",
             "screen": "jpg",  # Screenshots como JPEG para menor costo
-            "merged_video": "webm",
+            "merged_video": "mp4",
         }
         return extensions.get(media_type, "bin")
 
