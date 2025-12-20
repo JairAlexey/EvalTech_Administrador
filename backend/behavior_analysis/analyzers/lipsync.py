@@ -324,4 +324,12 @@ class AnalizadorLipsync:
             )
 
         merged.sort(key=lambda item: item["tiempo_inicio"])
-        return merged
+        unique = []
+        seen = set()
+        for item in merged:
+            key = (item["tipo_anomalia"], item["tiempo_inicio"], item["tiempo_fin"])
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(item)
+        return unique

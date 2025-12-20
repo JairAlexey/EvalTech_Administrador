@@ -235,7 +235,7 @@ def procesar_video_completo(video_path, participant_event_id):
     final_timestamp = last_timestamp if last_timestamp > 0 else frame_count / fps
     gestos.finalizar(final_timestamp)
     iluminacion.finalizar(final_timestamp)
-    ausencia.finalizar(final_timestamp)
+    res_ausencia = ausencia.finalizar(final_timestamp)
 
     # Esperar a voz
     voice_thread.join()
@@ -275,7 +275,6 @@ def procesar_video_completo(video_path, participant_event_id):
         )
 
     # 4. Ausencia
-    res_ausencia = ausencia.finalizar(final_timestamp)
     for start, end, duration in res_ausencia:
         RegistroAusencia.objects.create(
             analisis=analisis,

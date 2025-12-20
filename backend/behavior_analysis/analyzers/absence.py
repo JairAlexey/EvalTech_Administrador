@@ -12,7 +12,23 @@ class AnalizadorAusencia:
 
         self.absence_start_time = None
         self.absence_intervals = []  # (start, end, duration)
+        self._interval_keys = set()
         self.last_timestamp = 0
+
+    def _append_interval(self, start_time, end_time):
+        duration = end_time - start_time
+        if duration < self.min_absence_duration:
+            return
+        start_rounded = round(start_time, 2)
+        end_rounded = round(end_time, 2)
+        duration_rounded = round(duration, 2)
+        key = (start_rounded, end_rounded)
+        if key in self._interval_keys:
+            return
+        self._interval_keys.add(key)
+        self.absence_intervals.append(
+            (start_rounded, end_rounded, duration_rounded)
+        )
 
     def procesar_frame(self, frame, timestamp):
         self.last_timestamp = timestamp
@@ -23,16 +39,7 @@ class AnalizadorAusencia:
 
         if present:
             if self.absence_start_time is not None:
-                end_time = timestamp
-                duration = end_time - self.absence_start_time
-                if duration >= self.min_absence_duration:
-                    self.absence_intervals.append(
-                        (
-                            round(self.absence_start_time, 2),
-                            round(end_time, 2),
-                            round(duration, 2),
-                        )
-                    )
+                self._append_interval(self.absence_start_time, timestamp)
                 self.absence_start_time = None
         else:
             if self.absence_start_time is None:
@@ -44,13 +51,6 @@ class AnalizadorAusencia:
 
         # Check if absence was ongoing at the end
         if self.absence_start_time is not None:
-            duration = final_timestamp - self.absence_start_time
-            if duration >= self.min_absence_duration:
-                self.absence_intervals.append(
-                    (
-                        round(self.absence_start_time, 2),
-                        round(final_timestamp, 2),
-                        round(duration, 2),
-                    )
-                )
+            self._append_interval(self.absence_start_time, final_timestamp)
+            self.absence_start_time = None
         return self.absence_intervals
