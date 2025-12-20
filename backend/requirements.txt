@@ -7,7 +7,7 @@ PyJWT
 supervisor
 openpyxl
 opencv-python
-mediapipe
+mediapipe==0.10.14
 numpy
 moviepy
 redis
