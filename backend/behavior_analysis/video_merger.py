@@ -176,6 +176,11 @@ class VideoMergerService:
                     "One input video, normalizing timestamps and encoding to MP4"
                 )
 
+            ffmpeg_preset = os.getenv("FFMPEG_PRESET", "veryfast")
+            ffmpeg_crf = os.getenv("FFMPEG_CRF", "28")
+            ffmpeg_threads = os.getenv("FFMPEG_THREADS", "").strip()
+            ffmpeg_fps = os.getenv("FFMPEG_FPS", "30").strip()
+
             input_args = []
             filter_parts = []
             concat_inputs = []
@@ -213,12 +218,16 @@ class VideoMergerService:
                 "[outv]",
                 "-map",
                 "[outa]",
+            ]
+            if ffmpeg_fps:
+                cmd += ["-r", ffmpeg_fps, "-vsync", "cfr"]
+            cmd += [
                 "-c:v",
                 "libx264",
                 "-preset",
-                "veryfast",
+                ffmpeg_preset,
                 "-crf",
-                "28",
+                str(ffmpeg_crf),
                 "-pix_fmt",
                 "yuv420p",
                 "-c:a",
@@ -230,8 +239,10 @@ class VideoMergerService:
                 "-y",
                 "-loglevel",
                 "error",
-                output_file,
             ]
+            if ffmpeg_threads:
+                cmd += ["-threads", ffmpeg_threads]
+            cmd.append(output_file)
 
             logger.info(
                 f"Starting FFmpeg concat re-encode with {len(video_files)} files"
@@ -288,6 +299,11 @@ class VideoMergerService:
                 f"cleaned_video_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4",
             )
 
+            ffmpeg_preset = os.getenv("FFMPEG_PRESET", "veryfast")
+            ffmpeg_crf = os.getenv("FFMPEG_CRF", "28")
+            ffmpeg_threads = os.getenv("FFMPEG_THREADS", "").strip()
+            ffmpeg_fps = os.getenv("FFMPEG_FPS", "30").strip()
+
             cmd = [
                 "ffmpeg",
                 "-err_detect",
@@ -296,12 +312,16 @@ class VideoMergerService:
                 input_path,
                 "-fflags",
                 "+genpts",
+            ]
+            if ffmpeg_fps:
+                cmd += ["-r", ffmpeg_fps, "-vsync", "cfr"]
+            cmd += [
                 "-c:v",
                 "libx264",
                 "-preset",
-                "veryfast",
+                ffmpeg_preset,
                 "-crf",
-                "28",
+                str(ffmpeg_crf),
                 "-c:a",
                 "aac",
                 "-b:a",
@@ -311,8 +331,10 @@ class VideoMergerService:
                 "-loglevel",
                 "error",
                 "-y",
-                output_file,
             ]
+            if ffmpeg_threads:
+                cmd += ["-threads", ffmpeg_threads]
+            cmd.append(output_file)
 
             logger.info("Sanitizing merged video (fast H.264/AAC) to avoid decode errors")
             result = subprocess.run(
