@@ -29,11 +29,12 @@ from openpyxl.workbook import Workbook
 from io import BytesIO
 from django.http import HttpResponse
 from authentication.utils import jwt_required
-from behavior_analysis.models import AnalisisComportamiento
 from django.views.decorators.http import require_POST, require_GET
 import logging
 
 logger = logging.getLogger(__name__)
+from behavior_analysis.models import AnalisisComportamiento
+from events.tasks import delete_event_media_from_s3
 
 # Funciones
 
@@ -1912,20 +1913,18 @@ def event_detail(request, event_id):
         try:
             s3_enabled = s3_service.is_configured()
             media_keys = _collect_event_media_keys(event.id) if s3_enabled else set()
+            event_id = event.id
 
             event.delete()
 
             if s3_enabled and media_keys:
-                failed_keys = []
-                for key in media_keys:
-                    result = s3_service.delete_media_fragment(key)
-                    if not result.get("success"):
-                        failed_keys.append(
-                            {"key": key, "error": result.get("error")}
-                        )
-                if failed_keys:
+                try:
+                    delete_event_media_from_s3.delay(event_id, sorted(media_keys))
+                except Exception as task_error:
                     logger.warning(
-                        "S3 cleanup failed for event %s: %s", event.id, failed_keys
+                        "Failed to enqueue S3 cleanup for event %s: %s",
+                        event_id,
+                        task_error,
                     )
             return JsonResponse({"success": True})
         except Exception as e:

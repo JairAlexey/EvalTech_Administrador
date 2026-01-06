@@ -750,9 +750,8 @@ class EventsViewsTests(TestCase):
         with mock.patch(
             "events.views.s3_service.is_configured", return_value=True
         ), mock.patch(
-            "events.views.s3_service.delete_media_fragment",
-            return_value={"success": True},
-        ) as delete_mock:
+            "events.views.delete_event_media_from_s3.delay"
+        ) as delay_mock:
             response = views.event_detail(request, event.id)
 
         self.assertEqual(response.status_code, 200)
@@ -760,9 +759,16 @@ class EventsViewsTests(TestCase):
         self.assertFalse(ParticipantEvent.objects.filter(event_id=event.id).exists())
         self.assertEqual(ParticipantLog.objects.count(), 0)
         self.assertEqual(AnalisisComportamiento.objects.count(), 0)
-        delete_mock.assert_any_call("media/participant_events/1/screen.jpg")
-        delete_mock.assert_any_call("media/participant_events/1/merged.mp4")
-        self.assertEqual(delete_mock.call_count, 2)
+        delay_mock.assert_called_once()
+        payload = delay_mock.call_args.args
+        self.assertEqual(payload[0], event.id)
+        self.assertCountEqual(
+            payload[1],
+            [
+                "media/participant_events/1/screen.jpg",
+                "media/participant_events/1/merged.mp4",
+            ],
+        )
 
     def test_get_proxy_status_and_connection_stats(self):
         now = timezone.now()
