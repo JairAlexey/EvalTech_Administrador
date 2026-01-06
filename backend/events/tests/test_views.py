@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from authentication.models import CustomUser, UserRole
 from authentication.utils import generate_token
+from behavior_analysis.models import AnalisisComportamiento
 from events.models import (
     Event,
     Participant,
@@ -706,6 +707,62 @@ class EventsViewsTests(TestCase):
         response = views.event_detail(request, event.id)
         self.assertEqual(response.status_code, 200)
         self.assertFalse(Event.objects.filter(id=event.id).exists())
+
+    def test_event_detail_delete_removes_s3_media(self):
+        event = Event.objects.create(
+            name="Delete Event Media",
+            description="Delete media",
+            start_date=timezone.now() + timedelta(days=1),
+            close_date=timezone.now() + timedelta(days=1, minutes=10),
+            end_date=timezone.now() + timedelta(days=1, minutes=40),
+            duration=30,
+            evaluator=self.admin,
+            status="programado",
+        )
+        participant = Participant.objects.create(
+            first_name="Media",
+            last_name="User",
+            name="Media User",
+            email="media.delete@example.com",
+        )
+        participant_event = ParticipantEvent.objects.create(
+            event=event, participant=participant
+        )
+        ParticipantLog.objects.create(
+            name="screen",
+            message="Screen",
+            url=(
+                "https://bucket.s3.amazonaws.com/"
+                "media/participant_events/1/screen.jpg?X-Amz-Signature=abc"
+            ),
+            participant_event=participant_event,
+        )
+        AnalisisComportamiento.objects.create(
+            participant_event=participant_event,
+            video_link="media/participant_events/1/merged.mp4",
+            status="completado",
+        )
+
+        request = self.factory.delete(
+            f"/events/api/events/{event.id}",
+            **self._auth_headers(),
+        )
+        with mock.patch(
+            "events.views.s3_service.is_configured", return_value=True
+        ), mock.patch(
+            "events.views.s3_service.delete_media_fragment",
+            return_value={"success": True},
+        ) as delete_mock:
+            response = views.event_detail(request, event.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Event.objects.filter(id=event.id).exists())
+        self.assertFalse(ParticipantEvent.objects.filter(event_id=event.id).exists())
+        self.assertEqual(ParticipantLog.objects.count(), 0)
+        self.assertEqual(AnalisisComportamiento.objects.count(), 0)
+        delete_mock.assert_any_call("media/participant_events/1/screen.jpg")
+        delete_mock.assert_any_call("media/participant_events/1/merged.mp4")
+        self.assertEqual(delete_mock.call_count, 2)
 
     def test_get_proxy_status_and_connection_stats(self):
         now = timezone.now()

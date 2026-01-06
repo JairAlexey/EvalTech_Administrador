@@ -29,6 +29,7 @@ from openpyxl.workbook import Workbook
 from io import BytesIO
 from django.http import HttpResponse
 from authentication.utils import jwt_required
+from behavior_analysis.models import AnalisisComportamiento
 from django.views.decorators.http import require_POST, require_GET
 import logging
 
@@ -126,6 +127,39 @@ def is_valid_domain(domain):
     # Expresión regular básica para dominios (no URLs completas)
     pattern = r"^(?!\-)([A-Za-z0-9\-]{1,63}(?<!\-)\.)+[A-Za-z]{2,}$"
     return re.match(pattern, domain) is not None
+
+
+def _extract_s3_key(value):
+    if not value:
+        return None
+    if "amazonaws.com" in value:
+        return value.split(".amazonaws.com/")[-1].split("?")[0]
+    return value
+
+
+def _collect_event_media_keys(event_id):
+    log_keys = (
+        ParticipantLog.objects.filter(participant_event__event_id=event_id)
+        .exclude(url__isnull=True)
+        .exclude(url__exact="")
+        .values_list("url", flat=True)
+    )
+    analysis_keys = (
+        AnalisisComportamiento.objects.filter(participant_event__event_id=event_id)
+        .exclude(video_link__isnull=True)
+        .exclude(video_link__exact="")
+        .values_list("video_link", flat=True)
+    )
+    keys = set()
+    for key in log_keys:
+        normalized = _extract_s3_key(key)
+        if normalized:
+            keys.add(normalized)
+    for key in analysis_keys:
+        normalized = _extract_s3_key(key)
+        if normalized:
+            keys.add(normalized)
+    return keys
 
 
 def verify_event_key(request):
@@ -1876,7 +1910,23 @@ def event_detail(request, event_id):
 
         # Eliminar un evento
         try:
+            s3_enabled = s3_service.is_configured()
+            media_keys = _collect_event_media_keys(event.id) if s3_enabled else set()
+
             event.delete()
+
+            if s3_enabled and media_keys:
+                failed_keys = []
+                for key in media_keys:
+                    result = s3_service.delete_media_fragment(key)
+                    if not result.get("success"):
+                        failed_keys.append(
+                            {"key": key, "error": result.get("error")}
+                        )
+                if failed_keys:
+                    logger.warning(
+                        "S3 cleanup failed for event %s: %s", event.id, failed_keys
+                    )
             return JsonResponse({"success": True})
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=400)
