@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { authService, type User } from '../services/authService';
 
-interface AuthContextType {
+export interface AuthContextType {
     user: User | null;
     isAuthenticated: boolean;
     isLoading: boolean;

@@ -1,6 +1,15 @@
 class LocalStorageMock {
   private store: Record<string, string> = {};
 
+  get length() {
+    return Object.keys(this.store).length;
+  }
+
+  key(index: number) {
+    const keys = Object.keys(this.store);
+    return index >= 0 && index < keys.length ? keys[index] : null;
+  }
+
   clear() {
     this.store = {};
   }
@@ -30,5 +39,6 @@ if (!globalThis.atob) {
 }
 
 if (!globalThis.window) {
-  globalThis.window = { location: { href: "" } } as unknown as Window;
+  globalThis.window = { location: { href: "" } } as unknown as
+    Window & typeof globalThis;
 }

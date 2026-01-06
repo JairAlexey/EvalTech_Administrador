@@ -1,10 +1,8 @@
-import React from "react";
 import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AuthProvider, useAuth } from "../AuthContext";
-import { authService } from "../../services/authService";
-import { TOKEN_KEY } from "../../services/authService";
+import { AuthProvider, useAuth, type AuthContextType } from "../AuthContext";
+import { authService, TOKEN_KEY } from "../../services/authService";
 
 const baseUser = {
   id: 1,
@@ -46,7 +44,7 @@ describe("AuthContext", () => {
   });
 
   it("exposes auth actions from provider", async () => {
-    let captured: ReturnType<typeof useAuth> | null = null;
+    let captured: AuthContextType | null = null;
     const Capture = () => {
       captured = useAuth();
       return null;
