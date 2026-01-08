@@ -36,6 +36,8 @@ logger = logging.getLogger(__name__)
 from behavior_analysis.models import AnalisisComportamiento
 from events.tasks import delete_event_media_from_s3
 
+EVENT_EXPIRATION_DAYS = 182
+
 # Funciones
 
 
@@ -2332,6 +2334,29 @@ def pending_finish_events(request):
         for e in qs
     ]
     return JsonResponse({"results": data})
+
+@csrf_exempt
+@jwt_required(roles=["superadmin"])
+@require_GET
+def expired_events(request):
+    """Eventos cuyo start_date (solo fecha) es >= 182 dias antes de hoy (UTC)."""
+    today_date = timezone.now().date()
+    cutoff_date = today_date - timedelta(days=EVENT_EXPIRATION_DAYS)
+    qs = Event.objects.filter(start_date__date__lte=cutoff_date).order_by("start_date")
+    data = [
+        {
+            "id": e.id,
+            "start_date": e.start_date.date().isoformat() if e.start_date else None,
+        }
+        for e in qs
+    ]
+    return JsonResponse(
+        {
+            "results": data,
+            "cutoff_date": cutoff_date.isoformat(),
+            "days": EVENT_EXPIRATION_DAYS,
+        }
+    )
 
 
 # Eventos: actualizar estados (start/finish)

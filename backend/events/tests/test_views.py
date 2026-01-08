@@ -31,9 +31,20 @@ class EventsViewsTests(TestCase):
         )
         UserRole.objects.create(user=self.admin, role="admin")
         self.admin_token = generate_token(self.admin)
+        self.superadmin = CustomUser.objects.create(
+            email="superadmin@example.com",
+            first_name="Super",
+            last_name="Admin",
+            password="hashed",
+        )
+        UserRole.objects.create(user=self.superadmin, role="superadmin")
+        self.superadmin_token = generate_token(self.superadmin)
 
     def _auth_headers(self):
         return {"HTTP_AUTHORIZATION": f"Bearer {self.admin_token}"}
+
+    def _superadmin_headers(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.superadmin_token}"}
 
     def test_participants_get_and_post(self):
         request = self.factory.post(
@@ -236,6 +247,44 @@ class EventsViewsTests(TestCase):
         response = views.pending_finish_events(request)
         payload = json.loads(response.content.decode("utf-8"))
         self.assertEqual(payload["results"][0]["id"], finish_event.id)
+
+    def test_expired_events_date_only(self):
+        evaluator = CustomUser.objects.create(
+            email="expire@example.com",
+            first_name="Expire",
+            last_name="User",
+            password="hashed",
+        )
+        now = timezone.now()
+        expired_event = Event.objects.create(
+            name="Expired Event",
+            description="Expired",
+            start_date=now - timedelta(days=182, hours=3),
+            close_date=now - timedelta(days=182, hours=2),
+            end_date=now - timedelta(days=182, hours=1),
+            duration=15,
+            evaluator=evaluator,
+            status="completado",
+        )
+        Event.objects.create(
+            name="Recent Event",
+            description="Recent",
+            start_date=now - timedelta(days=181),
+            close_date=now - timedelta(days=181) + timedelta(minutes=5),
+            end_date=now - timedelta(days=181) + timedelta(minutes=10),
+            duration=15,
+            evaluator=evaluator,
+            status="completado",
+        )
+
+        request = self.factory.get(
+            "/events/api/events-status/expired/", **self._superadmin_headers()
+        )
+        response = views.expired_events(request)
+        payload = json.loads(response.content.decode("utf-8"))
+
+        self.assertEqual(len(payload["results"]), 1)
+        self.assertEqual(payload["results"][0]["id"], expired_event.id)
 
     def test_start_and_finish_event(self):
         evaluator = CustomUser.objects.create(

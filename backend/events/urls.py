@@ -88,4 +88,9 @@ urlpatterns = [
         views.pending_finish_events,
         name="events-pending-finish",
     ),
+    path(
+        "api/events-status/expired/",
+        views.expired_events,
+        name="events-expired",
+    ),
 ]
