@@ -47,6 +47,31 @@ class VideoMergerServiceTests(TestCase):
         self.assertFalse(result["success"])
         self.assertTrue(result["skipped"])
 
+    def test_merge_participant_videos_single_video_skips_merge(self):
+        ParticipantLog.objects.create(
+            name="audio/video",
+            message="Media",
+            url="media/key.webm",
+            participant_event=self.participant_event,
+        )
+        service = VideoMergerService()
+        with mock.patch.object(
+            service, "_download_video_from_s3"
+        ) as download_mock, mock.patch.object(
+            service, "_merge_videos_with_ffmpeg"
+        ) as merge_mock, mock.patch.object(
+            service, "_upload_merged_video_to_s3"
+        ) as upload_mock:
+            result = service.merge_participant_videos(self.participant_event.id)
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["merge_skipped"])
+        self.assertEqual(result["merged_count"], 1)
+        self.assertEqual(result["s3_key"], "media/key.webm")
+        download_mock.assert_not_called()
+        merge_mock.assert_not_called()
+        upload_mock.assert_not_called()
+
     def test_check_ffmpeg_available(self):
         service = VideoMergerService()
         with mock.patch("behavior_analysis.video_merger.subprocess.run") as run_mock:
@@ -214,6 +239,12 @@ class VideoMergerServiceTests(TestCase):
             url="media/key.webm",
             participant_event=self.participant_event,
         )
+        ParticipantLog.objects.create(
+            name="audio/video",
+            message="Media",
+            url="media/key2.webm",
+            participant_event=self.participant_event,
+        )
         service = VideoMergerService()
         with mock.patch.object(
             service, "_download_video_from_s3", return_value=None
@@ -227,6 +258,12 @@ class VideoMergerServiceTests(TestCase):
             name="audio/video",
             message="Media",
             url="media/key.webm",
+            participant_event=self.participant_event,
+        )
+        ParticipantLog.objects.create(
+            name="audio/video",
+            message="Media",
+            url="media/key2.webm",
             participant_event=self.participant_event,
         )
         service = VideoMergerService()
@@ -296,6 +333,12 @@ class VideoMergerServiceTests(TestCase):
             url="media/key.webm",
             participant_event=self.participant_event,
         )
+        ParticipantLog.objects.create(
+            name="audio/video",
+            message="Media",
+            url="media/key2.webm",
+            participant_event=self.participant_event,
+        )
         service = VideoMergerService()
         with mock.patch.object(
             service, "_download_video_from_s3", return_value="video.webm"
@@ -314,6 +357,12 @@ class VideoMergerServiceTests(TestCase):
             name="audio/video",
             message="Media",
             url="media/key.webm",
+            participant_event=self.participant_event,
+        )
+        ParticipantLog.objects.create(
+            name="audio/video",
+            message="Media",
+            url="media/key2.webm",
             participant_event=self.participant_event,
         )
         service = VideoMergerService()
@@ -478,11 +527,17 @@ class VideoMergerServiceTests(TestCase):
             url="media/key.webm",
             participant_event=self.participant_event,
         )
+        ParticipantLog.objects.create(
+            name="audio/video",
+            message="Media",
+            url="media/key2.webm",
+            participant_event=self.participant_event,
+        )
         service = VideoMergerService()
 
         with tempfile.TemporaryDirectory() as temp_dir:
             def download_side_effect(url):
-                file_path = os.path.join(temp_dir, "video.webm")
+                file_path = os.path.join(temp_dir, f"{os.path.basename(url)}.webm")
                 with open(file_path, "wb") as handle:
                     handle.write(b"data")
                 return file_path

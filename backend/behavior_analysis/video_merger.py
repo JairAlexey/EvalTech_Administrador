@@ -42,9 +42,29 @@ class VideoMergerService:
                     "skip_reason": "no_video_logs",
                 }
 
+            video_log_count = video_logs.count()
             logger.info(
-                f"Found {video_logs.count()} video files for participant_event {participant_event_id}"
+                f"Found {video_log_count} video files for participant_event {participant_event_id}"
             )
+
+            if video_log_count == 1:
+                single_log = video_logs.first()
+                video_key = self._extract_s3_key(single_log.url)
+                if not video_key:
+                    return {
+                        "success": False,
+                        "error": "Single video log missing URL/key",
+                    }
+
+                return {
+                    "success": True,
+                    "video_url": self._build_video_url(video_key, single_log.url),
+                    "video_key": video_key,
+                    "s3_key": video_key,
+                    "merged_count": 1,
+                    "merge_skipped": True,
+                    "skip_reason": "single_video",
+                }
 
             # Descargar videos de S3 a archivos temporales
             video_files = []
@@ -113,10 +133,7 @@ class VideoMergerService:
         """Descarga un video de S3 a un archivo temporal con timeout"""
         try:
             # Extraer la key del S3 desde la URL
-            if "amazonaws.com" in s3_url:
-                key = s3_url.split(".amazonaws.com/")[-1].split("?")[0]
-            else:
-                key = s3_url
+            key = self._extract_s3_key(s3_url)
 
             # Crear archivo temporal
             temp_file = os.path.join(
@@ -145,6 +162,23 @@ class VideoMergerService:
 
         except Exception as e:
             logger.error(f"Error downloading video from S3: {str(e)}")
+            return None
+
+    def _extract_s3_key(self, s3_url: str) -> str:
+        if not s3_url:
+            return None
+        if "amazonaws.com" in s3_url:
+            return s3_url.split(".amazonaws.com/")[-1].split("?")[0]
+        return s3_url
+
+    def _build_video_url(self, key: str, original_ref: str) -> str:
+        if original_ref and isinstance(original_ref, str) and original_ref.startswith("http"):
+            return original_ref
+        if not key or not s3_service.is_configured():
+            return None
+        try:
+            return s3_service.generate_presigned_url(key)
+        except Exception:
             return None
 
     def _check_ffmpeg_available(self) -> bool:
