@@ -297,7 +297,7 @@ export default function Home({ onLogin }: HomeProps) {
                   <svg className="h-6 w-6 mr-3" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801" />
                   </svg>
-                  Descargar para Windows
+                  Descargar para Windows 11/10
                 </a>
               </div>
               <div className="mt-2 text-blue-100 text-sm flex items-center">
