@@ -34,6 +34,10 @@ from django.views.decorators.http import require_POST, require_GET
 import logging
 
 logger = logging.getLogger(__name__)
+from behavior_analysis.models import AnalisisComportamiento
+from events.tasks import delete_event_media_from_s3
+
+EVENT_EXPIRATION_DAYS = 182
 
 # Funciones
 
@@ -127,6 +131,39 @@ def is_valid_domain(domain):
     # Expresión regular básica para dominios (no URLs completas)
     pattern = r"^(?!\-)([A-Za-z0-9\-]{1,63}(?<!\-)\.)+[A-Za-z]{2,}$"
     return re.match(pattern, domain) is not None
+
+
+def _extract_s3_key(value):
+    if not value:
+        return None
+    if "amazonaws.com" in value:
+        return value.split(".amazonaws.com/")[-1].split("?")[0]
+    return value
+
+
+def _collect_event_media_keys(event_id):
+    log_keys = (
+        ParticipantLog.objects.filter(participant_event__event_id=event_id)
+        .exclude(url__isnull=True)
+        .exclude(url__exact="")
+        .values_list("url", flat=True)
+    )
+    analysis_keys = (
+        AnalisisComportamiento.objects.filter(participant_event__event_id=event_id)
+        .exclude(video_link__isnull=True)
+        .exclude(video_link__exact="")
+        .values_list("video_link", flat=True)
+    )
+    keys = set()
+    for key in log_keys:
+        normalized = _extract_s3_key(key)
+        if normalized:
+            keys.add(normalized)
+    for key in analysis_keys:
+        normalized = _extract_s3_key(key)
+        if normalized:
+            keys.add(normalized)
+    return keys
 
 
 def verify_event_key(request):
@@ -1908,7 +1945,21 @@ def event_detail(request, event_id):
 
         # Eliminar un evento
         try:
+            s3_enabled = s3_service.is_configured()
+            media_keys = _collect_event_media_keys(event.id) if s3_enabled else set()
+            event_id = event.id
+
             event.delete()
+
+            if s3_enabled and media_keys:
+                try:
+                    delete_event_media_from_s3.delay(event_id, sorted(media_keys))
+                except Exception as task_error:
+                    logger.warning(
+                        "Failed to enqueue S3 cleanup for event %s: %s",
+                        event_id,
+                        task_error,
+                    )
             return JsonResponse({"success": True})
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=400)
@@ -2315,6 +2366,29 @@ def pending_finish_events(request):
         for e in qs
     ]
     return JsonResponse({"results": data})
+
+@csrf_exempt
+@jwt_required(roles=["superadmin"])
+@require_GET
+def expired_events(request):
+    """Eventos cuyo start_date (solo fecha) es >= 182 dias antes de hoy (UTC)."""
+    today_date = timezone.now().date()
+    cutoff_date = today_date - timedelta(days=EVENT_EXPIRATION_DAYS)
+    qs = Event.objects.filter(start_date__date__lte=cutoff_date).order_by("start_date")
+    data = [
+        {
+            "id": e.id,
+            "start_date": e.start_date.date().isoformat() if e.start_date else None,
+        }
+        for e in qs
+    ]
+    return JsonResponse(
+        {
+            "results": data,
+            "cutoff_date": cutoff_date.isoformat(),
+            "days": EVENT_EXPIRATION_DAYS,
+        }
+    )
 
 
 # Eventos: actualizar estados (start/finish)

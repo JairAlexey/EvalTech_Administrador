@@ -1,0 +1,31 @@
+{
+  "api_base": "https://backend-production-b180.up.railway.app",
+  "event": {
+    "id": 7,
+    "name": "System Test 20260109022400",
+    "start_utc": "2026-01-09T02:29:00",
+    "close_utc": "2026-01-09T02:36:00"
+  },
+  "evaluator": {
+    "id": "2",
+    "name": "Marco Galarza"
+  },
+  "participants": [
+    {
+      "id": 3,
+      "name": "Participant1 System",
+      "email": "participant1.systemtest@example.com",
+      "initials": "PS",
+      "color": "bg-red-200",
+      "events": []
+    }
+  ],
+  "created_at": "2026-01-09T02:24:02.643650",
+  "event_keys": [
+    {
+      "event_key": "27cdbb1288030b99",
+      "email": "participant1.systemtest@example.com",
+      "participant_id": 3
+    }
+  ]
+}

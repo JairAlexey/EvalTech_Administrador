@@ -102,6 +102,7 @@ class AnalizadorGestos:
                     "end": final_timestamp,
                 }
             )
+            self.current_gesture = "Forward"
 
     def obtener_resultados(self):
         # Tu misma lógica de filtrado, sin cambios
@@ -124,16 +125,20 @@ class AnalizadorGestos:
                 grouped_gestures[g_type].append((interval["start"], interval["end"]))
 
         resultados = []
+        seen = set()
         for gesture, ranges in grouped_gestures.items():
             for start, end in ranges:
                 duracion = end - start
                 if duracion >= self.consulta_min_duration:
-                    resultados.append(
-                        {
-                            "tipo_gesto": gesture,
-                            "tiempo_inicio": round(start, 2),
-                            "tiempo_fin": round(end, 2),
-                            "duracion": round(duracion, 2),
-                        }
-                    )
+                    item = {
+                        "tipo_gesto": gesture,
+                        "tiempo_inicio": round(start, 2),
+                        "tiempo_fin": round(end, 2),
+                        "duracion": round(duracion, 2),
+                    }
+                    key = (item["tipo_gesto"], item["tiempo_inicio"], item["tiempo_fin"])
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    resultados.append(item)
         return resultados

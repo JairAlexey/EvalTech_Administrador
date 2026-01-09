@@ -294,14 +294,21 @@ class AnalizadorIluminacion:
 
         # Filtrar por duración razonable
         resultados = []
+        seen = set()
         for start, end in merged:
             duration = end - start
             # Solo validar duración mínima, el máximo es más flexible después de fusionar
             if duration >= self.SUSPICIOUS_MIN_DURATION:
+                start_rounded = round(start, 2)
+                end_rounded = round(end, 2)
+                key = (start_rounded, end_rounded)
+                if key in seen:
+                    continue
+                seen.add(key)
                 resultados.append(
                     {
-                        "tiempo_inicio": round(start, 2),
-                        "tiempo_fin": round(end, 2),
+                        "tiempo_inicio": start_rounded,
+                        "tiempo_fin": end_rounded,
                     }
                 )
 

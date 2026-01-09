@@ -5,7 +5,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
 from django.core.serializers.json import DjangoJSONEncoder
 from .models import AnalisisComportamiento
-from events.models import ParticipantEvent, Event
+from events.models import ParticipantEvent, Event, ParticipantLog
 from .tasks import analyze_behavior_task
 from .video_merger import video_merger_service
 from events.s3_service import s3_service
@@ -117,7 +117,7 @@ def trigger_analysis(request):
 @require_POST
 def merge_participant_video(request):
     """
-    Endpoint para unir todos los videos de un participante en orden cronológico
+    Endpoint para unir todos los videos de un participante en orden cronologico
     y subir el resultado a S3.
     """
     try:
@@ -211,7 +211,7 @@ def analysis_status(request, event_id, participant_id):
 @jwt_required()
 @require_GET
 def analysis_report(request, event_id, participant_id):
-    """Endpoint completo para obtener el reporte de análisis con todos los registros"""
+    """Endpoint completo para obtener el reporte de analisis con todos los registros"""
     try:
         participant_event = ParticipantEvent.objects.select_related(
             "participant", "event"
@@ -237,40 +237,37 @@ def analysis_report(request, event_id, participant_id):
     registros_rostros = list(
         analysis.registros_rostros.values(
             "id", "persona_id", "tiempo_inicio", "tiempo_fin"
-        )
+        ).order_by("tiempo_inicio")
     )
 
     registros_gestos = list(
         analysis.registros_gestos.values(
             "id", "tipo_gesto", "tiempo_inicio", "tiempo_fin", "duracion"
-        )
+        ).order_by("tiempo_inicio")
     )
 
     registros_iluminacion = list(
-        analysis.registros_iluminacion.values("id", "tiempo_inicio", "tiempo_fin")
+        analysis.registros_iluminacion.values("id", "tiempo_inicio", "tiempo_fin").order_by("tiempo_inicio")
     )
 
     registros_voz = list(
         analysis.registros_voz.values(
             "id", "tipo_log", "etiqueta_hablante", "tiempo_inicio", "tiempo_fin"
-        )
+        ).order_by("tiempo_inicio")
     )
 
     anomalias_lipsync = list(
         analysis.anomalias_lipsync.values(
             "id", "tipo_anomalia", "tiempo_inicio", "tiempo_fin"
-        )
+        ).order_by("tiempo_inicio")
     )
 
     registros_ausencia = list(
         analysis.registros_ausencia.values(
             "id", "tiempo_inicio", "tiempo_fin", "duracion"
-        )
+        ).order_by("tiempo_inicio")
     )
     # Obtener logs de actividad del participante (excluyendo keylogger)
-    from events.models import ParticipantLog
-
-    # Capturas de pantalla con URLs prefirmadas de S3
     screenshots_queryset = (
         ParticipantLog.objects.filter(
             participant_event=participant_event, name="screen"
@@ -299,21 +296,21 @@ def analysis_report(request, event_id, participant_id):
         participant_event=participant_event, name="proxy"
     ).count()
 
-    # Solo peticiones bloqueadas (las únicas que se guardan en logs HTTP)
+    # Solo peticiones bloqueadas (las unicas que se guardan en logs HTTP)
     blocked_requests = list(
         ParticipantLog.objects.filter(participant_event=participant_event, name="http")
         .values("id", "message", "timestamp", "url")
         .order_by("-timestamp")
     )
 
-    # Información de monitoreo
+    # Informacion de monitoreo
     monitoring_info = {
         "total_duration_seconds": participant_event.monitoring_total_duration or 0,
         "sessions_count": participant_event.monitoring_sessions_count or 0,
         "last_change": participant_event.monitoring_last_change,
     }
 
-    # Calcular estadísticas
+    # Calcular estadisticas
     total_rostros_detectados = len(set(r["persona_id"] for r in registros_rostros))
     total_gestos = len(registros_gestos)
     total_anomalias_iluminacion = len(registros_iluminacion)
@@ -365,7 +362,7 @@ def analysis_report(request, event_id, participant_id):
         },
         "activity_logs": {
             "screenshots": screenshots_logs,
-            "blocked_requests": blocked_requests[:100],  # Limitar a últimas 100
+            "blocked_requests": blocked_requests[:100],  # Limitar a ultimas 100
         },
         "monitoring": monitoring_info,
     }
@@ -378,7 +375,7 @@ def analysis_report(request, event_id, participant_id):
 def process_event_completion(request):
     """
     Endpoint principal que se llama cuando un evento termina.
-    Inicia tareas asíncronas para procesar cada participante en paralelo.
+    Inicia tareas asincronas para procesar cada participante en paralelo.
     """
     try:
         data = json.loads(request.body)
@@ -403,15 +400,35 @@ def process_event_completion(request):
                 {"error": "No participants found for this event"}, status=404
             )
 
-        # Iniciar tareas asíncronas para cada participante
+        # Iniciar tareas asincronas para cada participante
         task_ids = []
         participant_data = []
+        skipped_participants = []
 
         for participant_event in participant_events:
-            # Importar la tarea aquí para evitar circular imports
+            # Importar la tarea aqui para evitar circular imports
             from .tasks import process_participant_completion_task
 
-            # Iniciar tarea asíncrona para este participante
+            # Si el participante nunca envio video/audio no lo encolamos
+            has_video_logs = ParticipantLog.objects.filter(
+                participant_event=participant_event,
+                name="audio/video",
+                url__isnull=False,
+            ).exists()
+            if not has_video_logs:
+                skipped_participants.append(
+                    {
+                        "participant_event_id": participant_event.id,
+                        "participant_name": participant_event.participant.name,
+                        "reason": "sin_videos",
+                    }
+                )
+                logger.info(
+                    f"Skipping participant {participant_event.participant.name} (ID: {participant_event.id}) - no video logs"
+                )
+                continue
+
+            # Iniciar tarea asincrona para este participante
             task = process_participant_completion_task.delay(
                 participant_event.id, event_id, event.name
             )
@@ -435,6 +452,7 @@ def process_event_completion(request):
                 "event_id": event_id,
                 "event_name": event.name,
                 "total_participants": len(participant_data),
+                "skipped_participants": skipped_participants,
                 "processing_mode": "async",
                 "task_ids": task_ids,
                 "participants": participant_data,

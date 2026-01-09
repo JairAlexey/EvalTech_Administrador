@@ -128,6 +128,7 @@ class AnalizadorVoz:
     def _merge_intervals(self, times, gap_threshold=1.0):
         if not times:
             return []
+        times = sorted(set(times))
         ranges = []
         start = times[0]
         prev = times[0]

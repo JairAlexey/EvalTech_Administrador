@@ -140,6 +140,7 @@ class AnalizadorRostros:
         Filtra ruido (apariciones menores a 1 segundo) y renumera IDs secuencialmente.
         """
         resultados = []
+        seen = set()
 
         # Filtrar y ordenar personas por primera aparición
         valid_people = []
@@ -156,11 +157,17 @@ class AnalizadorRostros:
         # Renumerar con IDs limpios (1, 2, 3...)
         for idx, (_, old_pid, data) in enumerate(valid_people, start=1):
             for start, end in data["intervals"]:
+                start_rounded = round(start, 2)
+                end_rounded = round(end, 2)
+                key = (idx, start_rounded, end_rounded)
+                if key in seen:
+                    continue
+                seen.add(key)
                 resultados.append(
                     {
                         "persona_id": idx,
-                        "tiempo_inicio": round(start, 2),
-                        "tiempo_fin": round(end, 2),
+                        "tiempo_inicio": start_rounded,
+                        "tiempo_fin": end_rounded,
                     }
                 )
 

@@ -42,7 +42,19 @@ def process_participant_completion_task(self, participant_event_id, event_id, ev
         # Paso 1: Unir videos del participante
         logger.info(f"[Task {self.request.id}] Step 1/3: Merging videos for participant {participant_name}")
         merge_result = video_merger_service.merge_participant_videos(participant_event_id)
-        
+
+        # Si no hay videos, marcamos como omitido y no avanzamos
+        if merge_result.get('skipped'):
+            msg = f"No video logs for participant_event {participant_event_id}, skipping analysis"
+            logger.info(f"[Task {self.request.id}] {msg}")
+            return {
+                'success': False,
+                'skipped': True,
+                'error': merge_result.get('error') or msg,
+                'participant_event_id': participant_event_id,
+                'participant_name': participant_name
+            }
+
         if not merge_result['success']:
             error_msg = f"Video merge failed: {merge_result['error']}"
             logger.error(f"[Task {self.request.id}] {error_msg}")

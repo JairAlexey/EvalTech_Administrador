@@ -1,0 +1,14 @@
+[run]
+source =
+    authentication
+    events
+    proxy
+    behavior_analysis
+omit =
+    */.venv/*
+    */site-packages/*
+    */migrations/*
+    */tests/*
+    */settings*.py
+    */manage.py
+    */__init__.py

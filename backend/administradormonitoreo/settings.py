@@ -170,11 +170,18 @@ FILE_UPLOAD_TEMP_DIR = None  # Usar directorio temporal del sistema
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Celery Configuration
-redis_host = "host.docker.internal" if os.getenv("DOCKER_ENV") else "localhost"
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", f"redis://{redis_host}:6379/0")
-CELERY_RESULT_BACKEND = os.getenv(
-    "CELERY_RESULT_BACKEND", f"redis://{redis_host}:6379/0"
-)
+REDIS_URL = os.getenv("REDIS_URL")
+
+if REDIS_URL:
+    # Railway / Producción
+    CELERY_BROKER_URL = REDIS_URL
+    CELERY_RESULT_BACKEND = REDIS_URL
+else:
+    # Local / Docker
+    redis_host = "host.docker.internal" if os.getenv("DOCKER_ENV") else "localhost"
+    CELERY_BROKER_URL = f"redis://{redis_host}:6379/0"
+    CELERY_RESULT_BACKEND = f"redis://{redis_host}:6379/0"
+
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
@@ -183,6 +190,7 @@ CELERY_TIMEZONE = TIME_ZONE
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
+    "http://localhost:8080",
     "https://frontend-production-c48c.up.railway.app",
 ]
 CORS_ALLOW_CREDENTIALS = True

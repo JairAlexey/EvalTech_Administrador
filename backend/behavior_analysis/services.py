@@ -36,6 +36,15 @@ def procesar_video_completo(video_path, participant_event_id):
             except Exception as e:
                 print(f"No se pudo eliminar el archivo temporal: {e}")
 
+    def _infer_suffix(path_or_key):
+        if not isinstance(path_or_key, str):
+            return ".webm"
+        base = path_or_key.split("?")[0]
+        _, ext = os.path.splitext(base)
+        if ext:
+            return ext
+        return ".webm"
+
     try:
         pe = ParticipantEvent.objects.get(id=participant_event_id)
     except ParticipantEvent.DoesNotExist:
@@ -55,19 +64,32 @@ def procesar_video_completo(video_path, participant_event_id):
         _cleanup_temp()
         return None
 
+    # Ajustar threading de OpenCV si se define en env
+    try:
+        cv2.setUseOptimized(True)
+        cv2_threads = os.getenv("CV2_NUM_THREADS", "").strip()
+        if cv2_threads:
+            cv2.setNumThreads(int(cv2_threads))
+        try:
+            print(f"OpenCV threads: {cv2.getNumThreads()}")
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"OpenCV thread config error: {e}")
+
     # Descargar el video si viene como URL o clave de S3 para procesarlo localmente
     try:
         if isinstance(video_path, str):
             key = None
             if video_path.startswith("http"):
-                # Extraer la key del objeto desde la URL p£blica de S3
+                # Extraer la key del objeto desde la URL pï¿½blica de S3
                 key = video_path.split(".amazonaws.com/")[-1].split("?")[0]
             elif not os.path.exists(video_path):
                 # No es una ruta local existente, asumir que es la key de S3
                 key = video_path
 
             if key:
-                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".webm")
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=_infer_suffix(key))
                 temp_file_path = temp_file.name
                 temp_file.close()
 
@@ -116,7 +138,7 @@ def procesar_video_completo(video_path, participant_event_id):
         min_tracking_confidence=0.5,
     )
 
-    # Fallback: si todav¡a tenemos una referencia remota, intenta descargar ahora
+    # Fallback: si todavï¿½a tenemos una referencia remota, intenta descargar ahora
     if isinstance(local_video_path, str) and (
         local_video_path.startswith("http") or not os.path.exists(local_video_path)
     ):
@@ -126,7 +148,7 @@ def procesar_video_completo(video_path, participant_event_id):
             else:
                 key = local_video_path
 
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".webm")
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=_infer_suffix(key))
             temp_file_path = temp_file.name
             temp_file.close()
 
@@ -163,13 +185,21 @@ def procesar_video_completo(video_path, participant_event_id):
         return None
 
     # Abrir video
-    cap = cv2.VideoCapture(local_video_path)
+    cap = cv2.VideoCapture(local_video_path, cv2.CAP_FFMPEG)
+    if not cap.isOpened():
+        cap = cv2.VideoCapture(local_video_path)
     if not cap.isOpened():
         print("Error al abrir el video.")
         analisis.status = "error"
         analisis.save()
         _cleanup_temp()
         return None
+
+    try:
+        backend_name = cap.getBackendName()
+        print(f"VideoCapture backend: {backend_name}")
+    except Exception:
+        pass
 
     fps = cap.get(cv2.CAP_PROP_FPS)
     if fps <= 0:
@@ -188,7 +218,10 @@ def procesar_video_completo(video_path, participant_event_id):
         # Usar el timestamp real del video en lugar de calcularlo manualmente
         # Esto funciona correctamente con WebM y otros formatos
         timestamp_ms = cap.get(cv2.CAP_PROP_POS_MSEC)
-        timestamp = timestamp_ms / 1000.0  # Convertir de milisegundos a segundos
+        if timestamp_ms > 0:
+            timestamp = timestamp_ms / 1000.0  # Convertir de milisegundos a segundos
+        else:
+            timestamp = (frame_count / fps) if fps else 0.0
 
         # Guardar el Ãºltimo timestamp vÃ¡lido
         if timestamp > 0:
@@ -235,13 +268,12 @@ def procesar_video_completo(video_path, participant_event_id):
     final_timestamp = last_timestamp if last_timestamp > 0 else frame_count / fps
     gestos.finalizar(final_timestamp)
     iluminacion.finalizar(final_timestamp)
-    ausencia.finalizar(final_timestamp)
+    res_ausencia = ausencia.finalizar(final_timestamp)
 
     # Esperar a voz
     voice_thread.join()
 
     print("\nGuardando resultados en base de datos...")
-
     # --- GUARDAR RESULTADOS ---
 
     # 1. Rostros
@@ -275,7 +307,6 @@ def procesar_video_completo(video_path, participant_event_id):
         )
 
     # 4. Ausencia
-    res_ausencia = ausencia.finalizar(final_timestamp)
     for start, end, duration in res_ausencia:
         RegistroAusencia.objects.create(
             analisis=analisis,

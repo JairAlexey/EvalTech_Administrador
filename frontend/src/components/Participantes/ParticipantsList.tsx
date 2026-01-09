@@ -32,6 +32,7 @@ function getColorClass(color: string) {
 export default function ParticipantsList({ onNavigate, canAccess, onLogout, filterEventId }: ParticipantListProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -230,7 +231,7 @@ export default function ParticipantsList({ onNavigate, canAccess, onLogout, filt
 
   // Obtener el evento seleccionado
   const selectedEvent = uniqueEvents.find(e => e.id === eventFilter);
-  
+
   // Si hay un eventFilter activo pero no está en uniqueEvents (evento sin participantes),
   // crear un objeto temporal para mostrarlo
   const displaySelectedEvent = selectedEvent || (eventFilter ? {
@@ -291,8 +292,8 @@ export default function ParticipantsList({ onNavigate, canAccess, onLogout, filt
                   <button
                     onClick={() => setShowFiltersModal(true)}
                     className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg text-sm font-medium transition ${hasActiveFilters
-                        ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'
-                        : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                      ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                      : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
                       }`}
                     disabled={loading || participants.length === 0}
                   >
@@ -357,78 +358,80 @@ export default function ParticipantsList({ onNavigate, canAccess, onLogout, filt
                         </td>
                       </tr>
                     ) : (
-                      filteredParticipants.map((participant) => (
-                        <tr key={participant.id} className="hover:bg-gray-50 transition">
-                          <td className="px-6 py-4">
-                            <div className="flex items-center">
-                              <div className={`w-8 h-8 rounded-full ${getColorClass(participant.color)} flex items-center justify-center text-gray-700 font-medium`}>
-                                {participant.initials}
+                      filteredParticipants
+                        .slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE)
+                        .map((participant) => (
+                          <tr key={participant.id} className="hover:bg-gray-50 transition">
+                            <td className="px-6 py-4">
+                              <div className="flex items-center">
+                                <div className={`w-8 h-8 rounded-full ${getColorClass(participant.color)} flex items-center justify-center text-gray-700 font-medium`}>
+                                  {participant.initials}
+                                </div>
+                                <span className="ml-3 font-medium">{participant.name}</span>
                               </div>
-                              <span className="ml-3 font-medium">{participant.name}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-600">
-                            {participant.email}
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-600">
-                            {participant.events && participant.events.length > 0 ? (
-                              <div className="flex items-center gap-1 flex-wrap">
-                                {participant.events.map(event => {
-                                  const eventInitials = event.name
-                                    .split(' ')
-                                    .map(word => word[0])
-                                    .join('')
-                                    .toUpperCase()
-                                    .slice(0, 2);
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-600">
+                              {participant.email}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-600">
+                              {participant.events && participant.events.length > 0 ? (
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  {participant.events.map(event => {
+                                    const eventInitials = event.name
+                                      .split(' ')
+                                      .map(word => word[0])
+                                      .join('')
+                                      .toUpperCase()
+                                      .slice(0, 2);
 
-                                  return (
-                                    <div
-                                      key={event.id}
-                                      className="relative group"
-                                    >
-                                      <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-medium text-xs cursor-default">
-                                        {eventInitials}
+                                    return (
+                                      <div
+                                        key={event.id}
+                                        className="relative group"
+                                      >
+                                        <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-medium text-xs cursor-default">
+                                          {eventInitials}
+                                        </div>
+                                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                                          {event.name}
+                                          <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+                                        </div>
                                       </div>
-                                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                                        {event.name}
-                                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <span className="text-gray-400 text-xs">Sin eventos</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleEditClick(participant.id);
+                                  }}
+                                  className="p-1.5 text-gray-600 hover:bg-gray-100 rounded transition"
+                                  title="Editar participante"
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleDeleteClick(participant.id);
+                                  }}
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded transition"
+                                  title="Eliminar participante"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
                               </div>
-                            ) : (
-                              <span className="text-gray-400 text-xs">Sin eventos</span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  handleEditClick(participant.id);
-                                }}
-                                className="p-1.5 text-gray-600 hover:bg-gray-100 rounded transition"
-                                title="Editar participante"
-                              >
-                                <Edit className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  handleDeleteClick(participant.id);
-                                }}
-                                className="p-1.5 text-red-600 hover:bg-red-50 rounded transition"
-                                title="Eliminar participante"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
+                            </td>
+                          </tr>
+                        ))
                     )}
                   </tbody>
                 </table>
@@ -439,12 +442,12 @@ export default function ParticipantsList({ onNavigate, canAccess, onLogout, filt
               <div className="flex items-center justify-between">
                 <p className="text-sm text-gray-600">
                   {filteredParticipants.length > 0
-                    ? `Mostrando 1 a ${Math.min(filteredParticipants.length, 10)} de ${filteredParticipants.length} participantes`
+                    ? `Mostrando 1 a ${Math.min(filteredParticipants.length, ITEMS_PER_PAGE)} de ${filteredParticipants.length} participantes`
                     : 'No hay participantes disponibles'
                   }
                 </p>
-                {filteredParticipants.length > 10 && (
-                  <div className="flex items-center gap-2">
+                {filteredParticipants.length > ITEMS_PER_PAGE && (
+                  <div className="flex items-center gap-1 flex-wrap justify-end">
                     <button
                       onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                       disabled={currentPage === 1 || loading}
@@ -453,23 +456,34 @@ export default function ParticipantsList({ onNavigate, canAccess, onLogout, filt
                       <ChevronLeft className="w-4 h-4 text-gray-600" />
                     </button>
 
-                    {/* Generar botones de página dinámicamente */}
-                    {Array.from({ length: Math.ceil(filteredParticipants.length / 10) }).map((_, index) => (
-                      <button
-                        key={index}
-                        onClick={() => setCurrentPage(index + 1)}
-                        className={`px-3 py-2 ${currentPage === index + 1
-                          ? 'bg-blue-600 text-white'
-                          : 'border border-gray-300 text-gray-700 hover:bg-gray-50'
-                          } rounded-lg text-sm font-medium transition`}
-                      >
-                        {index + 1}
-                      </button>
-                    ))}
+                    {/* Generar botones de página de forma responsive */}
+                    {(() => {
+                      const totalPages = Math.ceil(filteredParticipants.length / ITEMS_PER_PAGE);
+                      const maxVisibleButtons = 5;
+                      let startPage = Math.max(1, currentPage - Math.floor(maxVisibleButtons / 2));
+                      let endPage = Math.min(totalPages, startPage + maxVisibleButtons - 1);
+
+                      if (endPage - startPage + 1 < maxVisibleButtons) {
+                        startPage = Math.max(1, endPage - maxVisibleButtons + 1);
+                      }
+
+                      return Array.from({ length: endPage - startPage + 1 }, (_, i) => startPage + i).map(page => (
+                        <button
+                          key={page}
+                          onClick={() => setCurrentPage(page)}
+                          className={`px-3 py-2 text-sm font-medium rounded-lg transition ${currentPage === page
+                            ? 'bg-blue-600 text-white'
+                            : 'border border-gray-300 text-gray-700 hover:bg-gray-50'
+                            }`}
+                        >
+                          {page}
+                        </button>
+                      ));
+                    })()}
 
                     <button
                       onClick={() => setCurrentPage(currentPage + 1)}
-                      disabled={loading || currentPage * 10 >= filteredParticipants.length}
+                      disabled={loading || currentPage * ITEMS_PER_PAGE >= filteredParticipants.length}
                       className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <ChevronRight className="w-4 h-4 text-gray-600" />
