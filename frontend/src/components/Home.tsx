@@ -290,7 +290,7 @@ export default function Home({ onLogin }: HomeProps) {
             <div className="mt-10 flex flex-col items-center">
               <div className="flex justify-center space-x-4 mb-6">
                 <a
-                  href="/EvalTech-Monitor-Setup.exe"
+                  href="https://www.dropbox.com/scl/fi/tta2tob6g3qwp9s4mdxrr/EvalTech-Monitor-Setup.exe?rlkey=5sn3aof8ddagssaj8aeuqgh63&st=prxk2snt&dl=1"
                   download="EvalTech-Monitor-Setup.exe"
                   className="inline-flex items-center justify-center px-8 py-4 border border-transparent text-lg font-medium rounded-md text-blue-700 bg-white hover:bg-blue-50"
                 >
