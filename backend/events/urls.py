@@ -7,6 +7,9 @@ urlpatterns = [
     path("api/logging/screen/capture", views.log_participant_screen_event),
     path("api/logging/media/capture", views.log_participant_audio_video_event),
     path("api/verify-event-key", views.verify_event_key),
+    # Rutas para consentimiento informado
+    path("api/consent/register", views.register_event_consent, name="register_consent"),
+    path("api/consent/check", views.check_event_consent, name="check_consent"),
     # Rutas para consultar logs de participantes
     path(
         "api/events/<int:event_id>/participants/<int:participant_id>/connection-stats/",
