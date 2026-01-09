@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Filter, Plus, Loader, Eye, Edit, Trash2, X } from 'lucide-react';
+import { Search, Filter, Plus, Loader, Eye, Edit, Trash2, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import Sidebar from '../utils/Sidebar';
 import ConfirmationModal from '../utils/ConfirmationModal';
 import eventService, { type Event } from '../../services/eventService';
@@ -16,6 +16,7 @@ interface EventsListProps {
 export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEvent, onNavigate, onLogout }: EventsListProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [eventToDelete, setEventToDelete] = useState<string | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
@@ -229,7 +230,7 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
     if (durationOperator && durationValue) {
       const eventDuration = parseInt(String(event.duration), 10);
       const filterDuration = parseInt(durationValue, 10);
-      
+
       if (durationOperator === 'igual' && eventDuration !== filterDuration) {
         return false;
       }
@@ -263,11 +264,10 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
   });
 
   // Paginación de eventos
-  const itemsPerPage = 10;
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = startIndex + ITEMS_PER_PAGE;
   const paginatedEvents = filteredEvents.slice(startIndex, endIndex);
-  const totalPages = Math.ceil(filteredEvents.length / itemsPerPage);
+  const totalPages = Math.ceil(filteredEvents.length / ITEMS_PER_PAGE);
 
   // Asegurar que la función handleViewEvent previene navegación predeterminada correctamente
   const handleViewEvent = (e: React.MouseEvent, eventId: string) => {
@@ -350,8 +350,8 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
                   <button
                     onClick={() => setShowFiltersModal(true)}
                     className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg text-sm font-medium transition ${hasActiveFilters
-                        ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'
-                        : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                      ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                      : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
                       }`}
                     disabled={loading || events.length === 0}
                   >
@@ -533,26 +533,45 @@ export default function EventsList({ onCreateEvent, onViewEventDetails, onEditEv
                   }
                 </p>
                 {totalPages > 1 && (
-                  <div className="flex space-x-2">
+                  <div className="flex items-center gap-1 flex-wrap justify-end">
                     <button
                       onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                       disabled={currentPage === 1}
-                      className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition"
                     >
-                      Anterior
+                      <ChevronLeft className="w-4 h-4 text-gray-600" />
                     </button>
 
-                    {/* Mostrar número de página actual */}
-                    <span className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-blue-50 text-blue-700">
-                      {currentPage}
-                    </span>
+                    {/* Generar botones de página de forma responsive */}
+                    {(() => {
+                      const maxVisibleButtons = 5;
+                      let startPage = Math.max(1, currentPage - Math.floor(maxVisibleButtons / 2));
+                      let endPage = Math.min(totalPages, startPage + maxVisibleButtons - 1);
+
+                      if (endPage - startPage + 1 < maxVisibleButtons) {
+                        startPage = Math.max(1, endPage - maxVisibleButtons + 1);
+                      }
+
+                      return Array.from({ length: endPage - startPage + 1 }, (_, i) => startPage + i).map(page => (
+                        <button
+                          key={page}
+                          onClick={() => setCurrentPage(page)}
+                          className={`px-3 py-2 text-sm font-medium rounded-lg transition ${currentPage === page
+                            ? 'bg-blue-600 text-white'
+                            : 'border border-gray-300 text-gray-700 hover:bg-gray-50'
+                            }`}
+                        >
+                          {page}
+                        </button>
+                      ));
+                    })()}
 
                     <button
-                      onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                      onClick={() => setCurrentPage(currentPage + 1)}
                       disabled={currentPage >= totalPages}
-                      className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Siguiente
+                      <ChevronRight className="w-4 h-4 text-gray-600" />
                     </button>
                   </div>
                 )}
