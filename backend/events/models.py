@@ -186,3 +186,21 @@ class BlockedHost(models.Model):
 
     def __str__(self):
         return f"{self.website.hostname} ({self.event.name})"
+    
+class EventConsent(models.Model):
+    participant = models.ForeignKey(Participant, on_delete=models.CASCADE, related_name='consents')
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='consents')
+    accepted_at = models.DateTimeField(auto_now_add=True)
+    consent_version = models.CharField(max_length=50)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'event_consents'
+        constraints = [
+            models.UniqueConstraint(fields=['participant', 'event'], name='unique_consent_per_participant_event')
+        ]
+
+    def __str__(self):
+        return f'Consent: {self.participant} - {self.event} ({self.consent_version})'
+

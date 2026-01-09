@@ -10,6 +10,7 @@ from .models import (
     Website,
     BlockedHost,
     ParticipantEvent,
+    EventConsent,
 )
 from .s3_service import s3_service
 
@@ -166,6 +167,35 @@ def verify_event_key(request):
                 status=403,
             )
 
+        # Verificar si existe consentimiento informado para este participante y evento
+        consent_exists = EventConsent.objects.filter(
+            participant=participant,
+            event=event
+        ).exists()
+
+        # Si no existe consentimiento, requerir aceptación antes de continuar
+        if not consent_exists:
+            return JsonResponse(
+                {
+                    "isValid": True,
+                    "dateIsValid": dateIsValid,
+                    "consentRequired": True,
+                    "participant": {
+                        "id": participant.id,
+                        "name": participant.name,
+                        "email": participant.email,
+                    },
+                    "event": {
+                        "id": event.id,
+                        "name": event.name,
+                        "description": event.description,
+                        "duration": event.duration,
+                    },
+                    "message": "Debe aceptar el consentimiento informado antes de continuar"
+                },
+                status=200
+            )
+
         # Obtener información del tiempo de monitoreo desde ParticipantEvent
         connection_info = {
             "totalTime": participant_event.get_total_monitoring_time(),
@@ -181,6 +211,7 @@ def verify_event_key(request):
             {
                 "isValid": True,
                 "dateIsValid": dateIsValid,
+                "consentRequired": False,
                 "participant": {
                     "name": participant.name,
                     "email": participant.email,
@@ -2600,6 +2631,248 @@ def block_participants(request, event_id):
         return JsonResponse({"error": "Evento no encontrado"}, status=404)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
+
+# ============================================
+# ENDPOINTS DE CONSENTIMIENTO INFORMADO
+# ============================================
+
+@csrf_exempt
+@require_POST
+def register_event_consent(request):
+    """
+    Registra el consentimiento informado de un participante para un evento específico.
+    Cumple con la Ley Orgánica de Protección de Datos Personales del Ecuador.
+    
+    Header requerido:
+        Authorization: Bearer {event_key}
+    
+    Body JSON:
+        {
+            "accepted": true,
+            "consent_version": "v1.0"
+        }
+    
+    Returns:
+        200: Consentimiento registrado exitosamente
+        400: Datos inválidos o consentimiento no aceptado
+        401: Authorization header inválido
+        404: Event_key no encontrado
+        409: Consentimiento ya existe
+        500: Error del servidor
+    """
+    try:
+        # Validar authorization header
+        authorization = request.headers.get("Authorization", "")
+        if not authorization.startswith("Bearer "):
+            return JsonResponse(
+                {"error": "Authorization header inválido. Formato: Bearer {event_key}"},
+                status=401
+            )
+        
+        parts = authorization.split(" ", 1)
+        if len(parts) != 2 or not parts[1]:
+            return JsonResponse(
+                {"error": "Event_key no proporcionado en Authorization header"},
+                status=401
+            )
+        
+        event_key = parts[1]
+        
+        # Obtener participante y evento asociados al event_key
+        try:
+            participant_event = ParticipantEvent.objects.select_related(
+                "participant", "event"
+            ).get(event_key=event_key)
+            participant = participant_event.participant
+            event = participant_event.event
+        except ParticipantEvent.DoesNotExist:
+            return JsonResponse(
+                {"error": "Event_key inválido o no existe"},
+                status=404
+            )
+        
+        # Parsear body JSON
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse(
+                {"error": "Body JSON inválido"},
+                status=400
+            )
+        
+        # Validar que el usuario aceptó explícitamente
+        accepted = data.get("accepted")
+        if accepted is not True:
+            return JsonResponse(
+                {
+                    "error": "Debe aceptar explícitamente el consentimiento informado",
+                    "message": "El consentimiento debe ser explícito para continuar con la evaluación"
+                },
+                status=400
+            )
+        
+        # Obtener versión del consentimiento (por defecto v1.0)
+        consent_version = data.get("consent_version", "v1.0")
+        
+        # Verificar si ya existe consentimiento
+        existing_consent = EventConsent.objects.filter(
+            participant=participant,
+            event=event
+        ).first()
+        
+        if existing_consent:
+            return JsonResponse(
+                {
+                    "error": "Ya existe un consentimiento registrado para este evento",
+                    "consent": {
+                        "accepted_at": existing_consent.accepted_at.isoformat(),
+                        "consent_version": existing_consent.consent_version
+                    }
+                },
+                status=409
+            )
+        
+        # Obtener información adicional de la request
+        def get_client_ip(request):
+            """Obtiene la IP real del cliente considerando proxies"""
+            x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+            if x_forwarded_for:
+                ip = x_forwarded_for.split(',')[0].strip()
+            else:
+                ip = request.META.get('REMOTE_ADDR')
+            return ip
+        
+        ip_address = get_client_ip(request)
+        user_agent = request.META.get('HTTP_USER_AGENT', '')
+        
+        # Crear registro de consentimiento con transacción atómica
+        with transaction.atomic():
+            consent = EventConsent.objects.create(
+                participant=participant,
+                event=event,
+                consent_version=consent_version,
+                ip_address=ip_address,
+                user_agent=user_agent
+            )
+            
+            logger.info(
+                f"Consentimiento registrado: Participante={participant.email}, "
+                f"Evento={event.name}, Versión={consent_version}, IP={ip_address}"
+            )
+        
+        return JsonResponse(
+            {
+                "success": True,
+                "message": "Consentimiento informado registrado exitosamente",
+                "consent": {
+                    "participant_name": participant.name,
+                    "participant_email": participant.email,
+                    "event_name": event.name,
+                    "accepted_at": consent.accepted_at.isoformat(),
+                    "consent_version": consent.consent_version,
+                    "ip_address": consent.ip_address
+                }
+            },
+            status=200
+        )
+        
+    except Exception as e:
+        logger.error(f"Error al registrar consentimiento: {str(e)}")
+        return JsonResponse(
+            {"error": "Error interno del servidor", "details": str(e)},
+            status=500
+        )
+
+
+@csrf_exempt
+@require_GET
+def check_event_consent(request):
+    """
+    Verifica si existe consentimiento informado para un participante y evento.
+    
+    Header requerido:
+        Authorization: Bearer {event_key}
+    
+    Returns:
+        200: Información sobre el estado del consentimiento
+        401: Authorization header inválido
+        404: Event_key no encontrado
+        500: Error del servidor
+    """
+    try:
+        # Validar authorization header
+        authorization = request.headers.get("Authorization", "")
+        if not authorization.startswith("Bearer "):
+            return JsonResponse(
+                {"error": "Authorization header inválido"},
+                status=401
+            )
+        
+        parts = authorization.split(" ", 1)
+        if len(parts) != 2 or not parts[1]:
+            return JsonResponse(
+                {"error": "Event_key no proporcionado"},
+                status=401
+            )
+        
+        event_key = parts[1]
+        
+        # Obtener participante y evento
+        try:
+            participant_event = ParticipantEvent.objects.select_related(
+                "participant", "event"
+            ).get(event_key=event_key)
+            participant = participant_event.participant
+            event = participant_event.event
+        except ParticipantEvent.DoesNotExist:
+            return JsonResponse(
+                {"error": "Event_key inválido"},
+                status=404
+            )
+        
+        # Buscar consentimiento
+        consent = EventConsent.objects.filter(
+            participant=participant,
+            event=event
+        ).first()
+        
+        if consent:
+            return JsonResponse(
+                {
+                    "consentExists": True,
+                    "consent": {
+                        "accepted_at": consent.accepted_at.isoformat(),
+                        "consent_version": consent.consent_version,
+                        "participant_name": participant.name,
+                        "event_name": event.name
+                    }
+                },
+                status=200
+            )
+        else:
+            return JsonResponse(
+                {
+                    "consentExists": False,
+                    "message": "No existe consentimiento registrado. Debe aceptar el consentimiento informado antes de continuar.",
+                    "participant": {
+                        "name": participant.name,
+                        "email": participant.email
+                    },
+                    "event": {
+                        "name": event.name,
+                        "description": event.description
+                    }
+                },
+                status=200
+            )
+        
+    except Exception as e:
+        logger.error(f"Error al verificar consentimiento: {str(e)}")
+        return JsonResponse(
+            {"error": "Error interno del servidor"},
+            status=500
+        )
 
 
 @csrf_exempt
