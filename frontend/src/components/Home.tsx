@@ -289,12 +289,16 @@ export default function Home({ onLogin }: HomeProps) {
 
             <div className="mt-10 flex flex-col items-center">
               <div className="flex justify-center space-x-4 mb-6">
-                <button className="inline-flex items-center justify-center px-8 py-4 border border-transparent text-lg font-medium rounded-md text-blue-700 bg-white hover:bg-blue-50">
+                <a 
+                  href="/EvalTech-Monitor-Setup.exe"
+                  download="EvalTech-Monitor-Setup.exe"
+                  className="inline-flex items-center justify-center px-8 py-4 border border-transparent text-lg font-medium rounded-md text-blue-700 bg-white hover:bg-blue-50"
+                >
                   <svg className="h-6 w-6 mr-3" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801" />
                   </svg>
                   Descargar para Windows
-                </button>
+                </a>
               </div>
               <div className="mt-2 text-blue-100 text-sm flex items-center">
                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
