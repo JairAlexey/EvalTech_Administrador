@@ -1,16 +1,27 @@
 FROM python:3.10.9-slim
- 
-# Instalar dependencias del sistema de forma robusta
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+
+# Configurar apt para reintentos automáticos
+RUN echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80-retries && \
+    echo 'Acquire::http::Timeout "30";' >> /etc/apt/apt.conf.d/80-retries && \
+    echo 'Acquire::ftp::Timeout "30";' >> /etc/apt/apt.conf.d/80-retries
+
+# Actualizar repositorios
+RUN apt-get update
+
+# Instalar dependencias básicas primero (se cachean separado)
+RUN apt-get install -y --no-install-recommends \
     libgl1-mesa-glx \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
-    libxrender1 \
-    ffmpeg \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    libxrender1
+
+# Instalar ffmpeg por separado (puede fallar temporalmente por red)
+RUN apt-get install -y --no-install-recommends ffmpeg || \
+    (apt-get update && apt-get install -y --no-install-recommends ffmpeg)
+
+# Limpiar archivos temporales
+RUN apt-get clean && rm -rf /var/lib/apt/lists/*
  
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
