@@ -4,6 +4,8 @@ from events import views
 urlpatterns = [
     # Rutas para el registro de eventos de los participantes
     path("api/logging/http-request", views.log_participant_http_event),
+    path("api/logging/screen/presign", views.presign_participant_screen_upload),
+    path("api/logging/media/presign", views.presign_participant_media_upload),
     path("api/logging/screen/capture", views.log_participant_screen_event),
     path("api/logging/media/capture", views.log_participant_audio_video_event),
     path("api/verify-event-key", views.verify_event_key),

@@ -452,6 +452,88 @@ def log_participant_http_event(request: HttpRequest):
 
 
 @require_POST
+def presign_participant_screen_upload(request: HttpRequest):
+    try:
+        auth = request.headers.get("Authorization", "")
+        parts = auth.split(" ", 1)
+        if len(parts) != 2 or not parts[1]:
+            return JsonResponse({"error": "Invalid format authorization"}, status=401)
+        event_key = parts[1]
+        participant_event = get_participant_event(event_key)
+        if not participant_event:
+            return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
+
+        if not getattr(participant_event, "is_monitoring", False):
+            return JsonResponse({"error": "Monitoring not started"}, status=403)
+
+        upload_result = s3_service.generate_presigned_upload(
+            participant_event.id, media_type="screen", timestamp=timezone.now()
+        )
+
+        if upload_result["success"]:
+            return JsonResponse(
+                {
+                    "status": "success",
+                    "s3_key": upload_result["key"],
+                    "upload_url": upload_result["upload_url"],
+                    "headers": upload_result["headers"],
+                }
+            )
+        return JsonResponse(
+            {"error": f"Failed to presign upload: {upload_result['error']}"},
+            status=500,
+        )
+
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+
+@require_POST
+def presign_participant_media_upload(request: HttpRequest):
+    try:
+        auth = request.headers.get("Authorization", "")
+        parts = auth.split(" ", 1)
+        if len(parts) != 2 or not parts[1]:
+            return JsonResponse({"error": "Invalid format authorization"}, status=401)
+        event_key = parts[1]
+        participant_event = get_participant_event(event_key)
+        if not participant_event:
+            return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
+
+        if not getattr(participant_event, "is_monitoring", False):
+            return JsonResponse({"error": "Monitoring not started"}, status=403)
+
+        media_type = "video"
+        try:
+            data = json.loads(request.body or "{}")
+            if isinstance(data, dict):
+                media_type = data.get("media_type", media_type)
+        except json.JSONDecodeError:
+            pass
+
+        upload_result = s3_service.generate_presigned_upload(
+            participant_event.id, media_type=media_type, timestamp=timezone.now()
+        )
+
+        if upload_result["success"]:
+            return JsonResponse(
+                {
+                    "status": "success",
+                    "s3_key": upload_result["key"],
+                    "upload_url": upload_result["upload_url"],
+                    "headers": upload_result["headers"],
+                }
+            )
+        return JsonResponse(
+            {"error": f"Failed to presign upload: {upload_result['error']}"},
+            status=500,
+        )
+
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+
+@require_POST
 def log_participant_screen_event(request: HttpRequest):
 
     try:
@@ -467,34 +549,58 @@ def log_participant_screen_event(request: HttpRequest):
         if not getattr(participant_event, "is_monitoring", False):
             return JsonResponse({"error": "Monitoring not started"}, status=403)
 
-        file = request.FILES["screenshot"]
-        monitor_name = request.POST.get("monitor_name", "Unknown Monitor")
+        s3_key = None
+        monitor_name = "Unknown Monitor"
 
-        # Subir archivo a S3
-        upload_result = s3_service.upload_media_fragment(
-            file, participant_event.id, media_type="screen", timestamp=timezone.now()
-        )
+        if "screenshot" in request.FILES:
+            file = request.FILES["screenshot"]
+            monitor_name = request.POST.get("monitor_name", "Unknown Monitor")
 
-        if upload_result["success"]:
-            # Guardar el log con la URL de S3
-            ParticipantLog.objects.create(
-                name="screen",
-                url=upload_result["key"],  # guardamos la key en el campo url
-                message=f"{monitor_name}",
-                participant_event=participant_event,
+            # Subir archivo a S3 (legacy)
+            upload_result = s3_service.upload_media_fragment(
+                file, participant_event.id, media_type="screen", timestamp=timezone.now()
             )
-            return JsonResponse(
-                {
-                    "status": "success",
-                    "s3_key": upload_result["key"],
-                    "url": upload_result.get("presigned_url"),
-                }
-            )
+
+            if upload_result["success"]:
+                s3_key = upload_result["key"]
+                presigned_url = upload_result.get("presigned_url")
+            else:
+                return JsonResponse(
+                    {"error": f"Failed to upload screenshot: {upload_result['error']}"},
+                    status=500,
+                )
         else:
-            return JsonResponse(
-                {"error": f"Failed to upload screenshot: {upload_result['error']}"},
-                status=500,
+            try:
+                data = json.loads(request.body or "{}")
+            except json.JSONDecodeError:
+                data = {}
+
+            s3_key = data.get("s3_key") or request.POST.get("s3_key")
+            monitor_name = data.get("monitor_name") or request.POST.get(
+                "monitor_name", "Unknown Monitor"
             )
+            presigned_url = s3_service.generate_presigned_url(s3_key) if s3_key else None
+
+        if not s3_key:
+            return JsonResponse(
+                {"error": "Missing screenshot file or s3_key"},
+                status=400,
+            )
+
+        # Guardar el log con la URL de S3
+        ParticipantLog.objects.create(
+            name="screen",
+            url=s3_key,  # guardamos la key en el campo url
+            message=f"{monitor_name}",
+            participant_event=participant_event,
+        )
+        return JsonResponse(
+            {
+                "status": "success",
+                "s3_key": s3_key,
+                "url": presigned_url,
+            }
+        )
 
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=400)
@@ -516,36 +622,57 @@ def log_participant_audio_video_event(request: HttpRequest):
         if not getattr(participant_event, "is_monitoring", False):
             return JsonResponse({"error": "Monitoring not started"}, status=403)
 
-        file = request.FILES["media"]
+        s3_key = None
 
-        # Subir archivo de audio/video a S3
-        upload_result = s3_service.upload_media_fragment(
-            file,
-            participant_event.id,
-            media_type="video",  # Asumimos video por defecto, se puede detectar del archivo
-            timestamp=timezone.now(),
-        )
+        if "media" in request.FILES:
+            file = request.FILES["media"]
 
-        if upload_result["success"]:
-            # Guardar el log con la URL de S3
-            ParticipantLog.objects.create(
-                name="audio/video",
-                url=upload_result["key"],  # guardamos la key en el campo url
-                message="Media Capture",
-                participant_event=participant_event,
+            # Subir archivo de audio/video a S3 (legacy)
+            upload_result = s3_service.upload_media_fragment(
+                file,
+                participant_event.id,
+                media_type="video",  # Asumimos video por defecto, se puede detectar del archivo
+                timestamp=timezone.now(),
             )
-            return JsonResponse(
-                {
-                    "status": "success",
-                    "s3_key": upload_result["key"],
-                    "url": upload_result.get("presigned_url"),
-                }
-            )
+
+            if upload_result["success"]:
+                s3_key = upload_result["key"]
+                presigned_url = upload_result.get("presigned_url")
+            else:
+                return JsonResponse(
+                    {
+                        "error": f"Failed to upload media fragment: {upload_result['error']}"
+                    },
+                    status=500,
+                )
         else:
+            try:
+                data = json.loads(request.body or "{}")
+            except json.JSONDecodeError:
+                data = {}
+            s3_key = data.get("s3_key") or request.POST.get("s3_key")
+            presigned_url = s3_service.generate_presigned_url(s3_key) if s3_key else None
+
+        if not s3_key:
             return JsonResponse(
-                {"error": f"Failed to upload media fragment: {upload_result['error']}"},
-                status=500,
+                {"error": "Missing media file or s3_key"},
+                status=400,
             )
+
+        # Guardar el log con la URL de S3
+        ParticipantLog.objects.create(
+            name="audio/video",
+            url=s3_key,  # guardamos la key en el campo url
+            message="Media Capture",
+            participant_event=participant_event,
+        )
+        return JsonResponse(
+            {
+                "status": "success",
+                "s3_key": s3_key,
+                "url": presigned_url,
+            }
+        )
 
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=400)

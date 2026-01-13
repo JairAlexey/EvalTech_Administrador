@@ -212,6 +212,66 @@ class S3Service:
             logger.error(f"Error uploading media fragment: {e}")
             return {"success": False, "error": f"Upload failed: {str(e)}"}
 
+    def generate_presigned_upload(
+        self,
+        participant_event_id,
+        media_type="video",
+        timestamp=None,
+        expiration=3600,
+    ):
+        """
+        Genera una URL pre-firmada para subir un archivo directamente a S3.
+
+        Returns:
+            dict: {'success': bool, 'key': str, 'upload_url': str, 'headers': dict, 'metadata': dict, 'error': str}
+        """
+        if not self.is_configured():
+            return {"success": False, "error": "S3 not configured properly"}
+
+        try:
+            key = self.generate_media_key(participant_event_id, media_type, timestamp)
+            fragment_timestamp = timestamp or datetime.now()
+            metadata = {
+                "participant_event_id": str(participant_event_id),
+                "media_type": media_type,
+                "upload_timestamp": datetime.now().isoformat(),
+                "fragment_timestamp": fragment_timestamp.isoformat(),
+            }
+            content_type = self._get_content_type(media_type)
+
+            params = {
+                "Bucket": self.bucket_name,
+                "Key": key,
+                "ContentType": content_type,
+                "Metadata": metadata,
+                "ServerSideEncryption": "AES256",
+            }
+
+            upload_url = self.s3_client.generate_presigned_url(
+                "put_object",
+                Params=params,
+                ExpiresIn=expiration,
+            )
+
+            headers = {
+                "Content-Type": content_type,
+                "x-amz-server-side-encryption": "AES256",
+            }
+            for meta_key, meta_value in metadata.items():
+                headers[f"x-amz-meta-{meta_key}"] = str(meta_value)
+
+            return {
+                "success": True,
+                "key": key,
+                "upload_url": upload_url,
+                "headers": headers,
+                "metadata": metadata,
+            }
+
+        except ClientError as e:
+            logger.error(f"Error generating presigned upload URL: {e}")
+            return {"success": False, "error": f"Presign failed: {str(e)}"}
+
     def generate_presigned_url(self, key, expiration=3600):
         """
         Genera una URL pre-firmada para acceder a un archivo privado en S3.
