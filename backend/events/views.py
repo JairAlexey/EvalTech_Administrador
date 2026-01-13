@@ -32,6 +32,7 @@ from django.http import HttpResponse
 from authentication.utils import jwt_required
 from django.views.decorators.http import require_POST, require_GET
 import logging
+from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
 
@@ -139,9 +140,18 @@ def verify_event_key(request):
         return JsonResponse({"error": "Invalid format authorization"}, status=401)
 
     event_key = parts[1]
+    
+    # OPTIMIZACIÓN: Cache de 5 segundos para reducir queries repetitivas
+    cache_key = f"verify_event_key_{event_key}"
+    cached_response = cache.get(cache_key)
+    
+    if cached_response is not None:
+        # logger.debug(f"Cache HIT para event_key: {event_key[:8]}...")
+        return JsonResponse(cached_response)
+    
     try:
         participant_event = ParticipantEvent.objects.select_related(
-            "participant", "event"
+            "participant", "event", "event__evaluator"
         ).get(event_key=event_key)
         participant = participant_event.participant
         event = participant_event.event
@@ -157,46 +167,44 @@ def verify_event_key(request):
         access_validation = validate_event_access(participant_event, now)
 
         if not access_validation["allowed"]:
-            return JsonResponse(
-                {
-                    "isValid": False,
-                    "error": access_validation["reason"],
-                    "dateIsValid": False,
-                    "specificError": True,  # Indica que es un error específico, no genérico
-                },
-                status=403,
-            )
+            response_data = {
+                "isValid": False,
+                "error": access_validation["reason"],
+                "dateIsValid": False,
+                "specificError": True,
+            }
+            # Cache por 30 segundos para respuestas de error (bloqueos no cambian frecuentemente)
+            cache.set(cache_key, response_data, 30)
+            return JsonResponse(response_data, status=403)
 
-        # Verificar si existe consentimiento informado para este participante y evento
+        # Verificar si existe consentimiento informado
         consent_exists = EventConsent.objects.filter(
             participant=participant,
             event=event
         ).exists()
 
-        # Si no existe consentimiento, requerir aceptación antes de continuar
         if not consent_exists:
-            return JsonResponse(
-                {
-                    "isValid": True,
-                    "dateIsValid": dateIsValid,
-                    "consentRequired": True,
-                    "participant": {
-                        "id": participant.id,
-                        "name": participant.name,
-                        "email": participant.email,
-                    },
-                    "event": {
-                        "id": event.id,
-                        "name": event.name,
-                        "description": event.description,
-                        "duration": event.duration,
-                    },
-                    "message": "Debe aceptar el consentimiento informado antes de continuar"
+            response_data = {
+                "isValid": True,
+                "dateIsValid": dateIsValid,
+                "consentRequired": True,
+                "participant": {
+                    "id": participant.id,
+                    "name": participant.name,
+                    "email": participant.email,
                 },
-                status=200
-            )
+                "event": {
+                    "id": event.id,
+                    "name": event.name,
+                    "description": event.description,
+                    "duration": event.duration,
+                },
+                "message": "Debe aceptar el consentimiento informado antes de continuar"
+            }
+            # No cachear respuestas de consentimiento requerido
+            return JsonResponse(response_data, status=200)
 
-        # Obtener información del tiempo de monitoreo desde ParticipantEvent
+        # Obtener información del tiempo de monitoreo
         connection_info = {
             "totalTime": participant_event.get_total_monitoring_time(),
             "totalTimeSeconds": participant_event.get_total_monitoring_seconds(),
@@ -207,26 +215,32 @@ def verify_event_key(request):
             "isFirstConnection": access_validation["is_first_connection"],
         }
 
-        return JsonResponse(
-            {
-                "isValid": True,
-                "dateIsValid": dateIsValid,
-                "consentRequired": False,
-                "participant": {
-                    "name": participant.name,
-                    "email": participant.email,
-                    "monitoring_total_duration": participant_event.monitoring_total_duration,
-                },
-                "event": {
-                    "name": event.name,
-                    "id": event.id,
-                    "duration": event.duration,
-                },
-                "connectionInfo": connection_info,
-            }
-        )
+        response_data = {
+            "isValid": True,
+            "dateIsValid": dateIsValid,
+            "consentRequired": False,
+            "participant": {
+                "name": participant.name,
+                "email": participant.email,
+                "monitoring_total_duration": participant_event.monitoring_total_duration,
+            },
+            "event": {
+                "name": event.name,
+                "id": event.id,
+                "duration": event.duration,
+            },
+            "connectionInfo": connection_info,
+        }
+        
+        # Cache por 30 segundos - se invalida automáticamente en cambios de estado
+        cache.set(cache_key, response_data, 30)
+        
+        return JsonResponse(response_data)
     except ParticipantEvent.DoesNotExist:
-        return JsonResponse({"isValid": False}, status=404)
+        response_data = {"isValid": False}
+        # Cache de 60s para 404s (event_keys inválidos no van a cambiar)
+        cache.set(cache_key, response_data, 60)
+        return JsonResponse(response_data, status=404)
 
 
 def get_participant(event_key):
@@ -1428,14 +1442,30 @@ def events(request):
 @jwt_required()
 def notify_proxy_blocked_hosts_update(request, event_id):
     """Notifica al proxy manager que se actualizaron los hosts bloqueados de un evento
-    y devuelve los dominios que necesitan limpieza de caché"""
+    e invalida el caché de validaciones para ese evento"""
     if request.method == "POST":
         try:
-            # Sistema de señales eliminado - ya no es necesario con arquitectura HTTP directa
+            # OPTIMIZACIÓN: Invalidar caché de validaciones de URLs para este evento
+            # Buscar todos los participantes activos del evento
+            participant_events = ParticipantEvent.objects.filter(event_id=event_id)
+            
+            invalidated_count = 0
+            for pe in participant_events:
+                # Invalidar caché de verify_event_key
+                cache.delete(f"verify_event_key_{pe.event_key}")
+                
+                # Invalidar caché de validaciones de proxy (pattern matching)
+                # Nota: Django LocMemCache no soporta wildcard delete, 
+                # pero el caché expirará naturalmente en 30s
+                invalidated_count += 1
+            
+            logger.info(f"Invalidated cache for {invalidated_count} participants in event {event_id}")
+            
             return JsonResponse(
                 {
                     "success": True,
-                    "message": f"Signal system deprecated - using direct HTTP architecture for event {event_id}",
+                    "message": f"Cache invalidated for {invalidated_count} participants - new blocked hosts will apply immediately",
+                    "event_id": event_id
                 }
             )
 

@@ -8,6 +8,7 @@ from events.models import ParticipantEvent
 from events.views import validate_event_access
 from .server_proxy import DynamicProxyManager
 import logging
+from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,9 @@ def start_monitoring(request):
                 "monitoring_sessions_count"
             ])
             
+            # OPTIMIZACIÓN: Invalidar caché para que próximas verificaciones obtengan datos actualizados
+            cache.delete(f"verify_event_key_{event_key}")
+            
             logger.info(f"start_monitoring called for event_key={event_key}; participant_event id={pe.id}; session #{pe.monitoring_sessions_count}")
 
         return JsonResponse({"status": "monitoring_started"})
@@ -116,6 +120,9 @@ def stop_monitoring(request):
                 "monitoring_current_session_time", 
                 "monitoring_last_change"
             ])
+            
+            # OPTIMIZACIÓN: Invalidar caché para reflejar el tiempo actualizado
+            cache.delete(f"verify_event_key_{event_key}")
             
             logger.info(f"stop_monitoring called for event_key={event_key}; participant_event id={pe.id}; total_duration={pe.monitoring_total_duration}s")
 

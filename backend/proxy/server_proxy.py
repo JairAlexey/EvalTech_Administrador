@@ -130,6 +130,7 @@ class DynamicProxyManager:
         """
         Valida una URL para peticiones HTTP.
         Retorna si debe ser bloqueada y envia logs automaticamente.
+        OPTIMIZACIÓN: Cachea validaciones por 30s para reducir queries a BD.
         """
         try:
             # Parsear URL para obtener hostname
@@ -141,6 +142,15 @@ class DynamicProxyManager:
                     return {"blocked": True, "reason": "URL invalida"}
             except Exception:
                 return {"blocked": True, "reason": "Error parseando URL"}
+
+            # OPTIMIZACIÓN: Caché de validación de URLs por event_key + hostname
+            from django.core.cache import cache
+            validation_cache_key = f"proxy_validate_{event_key}_{hostname}"
+            cached_validation = cache.get(validation_cache_key)
+            
+            if cached_validation is not None:
+                # logger.debug(f"Cache HIT para validación de {hostname}")
+                return cached_validation
 
             # Obtener participant_event y hosts bloqueados
             try:
@@ -172,16 +182,27 @@ class DynamicProxyManager:
                             logger.debug(f"HTTP Blocked URL detected but participant not monitoring: {target_url}")
                     except Exception as log_error:
                         logger.warning(f"Error enviando log de bloqueo HTTP: {log_error}")
-                    return {"blocked": True, "reason": "Sitio no permitido durante la evaluacion", "hostname": hostname}
+                    
+                    validation_result = {"blocked": True, "reason": "Sitio no permitido durante la evaluacion", "hostname": hostname}
+                    # Cachear resultado bloqueado por 30s
+                    cache.set(validation_cache_key, validation_result, 30)
+                    return validation_result
+                    
                 # URL permitida - NO enviar log
                 logger.debug(f"HTTP URL permitida: {hostname} para evento {event.id}")
-                return {"blocked": False, "allowed": True, "hostname": hostname}
+                validation_result = {"blocked": False, "allowed": True, "hostname": hostname}
+                # Cachear resultado permitido por 30s
+                cache.set(validation_cache_key, validation_result, 30)
+                return validation_result
 
             except ParticipantEvent.DoesNotExist:
                 logger.error(f"ParticipantEvent no encontrado para event_key: {event_key}")
-                return {"blocked": True, "reason": "Evento no encontrado"}
+                error_result = {"blocked": True, "reason": "Evento no encontrado"}
+                # Cachear error por 10s (menos tiempo)
+                cache.set(validation_cache_key, error_result, 10)
+                return error_result
 
         except Exception as exc:
             logger.error(f"Error en validate_url_http: {str(exc)}")
-            # En caso de error, bloquear por seguridad
+            # En caso de error, bloquear por seguridad (sin cachear)
             return {"blocked": True, "reason": "Error interno del servidor"}
