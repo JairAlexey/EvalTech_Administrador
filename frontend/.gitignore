@@ -23,3 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# Large executable files
+public/EvalTech-Monitor-Setup.exe
+*.exe
