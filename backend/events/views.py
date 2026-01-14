@@ -17,6 +17,7 @@ from .s3_service import s3_service
 from django.views.decorators.csrf import csrf_exempt
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Q
+from django.db.models import Max
 from zoneinfo import ZoneInfo
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
@@ -2425,6 +2426,87 @@ def participant_connection_stats(request, event_id, participant_id):
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
+
+
+@csrf_exempt
+@jwt_required()
+@require_POST
+def cleanup_stale_monitoring_by_logs(request):
+    """Stops monitoring sessions when no logs are received for a while."""
+    try:
+        payload = {}
+        if request.body:
+            try:
+                payload = json.loads(request.body.decode("utf-8"))
+            except json.JSONDecodeError:
+                payload = {}
+
+        threshold_seconds = payload.get("threshold_seconds", 180)
+        try:
+            threshold_seconds = int(threshold_seconds)
+        except (TypeError, ValueError):
+            threshold_seconds = 180
+
+        if threshold_seconds <= 0:
+            threshold_seconds = 180
+
+        now = timezone.now()
+        cutoff = now - timedelta(seconds=threshold_seconds)
+
+        base_qs = (
+            ParticipantEvent.objects.filter(is_monitoring=True)
+            .annotate(last_log=Max("participantlog__timestamp"))
+            .filter(
+                Q(monitoring_current_session_time__lte=cutoff)
+                | Q(monitoring_current_session_time__isnull=True)
+            )
+        )
+
+        stale_qs = base_qs.filter(
+            Q(last_log__lt=cutoff) | Q(last_log__isnull=True)
+        )
+
+        results = []
+        with transaction.atomic():
+            for pe in stale_qs:
+                session_seconds = 0
+                if pe.monitoring_current_session_time:
+                    start_time = pe.monitoring_current_session_time
+                    if now >= start_time:
+                        session_seconds = int((now - start_time).total_seconds())
+                        pe.monitoring_total_duration += session_seconds
+
+                pe.monitoring_current_session_time = None
+                pe.is_monitoring = False
+                pe.monitoring_last_change = now
+
+                pe.save(update_fields=[
+                    "is_monitoring",
+                    "monitoring_total_duration",
+                    "monitoring_current_session_time",
+                    "monitoring_last_change",
+                ])
+
+                if pe.event_key:
+                    cache.delete(f"verify_event_key_{pe.event_key}")
+
+                results.append({
+                    "participant_event_id": pe.id,
+                    "event_id": pe.event_id,
+                    "participant_id": pe.participant_id,
+                    "last_log": pe.last_log.isoformat() if pe.last_log else None,
+                    "session_seconds": session_seconds,
+                })
+
+        return JsonResponse({
+            "success": True,
+            "threshold_seconds": threshold_seconds,
+            "stale_count": len(results),
+            "results": results,
+        })
+    except Exception as e:
+        logger.error(f"Error cleaning stale monitoring by logs: {e}")
+        return JsonResponse({"error": "Internal server error"}, status=500)
 
 # =============================
 # Endpoints de estado de eventos

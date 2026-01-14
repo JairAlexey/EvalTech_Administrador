@@ -93,4 +93,9 @@ urlpatterns = [
         views.pending_finish_events,
         name="events-pending-finish",
     ),
+    path(
+        "api/monitoring/cleanup-stale-logs/",
+        views.cleanup_stale_monitoring_by_logs,
+        name="monitoring-cleanup-stale-logs",
+    ),
 ]
