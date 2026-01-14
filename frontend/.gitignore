@@ -27,3 +27,6 @@ dist-ssr
 # Large executable files
 public/EvalTech-Monitor-Setup.exe
 *.exe
+
+Dockerfile
+.dockerignore

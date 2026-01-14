@@ -228,7 +228,7 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation, onLogout
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Evaluaciones</h1>
-              <p className="text-gray-600 mt-1">Visualiza las evaluaciones en progreso y completadas</p>
+              <p className="text-gray-600 mt-1">Visualiza las evaluaciones por evento</p>
             </div>
           </div>
         </div>
@@ -253,8 +253,8 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation, onLogout
                   <button
                     onClick={() => setShowFiltersModal(true)}
                     className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg text-sm font-medium transition ${hasActiveFilters
-                        ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'
-                        : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                      ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                      : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
                       }`}
                     disabled={loading || evaluations.length === 0}
                   >

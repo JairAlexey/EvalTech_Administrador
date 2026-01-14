@@ -12,7 +12,7 @@ import EvaluationsList from './components/Evaluaciones/EvaluationsList';
 import EvaluationDetails from './components/Evaluaciones/EvaluationDetails';
 import MonitoringPage from './components/Evaluaciones/MonitoringPage';
 import ReportPage from './components/Evaluaciones/ReportPage';
-import UserRoleManagement from './components/Roles/UserRoleManagement';
+import UserRoleManagement from './components/Usuarios/UserRoleManagement';
 import { useAuth } from './contexts/AuthContext';
 import CreateParticipant from './components/Participantes/CreateParticipant';
 import Profile from './components/Perfil/Profile';
