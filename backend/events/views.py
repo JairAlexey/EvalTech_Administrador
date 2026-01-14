@@ -42,8 +42,7 @@ logger = logging.getLogger(__name__)
 def check_event_time(event):
     now = timezone.now()
     if event.start_date and event.end_date:
-        earliest_join_time = event.start_date - timedelta(minutes=1)
-        return earliest_join_time <= now <= event.end_date
+        return event.start_date <= now <= event.end_date
     return False
 
 
