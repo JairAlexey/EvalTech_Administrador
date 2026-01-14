@@ -195,7 +195,7 @@ describe("frontend integration flows", () => {
         ok: true,
         jsonData: {
           participant: { id: 1, name: "P1", email: "p1@example.com" },
-          total_time_minutes: 10,
+          total_time_seconds: 615,
           monitoring_is_active: true,
           monitoring_last_change: null,
           monitoring_sessions_count: 2,

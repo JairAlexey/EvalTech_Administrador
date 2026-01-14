@@ -57,7 +57,7 @@ describe("monitoringService", () => {
       ok: true,
       jsonData: {
         participant: { id: 1, name: "User", email: "u@example.com" },
-        total_time_minutes: 10,
+        total_time_seconds: 615,
         monitoring_is_active: true,
         monitoring_last_change: null,
         monitoring_sessions_count: 1,
@@ -65,7 +65,7 @@ describe("monitoringService", () => {
     });
 
     const result = await monitoringService.getParticipantConnectionStats("1", "2");
-    expect(result.total_time_minutes).toBe(10);
+    expect(result.total_time_seconds).toBe(615);
   });
 
   it("throws when getParticipantConnectionStats fails", async () => {

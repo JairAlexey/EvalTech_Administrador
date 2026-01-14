@@ -55,7 +55,7 @@ def validate_event_access(participant_event, now):
     Valida si un participante puede acceder al evento según las reglas de negocio
     """
     event = participant_event.event
-    
+
     # Verificar si el participante está bloqueado por el administrador
     if participant_event.is_blocked:
         return {
@@ -64,7 +64,7 @@ def validate_event_access(participant_event, now):
             "monitoring_allowed": False,
             "is_first_connection": False,
         }
-    
+
     # Determinar si es primera conexión basado en si ha monitoreado antes
     is_first_connection = participant_event.monitoring_sessions_count == 0
     has_connected_before = not is_first_connection
@@ -72,7 +72,7 @@ def validate_event_access(participant_event, now):
     # Regla 0: Verificar si ya consumió todo su tiempo
     total_time_seconds = participant_event.get_total_monitoring_time()
     event_duration_seconds = event.duration * 60
-    
+
     # Dar un margen de tolerancia de 30 segundos
     if total_time_seconds >= (event_duration_seconds + 30):
         return {
@@ -206,8 +206,7 @@ def verify_event_key(request):
 
         # Verificar si existe consentimiento informado para este participante y evento
         consent_exists = EventConsent.objects.filter(
-            participant=participant,
-            event=event
+            participant=participant, event=event
         ).exists()
 
         # Si no existe consentimiento, requerir aceptación antes de continuar
@@ -228,9 +227,9 @@ def verify_event_key(request):
                         "description": event.description,
                         "duration": event.duration,
                     },
-                    "message": "Debe aceptar el consentimiento informado antes de continuar"
+                    "message": "Debe aceptar el consentimiento informado antes de continuar",
                 },
-                status=200
+                status=200,
             )
 
         # Obtener información del tiempo de monitoreo desde ParticipantEvent
@@ -292,10 +291,15 @@ def get_participant_event(event_key):
 
 
 def _validate_participant_fields(
-    first_name: str, last_name: str, email: str, seen_emails: set, participant_id: int = None, ids_in_excel: set = None
+    first_name: str,
+    last_name: str,
+    email: str,
+    seen_emails: set,
+    participant_id: int = None,
+    ids_in_excel: set = None,
 ):
     """Valida campos de participante.
-    
+
     Args:
         first_name: Nombre del participante
         last_name: Apellidos del participante
@@ -303,7 +307,7 @@ def _validate_participant_fields(
         seen_emails: Set de emails ya vistos en el lote actual
         participant_id: ID del participante (para actualizaciones, excluye self de validación de duplicados)
         ids_in_excel: Set de IDs que están siendo actualizados en este lote
-    
+
     Returns:
         Tupla (first_name, last_name, email, errors)
     """
@@ -336,36 +340,36 @@ def _validate_participant_fields(
         qs = Participant.objects.filter(email__iexact=em)
         if participant_id:
             qs = qs.exclude(id=participant_id)
-        
+
         # Obtener conflictos potenciales
-        conflicts = list(qs.values_list('id', flat=True))
-        
+        conflicts = list(qs.values_list("id", flat=True))
+
         if conflicts:
             # Si hay conflictos, verificar si todos los conflictos están siendo actualizados en este Excel
             # Si el ID conflictivo está en el Excel, asumimos que su correo será sobrescrito (o es el mismo, validado por seen_emails)
-            
+
             # Si ids_in_excel es None, comportamiento antiguo (error directo)
             if ids_in_excel is None:
-                 errors.append("Email ya existe en el sistema")
+                errors.append("Email ya existe en el sistema")
             else:
                 # Verificar si hay algún conflicto que NO esté en el Excel
                 # Si hay un conflicto con un ID que NO está en el Excel, es un error real.
                 # NOTA: Si el ID no está en el Excel, será eliminado, por lo que el correo quedará libre.
-                # Por lo tanto, si estamos en modo "full sync" (ids_in_excel != None), 
+                # Por lo tanto, si estamos en modo "full sync" (ids_in_excel != None),
                 # NO deberíamos marcar error si el conflicto es con alguien que no está en el Excel.
-                
+
                 # Conflictos reales: IDs que existen en BD, tienen ese email, Y TAMBIÉN están en el Excel (pero con otro ID, obvio)
                 # Si el conflicto está en el Excel, significa que ese usuario está siendo actualizado.
                 # Si ese usuario actualizado MANTIENE su email, entonces seen_emails lo habría detectado (duplicado en Excel).
                 # Si ese usuario actualizado CAMBIA su email, entonces libera este email.
-                
+
                 # Por lo tanto, la única validación necesaria es seen_emails (duplicados dentro del Excel).
                 # Los conflictos con la BD se resuelven solos:
                 # 1. Si el conflicto NO está en Excel -> Se elimina -> Email libre.
                 # 2. Si el conflicto SÍ está en Excel -> Se actualiza.
                 #    a. Si mantiene email -> Duplicado en Excel -> Error en seen_emails.
                 #    b. Si cambia email -> Email libre.
-                
+
                 # Conclusión: En modo full sync, NO necesitamos validar contra BD, solo contra seen_emails.
                 pass
 
@@ -581,7 +585,10 @@ def log_participant_screen_event(request: HttpRequest):
 
             # Subir archivo a S3
             upload_result = s3_service.upload_media_fragment(
-                file, participant_event.id, media_type="screen", timestamp=timezone.now()
+                file,
+                participant_event.id,
+                media_type="screen",
+                timestamp=timezone.now(),
             )
 
             if upload_result["success"]:
@@ -602,7 +609,9 @@ def log_participant_screen_event(request: HttpRequest):
             monitor_name = data.get("monitor_name") or request.POST.get(
                 "monitor_name", "Unknown Monitor"
             )
-            presigned_url = s3_service.generate_presigned_url(s3_key) if s3_key else None
+            presigned_url = (
+                s3_service.generate_presigned_url(s3_key) if s3_key else None
+            )
 
         if not s3_key:
             return JsonResponse(
@@ -663,7 +672,9 @@ def log_participant_audio_video_event(request: HttpRequest):
                 presigned_url = upload_result.get("presigned_url")
             else:
                 return JsonResponse(
-                    {"error": f"Failed to upload media fragment: {upload_result['error']}"},
+                    {
+                        "error": f"Failed to upload media fragment: {upload_result['error']}"
+                    },
                     status=500,
                 )
         else:
@@ -672,7 +683,9 @@ def log_participant_audio_video_event(request: HttpRequest):
             except json.JSONDecodeError:
                 data = {}
             s3_key = data.get("s3_key") or request.POST.get("s3_key")
-            presigned_url = s3_service.generate_presigned_url(s3_key) if s3_key else None
+            presigned_url = (
+                s3_service.generate_presigned_url(s3_key) if s3_key else None
+            )
 
         if not s3_key:
             return JsonResponse(
@@ -868,24 +881,24 @@ def participants(request):
 @require_GET
 def export_participants(request):
     """Exporta participantes existentes a Excel con columnas: ID, Nombre, Apellidos, Email."""
-    
+
     participants = Participant.objects.all().order_by("created_at")
     filename = "participantes.xlsx"
-    
+
     # Crear Excel
     wb = Workbook()
     ws = wb.active
     ws.title = "Participantes"
     ws.append(["ID", "Nombre", "Apellidos", "Email"])
-    
+
     # Agregar datos existentes
     for p in participants:
         ws.append([p.id, p.first_name, p.last_name, p.email])
-    
+
     bio = BytesIO()
     wb.save(bio)
     bio.seek(0)
-    
+
     response = HttpResponse(
         bio.getvalue(),
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -899,41 +912,50 @@ def export_participants(request):
 @require_POST
 def import_participants(request):
     """Importa participantes desde Excel con validación previa completa.
-    
+
     Flujo:
     1. Valida TODAS las filas primero
     2. Si hay errores: retorna solo filas con error (no crea nada)
     3. Si todo válido: crea/actualiza todo en transacción atómica
     """
-    
+
     # Validar que sea archivo Excel
     if "file" not in request.FILES:
         return JsonResponse({"error": "Se requiere un archivo Excel"}, status=400)
-    
+
     up_file = request.FILES["file"]
-    
+
     # Validar tipo de archivo
     filename = getattr(up_file, "name", "")
     content_type = getattr(up_file, "content_type", "")
     if not (
         filename.lower().endswith(".xlsx")
-        or content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        or content_type
+        == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     ):
-        return JsonResponse({"error": "El archivo debe ser un Excel (.xlsx)"}, status=400)
-    
+        return JsonResponse(
+            {"error": "El archivo debe ser un Excel (.xlsx)"}, status=400
+        )
+
     # Leer Excel
     try:
         wb = load_workbook(up_file, data_only=True)
         ws = wb.active
     except Exception as e:
-        return JsonResponse({"error": f"No se pudo leer el Excel: {str(e)}"}, status=400)
-    
+        return JsonResponse(
+            {"error": f"No se pudo leer el Excel: {str(e)}"}, status=400
+        )
+
     # Validar cabeceras
     headers = []
     for cell in ws[1]:
-        value = (cell.value or "").strip() if isinstance(cell.value, str) else (cell.value or "")
+        value = (
+            (cell.value or "").strip()
+            if isinstance(cell.value, str)
+            else (cell.value or "")
+        )
         headers.append(str(value))
-    
+
     normalized = [h.strip().lower() for h in headers]
     expected = ["id", "nombre", "apellidos", "email"]
     if normalized[:4] != expected:
@@ -944,38 +966,32 @@ def import_participants(request):
             },
             status=400,
         )
-    
+
     # FASE 1: VALIDAR TODAS LAS FILAS
     rows_to_process = []
     seen_emails = set()
     has_errors = False
-    
+
     # Pre-lectura para obtener todos los IDs presentes en el Excel
     ids_in_excel = set()
     raw_data = []
-    
+
     for row_idx in range(2, ws.max_row + 1):
         pid = ws.cell(row=row_idx, column=1).value
         fn = ws.cell(row=row_idx, column=2).value
         ln = ws.cell(row=row_idx, column=3).value
         em = ws.cell(row=row_idx, column=4).value
-        
+
         if not any([pid, fn, ln, em]):
             continue
-            
-        raw_data.append({
-            "row_idx": row_idx,
-            "pid": pid,
-            "fn": fn,
-            "ln": ln,
-            "em": em
-        })
-        
+
+        raw_data.append({"row_idx": row_idx, "pid": pid, "fn": fn, "ln": ln, "em": em})
+
         if pid:
             try:
                 ids_in_excel.add(int(pid))
             except (ValueError, TypeError):
-                pass # Se validará después
+                pass  # Se validará después
 
     for item in raw_data:
         row_idx = item["row_idx"]
@@ -983,7 +999,7 @@ def import_participants(request):
         fn = item["fn"]
         ln = item["ln"]
         em = item["em"]
-        
+
         # Procesar ID
         participant_id = None
         id_errors = []
@@ -995,25 +1011,29 @@ def import_participants(request):
                     id_errors.append(f"ID {participant_id} no existe en el sistema")
             except (ValueError, TypeError):
                 id_errors.append("ID debe ser un número válido")
-        
+
         # Validar campos
-        fn, ln, em, field_errors = _validate_participant_fields(fn, ln, em, seen_emails, participant_id, ids_in_excel)
-        
+        fn, ln, em, field_errors = _validate_participant_fields(
+            fn, ln, em, seen_emails, participant_id, ids_in_excel
+        )
+
         errors = id_errors + field_errors
-        
-        rows_to_process.append({
-            "row_number": row_idx,
-            "id": participant_id,
-            "first_name": fn,
-            "last_name": ln,
-            "email": em,
-            "errors": errors,
-            "is_update": bool(participant_id),
-        })
-        
+
+        rows_to_process.append(
+            {
+                "row_number": row_idx,
+                "id": participant_id,
+                "first_name": fn,
+                "last_name": ln,
+                "email": em,
+                "errors": errors,
+                "is_update": bool(participant_id),
+            }
+        )
+
         if errors:
             has_errors = True
-    
+
     # Si hay errores: retornar SOLO las filas con error
     if has_errors:
         error_rows = [r for r in rows_to_process if r["errors"]]
@@ -1026,19 +1046,19 @@ def import_participants(request):
             },
             status=400,
         )
-    
+
     # FASE 2: CREAR/ACTUALIZAR TODO EN TRANSACCIÓN ATÓMICA
     created_count = 0
     updated_count = 0
     deleted_count = 0
-    
+
     try:
         with transaction.atomic():
             # 1. Eliminar participantes que no están en el Excel
             # ids_in_excel contiene todos los IDs válidos del archivo
             participants_to_delete = Participant.objects.exclude(id__in=ids_in_excel)
             deleted_count = participants_to_delete.count()
-            
+
             if deleted_count > 0:
                 try:
                     participants_to_delete.delete()
@@ -1047,11 +1067,19 @@ def import_participants(request):
                     restricted_participants = participants_to_delete.filter(
                         participant_events__isnull=False
                     ).distinct()
-                    
-                    restricted_names = [f"<strong>{name}</strong>" for name in restricted_participants.values_list('name', flat=True)]
-                    
+
+                    restricted_names = [
+                        f"<strong>{name}</strong>"
+                        for name in restricted_participants.values_list(
+                            "name", flat=True
+                        )
+                    ]
+
                     if len(restricted_names) > 3:
-                        names_str = ", ".join(restricted_names[:3]) + f" y {len(restricted_names) - 3} más"
+                        names_str = (
+                            ", ".join(restricted_names[:3])
+                            + f" y {len(restricted_names) - 3} más"
+                        )
                     else:
                         names_str = ", ".join(restricted_names)
 
@@ -1060,17 +1088,17 @@ def import_participants(request):
                             "success": False,
                             "message": f"No se pudieron eliminar los siguientes participantes porque están asociados a uno o más eventos: {names_str}. Desvincúlelos de los eventos antes de proceder.",
                         },
-                        status=400
+                        status=400,
                     )
-            
+
             # 2. Actualizar/Crear
             # Para evitar errores de unicidad al intercambiar emails (swap),
             # primero actualizamos todos los emails de los registros a actualizar a un valor temporal.
             # Solo es necesario si hay actualizaciones.
-            
+
             updates = [r for r in rows_to_process if r["is_update"]]
             creates = [r for r in rows_to_process if not r["is_update"]]
-            
+
             if updates:
                 update_ids = [r["id"] for r in updates]
                 # Usamos update() masivo con Case/When o iteramos?
@@ -1093,11 +1121,11 @@ def import_participants(request):
                 participant.email = row["email"]
                 participant.save()
                 updated_count += 1
-                
+
                 # Actualizar claves de eventos asociados (igual que en edición individual)
                 # Al cambiar el email, el hash del event_key cambia
                 for pe in ParticipantEvent.objects.filter(participant=participant):
-                    pe.save() # El método save() llama a generate_event_key()
+                    pe.save()  # El método save() llama a generate_event_key()
 
             for row in creates:
                 Participant.objects.create(
@@ -1107,7 +1135,7 @@ def import_participants(request):
                     email=row["email"],
                 )
                 created_count += 1
-            
+
             response_data = {
                 "success": True,
                 "message": "Importación exitosa",
@@ -1116,9 +1144,9 @@ def import_participants(request):
                 "deleted": deleted_count,
                 "total_processed": len(rows_to_process),
             }
-            
+
             return JsonResponse(response_data)
-    
+
     except Exception as e:
         logger.error(f"Error en importación de participantes: {str(e)}")
         return JsonResponse(
@@ -1629,23 +1657,28 @@ def event_detail(request, event_id):
         # Obtener detalles del evento
         participants = Participant.objects.filter(events=event)
         participants_data = []
-        
+
         for participant in participants:
             # Obtener el ParticipantEvent para acceder a is_blocked
             participant_event = ParticipantEvent.objects.filter(
-                event=event,
-                participant=participant
+                event=event, participant=participant
             ).first()
-            
-            participants_data.append({
-                "id": participant.id,
-                "name": participant.name,
-                "email": participant.email,
-                "initials": participant.get_initials(),
-                "color": f"bg-{['blue', 'green', 'purple', 'red', 'yellow', 'indigo', 'pink'][participant.id % 7]}-200",
-                "is_blocked": participant_event.is_blocked if participant_event else False,
-                "is_monitoring": participant_event.is_monitoring if participant_event else False,
-            })
+
+            participants_data.append(
+                {
+                    "id": participant.id,
+                    "name": participant.name,
+                    "email": participant.email,
+                    "initials": participant.get_initials(),
+                    "color": f"bg-{['blue', 'green', 'purple', 'red', 'yellow', 'indigo', 'pink'][participant.id % 7]}-200",
+                    "is_blocked": (
+                        participant_event.is_blocked if participant_event else False
+                    ),
+                    "is_monitoring": (
+                        participant_event.is_monitoring if participant_event else False
+                    ),
+                }
+            )
 
         # Formatear hora para el frontend
         close_time_str = (
@@ -2404,7 +2437,6 @@ def event_participant_logs(request, event_id, participant_id):
 
 @csrf_exempt
 @jwt_required()
-@require_GET
 def participant_connection_stats(request, event_id, participant_id):
     """Endpoint para obtener estadísticas de conexión de un participante en un evento específico"""
 
@@ -2423,23 +2455,27 @@ def participant_connection_stats(request, event_id, participant_id):
                 "name": participant.name,
                 "email": participant.email,
             },
-            "total_time_minutes": 0,
+            "total_time_seconds": 0,
             "monitoring_is_active": False,
             "monitoring_last_change": None,
+            "monitoring_sessions_count": 0,
         }
 
         if participant_event:
-            # Todos los datos desde ParticipantEvent
+            # Todos los datos desde ParticipantEvent del evento específico
             connection_data.update(
                 {
                     "monitoring_is_active": participant_event.is_monitoring,
-                    "total_time_minutes": participant_event.get_total_monitoring_time(),
+                    "total_time_seconds": participant_event.get_total_monitoring_seconds(),
                     "monitoring_last_change": participant_event.monitoring_last_change,
+                    "monitoring_sessions_count": participant_event.monitoring_sessions_count,
                 }
             )
 
         return JsonResponse(connection_data)
 
+    except Event.DoesNotExist:
+        return JsonResponse({"error": "Event not found"}, status=404)
     except Participant.DoesNotExist:
         return JsonResponse({"error": "Participant not found"}, status=404)
     except Exception as e:
@@ -2480,9 +2516,7 @@ def cleanup_stale_monitoring_by_logs(request):
             )
         )
 
-        stale_qs = base_qs.filter(
-            Q(last_log__lt=cutoff) | Q(last_log__isnull=True)
-        )
+        stale_qs = base_qs.filter(Q(last_log__lt=cutoff) | Q(last_log__isnull=True))
 
         results = []
         with transaction.atomic():
@@ -2498,30 +2532,36 @@ def cleanup_stale_monitoring_by_logs(request):
                 pe.is_monitoring = False
                 pe.monitoring_last_change = now
 
-                pe.save(update_fields=[
-                    "is_monitoring",
-                    "monitoring_total_duration",
-                    "monitoring_current_session_time",
-                    "monitoring_last_change",
-                ])
+                pe.save(
+                    update_fields=[
+                        "is_monitoring",
+                        "monitoring_total_duration",
+                        "monitoring_current_session_time",
+                        "monitoring_last_change",
+                    ]
+                )
 
                 if pe.event_key:
                     cache.delete(f"verify_event_key_{pe.event_key}")
 
-                results.append({
-                    "participant_event_id": pe.id,
-                    "event_id": pe.event_id,
-                    "participant_id": pe.participant_id,
-                    "last_log": pe.last_log.isoformat() if pe.last_log else None,
-                    "session_seconds": session_seconds,
-                })
+                results.append(
+                    {
+                        "participant_event_id": pe.id,
+                        "event_id": pe.event_id,
+                        "participant_id": pe.participant_id,
+                        "last_log": pe.last_log.isoformat() if pe.last_log else None,
+                        "session_seconds": session_seconds,
+                    }
+                )
 
-        return JsonResponse({
-            "success": True,
-            "threshold_seconds": threshold_seconds,
-            "stale_count": len(results),
-            "results": results,
-        })
+        return JsonResponse(
+            {
+                "success": True,
+                "threshold_seconds": threshold_seconds,
+                "stale_count": len(results),
+                "results": results,
+            }
+        )
     except Exception as e:
         logger.error(f"Error cleaning stale monitoring by logs: {e}")
         return JsonResponse({"error": "Internal server error"}, status=500)
@@ -2572,6 +2612,7 @@ def pending_finish_events(request):
         for e in qs
     ]
     return JsonResponse({"results": data})
+
 
 @csrf_exempt
 @jwt_required(roles=["superadmin"])
@@ -2644,95 +2685,6 @@ def finish_event(request, event_id):
         return JsonResponse({"success": True, "status": event.status})
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=400)
-
-
-@csrf_exempt
-@jwt_required()
-def get_proxy_status(request, event_id):
-    """Obtiene el estado de monitoreo para un evento específico (AssignedPort eliminado)"""
-    if request.method == "GET":
-        try:
-            # Obtener participant_events del evento
-            participant_events = ParticipantEvent.objects.filter(
-                event_id=event_id
-            ).select_related("participant")
-
-            monitoring_instances = []
-            for pe in participant_events:
-                monitoring_info = {
-                    "participant": pe.participant.name,
-                    "is_monitoring": pe.is_monitoring,
-                    "total_time_minutes": pe.get_total_monitoring_time(),
-                    "sessions_count": pe.monitoring_sessions_count,
-                    "last_change": pe.monitoring_last_change,
-                }
-                monitoring_instances.append(monitoring_info)
-
-            return JsonResponse(
-                {
-                    "success": True,
-                    "event_id": event_id,
-                    "total_participants": len(monitoring_instances),
-                    "monitoring_instances": monitoring_instances,
-                }
-            )
-
-        except Exception as e:
-            logger.error(
-                f"Error getting monitoring status for event {event_id}: {str(e)}"
-            )
-            return JsonResponse(
-                {"error": "Failed to get monitoring status"}, status=500
-            )
-
-    return JsonResponse({"error": "Method not allowed"}, status=405)
-
-
-@csrf_exempt
-@jwt_required()
-def participant_connection_stats(request, event_id, participant_id):
-    """Endpoint para obtener estadísticas de conexión de un participante en un evento específico"""
-
-    try:
-        event = Event.objects.get(id=event_id)
-        participant = Participant.objects.get(id=participant_id)
-
-        # Buscar el ParticipantEvent específico del evento y participante
-        participant_event = ParticipantEvent.objects.filter(
-            event=event, participant=participant
-        ).first()
-
-        connection_data = {
-            "participant": {
-                "id": participant.id,
-                "name": participant.name,
-                "email": participant.email,
-            },
-            "total_time_minutes": 0,
-            "monitoring_is_active": False,
-            "monitoring_last_change": None,
-            "monitoring_sessions_count": 0,
-        }
-
-        if participant_event:
-            # Todos los datos desde ParticipantEvent del evento específico
-            connection_data.update(
-                {
-                    "monitoring_is_active": participant_event.is_monitoring,
-                    "total_time_minutes": participant_event.get_total_monitoring_time(),
-                    "monitoring_last_change": participant_event.monitoring_last_change,
-                    "monitoring_sessions_count": participant_event.monitoring_sessions_count,
-                }
-            )
-
-        return JsonResponse(connection_data)
-
-    except Event.DoesNotExist:
-        return JsonResponse({"error": "Event not found"}, status=404)
-    except Participant.DoesNotExist:
-        return JsonResponse({"error": "Participant not found"}, status=404)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
 
 
 @csrf_exempt
@@ -2884,6 +2836,8 @@ def create_s3_bucket(request):
             return JsonResponse({"error": str(e)}, status=500)
 
     return JsonResponse({"error": "Method not allowed"}, status=405)
+
+
 @jwt_required(roles=["admin", "superadmin"])
 @require_POST
 def block_participants(request, event_id):
@@ -2891,22 +2845,25 @@ def block_participants(request, event_id):
     try:
         event = Event.objects.get(id=event_id)
         data = json.loads(request.body)
-        participant_ids = data.get('participant_ids', [])
-        
+        participant_ids = data.get("participant_ids", [])
+
         if not participant_ids:
-            return JsonResponse({"error": "No se especificaron participantes"}, status=400)
-        
+            return JsonResponse(
+                {"error": "No se especificaron participantes"}, status=400
+            )
+
         # Bloquear los participantes seleccionados
         blocked_count = ParticipantEvent.objects.filter(
-            event=event,
-            participant_id__in=participant_ids
+            event=event, participant_id__in=participant_ids
         ).update(is_blocked=True, is_monitoring=False)
-        
-        return JsonResponse({
-            "success": True,
-            "message": f"{blocked_count} participante(s) bloqueado(s) exitosamente"
-        })
-        
+
+        return JsonResponse(
+            {
+                "success": True,
+                "message": f"{blocked_count} participante(s) bloqueado(s) exitosamente",
+            }
+        )
+
     except Event.DoesNotExist:
         return JsonResponse({"error": "Evento no encontrado"}, status=404)
     except Exception as e:
@@ -2917,22 +2874,23 @@ def block_participants(request, event_id):
 # ENDPOINTS DE CONSENTIMIENTO INFORMADO
 # ============================================
 
+
 @csrf_exempt
 @require_POST
 def register_event_consent(request):
     """
     Registra el consentimiento informado de un participante para un evento específico.
     Cumple con la Ley Orgánica de Protección de Datos Personales del Ecuador.
-    
+
     Header requerido:
         Authorization: Bearer {event_key}
-    
+
     Body JSON:
         {
             "accepted": true,
             "consent_version": "v1.0"
         }
-    
+
     Returns:
         200: Consentimiento registrado exitosamente
         400: Datos inválidos o consentimiento no aceptado
@@ -2947,18 +2905,18 @@ def register_event_consent(request):
         if not authorization.startswith("Bearer "):
             return JsonResponse(
                 {"error": "Authorization header inválido. Formato: Bearer {event_key}"},
-                status=401
+                status=401,
             )
-        
+
         parts = authorization.split(" ", 1)
         if len(parts) != 2 or not parts[1]:
             return JsonResponse(
                 {"error": "Event_key no proporcionado en Authorization header"},
-                status=401
+                status=401,
             )
-        
+
         event_key = parts[1]
-        
+
         # Obtener participante y evento asociados al event_key
         try:
             participant_event = ParticipantEvent.objects.select_related(
@@ -2967,65 +2925,58 @@ def register_event_consent(request):
             participant = participant_event.participant
             event = participant_event.event
         except ParticipantEvent.DoesNotExist:
-            return JsonResponse(
-                {"error": "Event_key inválido o no existe"},
-                status=404
-            )
-        
+            return JsonResponse({"error": "Event_key inválido o no existe"}, status=404)
+
         # Parsear body JSON
         try:
             data = json.loads(request.body)
         except json.JSONDecodeError:
-            return JsonResponse(
-                {"error": "Body JSON inválido"},
-                status=400
-            )
-        
+            return JsonResponse({"error": "Body JSON inválido"}, status=400)
+
         # Validar que el usuario aceptó explícitamente
         accepted = data.get("accepted")
         if accepted is not True:
             return JsonResponse(
                 {
                     "error": "Debe aceptar explícitamente el consentimiento informado",
-                    "message": "El consentimiento debe ser explícito para continuar con la evaluación"
+                    "message": "El consentimiento debe ser explícito para continuar con la evaluación",
                 },
-                status=400
+                status=400,
             )
-        
+
         # Obtener versión del consentimiento (por defecto v1.0)
         consent_version = data.get("consent_version", "v1.0")
-        
+
         # Verificar si ya existe consentimiento
         existing_consent = EventConsent.objects.filter(
-            participant=participant,
-            event=event
+            participant=participant, event=event
         ).first()
-        
+
         if existing_consent:
             return JsonResponse(
                 {
                     "error": "Ya existe un consentimiento registrado para este evento",
                     "consent": {
                         "accepted_at": existing_consent.accepted_at.isoformat(),
-                        "consent_version": existing_consent.consent_version
-                    }
+                        "consent_version": existing_consent.consent_version,
+                    },
                 },
-                status=409
+                status=409,
             )
-        
+
         # Obtener información adicional de la request
         def get_client_ip(request):
             """Obtiene la IP real del cliente considerando proxies"""
-            x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+            x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
             if x_forwarded_for:
-                ip = x_forwarded_for.split(',')[0].strip()
+                ip = x_forwarded_for.split(",")[0].strip()
             else:
-                ip = request.META.get('REMOTE_ADDR')
+                ip = request.META.get("REMOTE_ADDR")
             return ip
-        
+
         ip_address = get_client_ip(request)
-        user_agent = request.META.get('HTTP_USER_AGENT', '')
-        
+        user_agent = request.META.get("HTTP_USER_AGENT", "")
+
         # Crear registro de consentimiento con transacción atómica
         with transaction.atomic():
             consent = EventConsent.objects.create(
@@ -3033,14 +2984,14 @@ def register_event_consent(request):
                 event=event,
                 consent_version=consent_version,
                 ip_address=ip_address,
-                user_agent=user_agent
+                user_agent=user_agent,
             )
-            
+
             logger.info(
                 f"Consentimiento registrado: Participante={participant.email}, "
                 f"Evento={event.name}, Versión={consent_version}, IP={ip_address}"
             )
-        
+
         return JsonResponse(
             {
                 "success": True,
@@ -3051,17 +3002,16 @@ def register_event_consent(request):
                     "event_name": event.name,
                     "accepted_at": consent.accepted_at.isoformat(),
                     "consent_version": consent.consent_version,
-                    "ip_address": consent.ip_address
-                }
+                    "ip_address": consent.ip_address,
+                },
             },
-            status=200
+            status=200,
         )
-        
+
     except Exception as e:
         logger.error(f"Error al registrar consentimiento: {str(e)}")
         return JsonResponse(
-            {"error": "Error interno del servidor", "details": str(e)},
-            status=500
+            {"error": "Error interno del servidor", "details": str(e)}, status=500
         )
 
 
@@ -3070,10 +3020,10 @@ def register_event_consent(request):
 def check_event_consent(request):
     """
     Verifica si existe consentimiento informado para un participante y evento.
-    
+
     Header requerido:
         Authorization: Bearer {event_key}
-    
+
     Returns:
         200: Información sobre el estado del consentimiento
         401: Authorization header inválido
@@ -3084,20 +3034,14 @@ def check_event_consent(request):
         # Validar authorization header
         authorization = request.headers.get("Authorization", "")
         if not authorization.startswith("Bearer "):
-            return JsonResponse(
-                {"error": "Authorization header inválido"},
-                status=401
-            )
-        
+            return JsonResponse({"error": "Authorization header inválido"}, status=401)
+
         parts = authorization.split(" ", 1)
         if len(parts) != 2 or not parts[1]:
-            return JsonResponse(
-                {"error": "Event_key no proporcionado"},
-                status=401
-            )
-        
+            return JsonResponse({"error": "Event_key no proporcionado"}, status=401)
+
         event_key = parts[1]
-        
+
         # Obtener participante y evento
         try:
             participant_event = ParticipantEvent.objects.select_related(
@@ -3106,17 +3050,13 @@ def check_event_consent(request):
             participant = participant_event.participant
             event = participant_event.event
         except ParticipantEvent.DoesNotExist:
-            return JsonResponse(
-                {"error": "Event_key inválido"},
-                status=404
-            )
-        
+            return JsonResponse({"error": "Event_key inválido"}, status=404)
+
         # Buscar consentimiento
         consent = EventConsent.objects.filter(
-            participant=participant,
-            event=event
+            participant=participant, event=event
         ).first()
-        
+
         if consent:
             return JsonResponse(
                 {
@@ -3125,10 +3065,10 @@ def check_event_consent(request):
                         "accepted_at": consent.accepted_at.isoformat(),
                         "consent_version": consent.consent_version,
                         "participant_name": participant.name,
-                        "event_name": event.name
-                    }
+                        "event_name": event.name,
+                    },
                 },
-                status=200
+                status=200,
             )
         else:
             return JsonResponse(
@@ -3137,22 +3077,16 @@ def check_event_consent(request):
                     "message": "No existe consentimiento registrado. Debe aceptar el consentimiento informado antes de continuar.",
                     "participant": {
                         "name": participant.name,
-                        "email": participant.email
+                        "email": participant.email,
                     },
-                    "event": {
-                        "name": event.name,
-                        "description": event.description
-                    }
+                    "event": {"name": event.name, "description": event.description},
                 },
-                status=200
+                status=200,
             )
-        
+
     except Exception as e:
         logger.error(f"Error al verificar consentimiento: {str(e)}")
-        return JsonResponse(
-            {"error": "Error interno del servidor"},
-            status=500
-        )
+        return JsonResponse({"error": "Error interno del servidor"}, status=500)
 
 
 @csrf_exempt
@@ -3163,22 +3097,25 @@ def unblock_participants(request, event_id):
     try:
         event = Event.objects.get(id=event_id)
         data = json.loads(request.body)
-        participant_ids = data.get('participant_ids', [])
-        
+        participant_ids = data.get("participant_ids", [])
+
         if not participant_ids:
-            return JsonResponse({"error": "No se especificaron participantes"}, status=400)
-        
+            return JsonResponse(
+                {"error": "No se especificaron participantes"}, status=400
+            )
+
         # Desbloquear los participantes seleccionados
         unblocked_count = ParticipantEvent.objects.filter(
-            event=event,
-            participant_id__in=participant_ids
+            event=event, participant_id__in=participant_ids
         ).update(is_blocked=False)
-        
-        return JsonResponse({
-            "success": True,
-            "message": f"{unblocked_count} participante(s) desbloqueado(s) exitosamente"
-        })
-        
+
+        return JsonResponse(
+            {
+                "success": True,
+                "message": f"{unblocked_count} participante(s) desbloqueado(s) exitosamente",
+            }
+        )
+
     except Event.DoesNotExist:
         return JsonResponse({"error": "Evento no encontrado"}, status=404)
     except Exception as e:

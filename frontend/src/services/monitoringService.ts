@@ -25,7 +25,7 @@ export interface ConnectionStats {
     name: string;
     email: string;
   };
-  total_time_minutes: number;
+  total_time_seconds: number;
   monitoring_is_active: boolean;
   monitoring_last_change: string | null;
   monitoring_sessions_count: number;

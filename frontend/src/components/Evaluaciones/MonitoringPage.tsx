@@ -101,6 +101,12 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate, onLogout }
         return `${localDay}/${localMonth}/${localYear} ${localHour}:${localMinute}:${localSecond}`;
     }
 
+    const formatDuration = (seconds: number) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
     // Cargar logs y estadísticas al montar o cambiar eventId/participantId
     useEffect(() => {
         handleRefresh();
@@ -284,7 +290,7 @@ const MonitoringPage = ({ eventId, participantId, onBack, onNavigate, onLogout }
                             <div className="bg-blue-50 p-4 rounded-lg">
                                 <p className="text-sm text-gray-600">Tiempo Total</p>
                                 <p className="text-2xl font-bold text-blue-600">
-                                    {connectionStats.total_time_minutes} min
+                                    {formatDuration(connectionStats.total_time_seconds)}
                                 </p>
                             </div>
 
