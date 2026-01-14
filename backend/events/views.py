@@ -41,6 +41,7 @@ from behavior_analysis.models import AnalisisComportamiento
 from events.tasks import delete_event_media_from_s3
 
 EVENT_EXPIRATION_DAYS = 182
+MONITORING_UPLOAD_GRACE_SECONDS = 120
 
 # Funciones
 
@@ -292,6 +293,22 @@ def get_participant_event(event_key):
         return None
 
 
+def _allow_upload_after_block(participant_event, now=None):
+    if getattr(participant_event, "is_monitoring", False):
+        return True
+    if not getattr(participant_event, "is_blocked", False):
+        return False
+    if getattr(participant_event, "monitoring_sessions_count", 0) <= 0:
+        return False
+    last_change = getattr(participant_event, "monitoring_last_change", None)
+    if not last_change:
+        return False
+    if now is None:
+        now = timezone.now()
+    delta_seconds = (now - last_change).total_seconds()
+    return 0 <= delta_seconds <= MONITORING_UPLOAD_GRACE_SECONDS
+
+
 def _validate_participant_fields(
     first_name: str,
     last_name: str,
@@ -467,7 +484,8 @@ def log_participant_http_event(request: HttpRequest):
         if not participant_event:
             return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
 
-        if not getattr(participant_event, "is_monitoring", False):
+        now = timezone.now()
+        if not _allow_upload_after_block(participant_event, now):
             return JsonResponse({"error": "Monitoring not started"}, status=403)
 
         log_type = data.get("type", "http")
@@ -590,7 +608,7 @@ def log_participant_screen_event(request: HttpRequest):
                 file,
                 participant_event.id,
                 media_type="screen",
-                timestamp=timezone.now(),
+                timestamp=now,
             )
 
             if upload_result["success"]:
@@ -653,7 +671,8 @@ def log_participant_audio_video_event(request: HttpRequest):
         if not participant_event:
             return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
 
-        if not getattr(participant_event, "is_monitoring", False):
+        now = timezone.now()
+        if not _allow_upload_after_block(participant_event, now):
             return JsonResponse({"error": "Monitoring not started"}, status=403)
 
         s3_key = None
@@ -666,7 +685,7 @@ def log_participant_audio_video_event(request: HttpRequest):
                 file,
                 participant_event.id,
                 media_type="video",  # Asumimos video por defecto, se puede detectar del archivo
-                timestamp=timezone.now(),
+                timestamp=now,
             )
 
             if upload_result["success"]:
