@@ -24,6 +24,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.db.models.deletion import RestrictedError
+from django.core.cache import cache
 from authentication.models import CustomUser, UserRole
 from authentication.views import verify_token, get_user_data
 from openpyxl import load_workbook
@@ -2522,11 +2523,23 @@ def cleanup_stale_monitoring_by_logs(request):
         with transaction.atomic():
             for pe in stale_qs:
                 session_seconds = 0
+                inactive_seconds = 0
                 if pe.monitoring_current_session_time:
                     start_time = pe.monitoring_current_session_time
-                    if now >= start_time:
-                        session_seconds = int((now - start_time).total_seconds())
+                    # Si hay último log, calcular hasta ese momento
+                    # Si no hay logs, calcular hasta el cutoff (no contar tiempo sin actividad)
+                    if pe.last_log and pe.last_log >= start_time:
+                        end_time = pe.last_log
+                    else:
+                        # Sin logs recientes, contar solo hasta el cutoff
+                        end_time = cutoff if cutoff >= start_time else start_time
+                    
+                    if end_time >= start_time:
+                        session_seconds = int((end_time - start_time).total_seconds())
                         pe.monitoring_total_duration += session_seconds
+                        
+                        # Calcular tiempo inactivo (desde último log o cutoff hasta ahora)
+                        inactive_seconds = int((now - end_time).total_seconds())
 
                 pe.monitoring_current_session_time = None
                 pe.is_monitoring = False
@@ -2551,6 +2564,7 @@ def cleanup_stale_monitoring_by_logs(request):
                         "participant_id": pe.participant_id,
                         "last_log": pe.last_log.isoformat() if pe.last_log else None,
                         "session_seconds": session_seconds,
+                        "inactive_seconds": inactive_seconds,
                     }
                 )
 
