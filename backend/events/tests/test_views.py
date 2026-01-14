@@ -1012,3 +1012,55 @@ class EventsViewsTests(TestCase):
         )
         response = views.unblock_participants(request, event.id)
         self.assertEqual(response.status_code, 200)
+
+    def test_block_participants_preserves_monitoring_time(self):
+        """Test que al bloquear un participante se guarda el tiempo de monitoreo acumulado"""
+        from datetime import timedelta
+        
+        event = Event.objects.create(
+            name="Block Time Test",
+            description="Test preserving time",
+            start_date=timezone.now(),
+            close_date=timezone.now(),
+            end_date=timezone.now(),
+            duration=60,
+            evaluator=self.admin,
+            status="en_progreso",
+        )
+        participant = Participant.objects.create(
+            first_name="Time",
+            last_name="Test",
+            name="Time Test",
+            email="timetest@example.com",
+        )
+        pe = ParticipantEvent.objects.create(event=event, participant=participant)
+        
+        # Simular que el participante está monitoreando activamente
+        # con 120 segundos acumulados y 60 segundos en la sesión actual
+        pe.monitoring_total_duration = 120  # 2 minutos ya guardados
+        pe.is_monitoring = True
+        pe.monitoring_current_session_time = timezone.now() - timedelta(seconds=60)  # 1 minuto en sesión actual
+        pe.save()
+        
+        # Bloquear el participante
+        request = self.factory.post(
+            f"/events/api/events/{event.id}/participants/block",
+            data=json.dumps({"participant_ids": [participant.id]}),
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        response = views.block_participants(request, event.id)
+        self.assertEqual(response.status_code, 200)
+        
+        # Verificar que el participante está bloqueado y no está monitoreando
+        pe.refresh_from_db()
+        self.assertTrue(pe.is_blocked)
+        self.assertFalse(pe.is_monitoring)
+        self.assertIsNone(pe.monitoring_current_session_time)
+        
+        # CRÍTICO: Verificar que el tiempo total incluye la sesión que estaba activa
+        # Debe ser aproximadamente 180 segundos (120 previos + 60 de la sesión)
+        # Permitimos un margen de 2 segundos por el tiempo de ejecución del test
+        self.assertGreaterEqual(pe.monitoring_total_duration, 178)
+        self.assertLessEqual(pe.monitoring_total_duration, 182)
+

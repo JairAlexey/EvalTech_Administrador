@@ -101,10 +101,6 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
 
   const allSelected = evaluation ? selectedParticipants.length === evaluation.participants.length && evaluation.participants.length > 0 : false;
 
-  // Verificar si hay participantes bloqueados y desbloqueados seleccionados
-  const selectedParticipantsData = evaluation?.participants.filter(p => selectedParticipants.includes(p.id)) || [];
-  const hasBlockedSelected = selectedParticipantsData.some(p => (p as any).is_blocked);
-
   // Bloquear participantes
   const handleBlockParticipants = async () => {
     if (!evaluationId || selectedParticipants.length === 0) return;
@@ -373,10 +369,13 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
                       }).length})
                     </button>
                   )}
-                  {hasBlockedSelected && (
+                  {evaluation && evaluation.participants.some(p => (p as any).is_blocked) && (
                     <button
                       className={`px-6 py-3 rounded-xl font-medium text-white bg-green-600 hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl flex items-center gap-2`}
-                      disabled={selectedParticipants.length === 0 || blockingParticipants}
+                      disabled={selectedParticipants.filter(pid => {
+                        const p = evaluation.participants.find(p => p.id === pid);
+                        return p && (p as any).is_blocked;
+                      }).length === 0 || blockingParticipants}
                       onClick={handleUnblockParticipants}
                     >
                       {blockingParticipants ? (
@@ -384,7 +383,10 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
                       ) : (
                         <Unlock className="w-4 h-4" />
                       )}
-                      Desbloquear ({selectedParticipants.length})
+                      Desbloquear ({selectedParticipants.filter(pid => {
+                        const p = evaluation.participants.find(p => p.id === pid);
+                        return p && (p as any).is_blocked;
+                      }).length})
                     </button>
                   )}
                 </div>
@@ -441,8 +443,14 @@ export default function EvaluationDetails({ evaluationId, onNavigate, onViewMoni
                                 {participant.initials}
                               </span>
                             </div>
-                            <div>
+                            <div className="flex items-center gap-2">
                               <p className="text-sm font-medium text-gray-900">{participant.name}</p>
+                              {(participant as any).is_blocked && (
+                                <div className="flex items-center gap-1 px-2 py-0.5 bg-red-100 rounded-full" title="Participante bloqueado">
+                                  <Lock className="w-3 h-3 text-red-600" />
+                                  <span className="text-xs font-medium text-red-600">Bloqueado</span>
+                                </div>
+                              )}
                             </div>
                           </div>
                         </td>

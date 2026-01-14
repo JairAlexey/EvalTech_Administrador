@@ -13,6 +13,14 @@ def analyze_behavior_task(video_path, participant_event_id):
     """
     Celery task to process the video analysis asynchronously.
     """
+    if not AnalisisComportamiento.objects.filter(
+        participant_event_id=participant_event_id
+    ).exists():
+        logger.info(
+            "Skipping analysis for participant_event %s: analysis missing",
+            participant_event_id,
+        )
+        return {"success": False, "skipped": True, "reason": "analysis_missing"}
     return procesar_video_completo(video_path, participant_event_id)
 
 

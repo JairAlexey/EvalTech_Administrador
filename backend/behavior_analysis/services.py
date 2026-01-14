@@ -4,6 +4,7 @@ import threading
 import os
 import tempfile
 from django.utils import timezone
+from django.db import IntegrityError, transaction
 from events.s3_service import s3_service
 from .models import (
     AnalisisComportamiento,
@@ -274,79 +275,94 @@ def procesar_video_completo(video_path, participant_event_id):
     voice_thread.join()
 
     print("\nGuardando resultados en base de datos...")
-    # --- GUARDAR RESULTADOS ---
 
-    # 1. Rostros
-    res_rostros = rostros.obtener_resultados()
-    for r in res_rostros:
-        RegistroRostro.objects.create(
-            analisis=analisis,
-            persona_id=r["persona_id"],
-            tiempo_inicio=r["tiempo_inicio"],
-            tiempo_fin=r["tiempo_fin"],
-        )
+    if not AnalisisComportamiento.objects.filter(pk=analisis.pk).exists():
+        print(f"Analysis {analisis.id} no longer exists; skipping save.")
+        _cleanup_temp()
+        return {"skipped": True, "reason": "analysis_deleted"}
 
-    # 2. Gestos
-    res_gestos = gestos.obtener_resultados()
-    for g in res_gestos:
-        RegistroGesto.objects.create(
-            analisis=analisis,
-            tipo_gesto=g["tipo_gesto"],
-            tiempo_inicio=g["tiempo_inicio"],
-            tiempo_fin=g["tiempo_fin"],
-            duracion=g["duracion"],
-        )
+    try:
+        with transaction.atomic():
+            # --- GUARDAR RESULTADOS ---
 
-    # 3. Iluminación
-    res_ilum = iluminacion.obtener_resultados()
-    for i in res_ilum:
-        RegistroIluminacion.objects.create(
-            analisis=analisis,
-            tiempo_inicio=i["tiempo_inicio"],
-            tiempo_fin=i["tiempo_fin"],
-        )
+            # 1. Rostros
+            res_rostros = rostros.obtener_resultados()
+            for r in res_rostros:
+                RegistroRostro.objects.create(
+                    analisis=analisis,
+                    persona_id=r["persona_id"],
+                    tiempo_inicio=r["tiempo_inicio"],
+                    tiempo_fin=r["tiempo_fin"],
+                )
 
-    # 4. Ausencia
-    for start, end, duration in res_ausencia:
-        RegistroAusencia.objects.create(
-            analisis=analisis,
-            tiempo_inicio=start,
-            tiempo_fin=end,
-            duracion=duration,
-        )
+            # 2. Gestos
+            res_gestos = gestos.obtener_resultados()
+            for g in res_gestos:
+                RegistroGesto.objects.create(
+                    analisis=analisis,
+                    tipo_gesto=g["tipo_gesto"],
+                    tiempo_inicio=g["tiempo_inicio"],
+                    tiempo_fin=g["tiempo_fin"],
+                    duracion=g["duracion"],
+                )
 
-    # 5. Lipsync
-    res_lipsync = lipsync.obtener_resultados()
-    for a in res_lipsync.get("anomalias", []):
-        AnomaliaLipsync.objects.create(
-            analisis=analisis,
-            tipo_anomalia=a["tipo_anomalia"],
-            tiempo_inicio=a["tiempo_inicio"],
-            tiempo_fin=a["tiempo_fin"],
-        )
+            # 3. Iluminacion
+            res_ilum = iluminacion.obtener_resultados()
+            for i in res_ilum:
+                RegistroIluminacion.objects.create(
+                    analisis=analisis,
+                    tiempo_inicio=i["tiempo_inicio"],
+                    tiempo_fin=i["tiempo_fin"],
+                )
 
-    # 6. Voz
-    if voz_resultado:
-        for susurro in voz_resultado.get("susurros", []):
-            RegistroVoz.objects.create(
-                analisis=analisis,
-                tipo_log="susurro",
-                tiempo_inicio=susurro[0],
-                tiempo_fin=susurro[1],
-            )
+            # 4. Ausencia
+            for start, end, duration in res_ausencia:
+                RegistroAusencia.objects.create(
+                    analisis=analisis,
+                    tiempo_inicio=start,
+                    tiempo_fin=end,
+                    duracion=duration,
+                )
 
-        for hab in voz_resultado.get("hablantes", []):
-            RegistroVoz.objects.create(
-                analisis=analisis,
-                tipo_log="hablante",
-                etiqueta_hablante=hab["etiqueta"],
-                tiempo_inicio=hab["tiempo_inicio"],
-                tiempo_fin=hab["tiempo_fin"],
-            )
+            # 5. Lipsync
+            res_lipsync = lipsync.obtener_resultados()
+            for a in res_lipsync.get("anomalias", []):
+                AnomaliaLipsync.objects.create(
+                    analisis=analisis,
+                    tipo_anomalia=a["tipo_anomalia"],
+                    tiempo_inicio=a["tiempo_inicio"],
+                    tiempo_fin=a["tiempo_fin"],
+                )
 
-    analisis.status = "completado"
-    analisis.save()
-    print("Análisis completado y guardado.")
+            # 6. Voz
+            if voz_resultado:
+                for susurro in voz_resultado.get("susurros", []):
+                    RegistroVoz.objects.create(
+                        analisis=analisis,
+                        tipo_log="susurro",
+                        tiempo_inicio=susurro[0],
+                        tiempo_fin=susurro[1],
+                    )
+
+                for hab in voz_resultado.get("hablantes", []):
+                    RegistroVoz.objects.create(
+                        analisis=analisis,
+                        tipo_log="hablante",
+                        etiqueta_hablante=hab["etiqueta"],
+                        tiempo_inicio=hab["tiempo_inicio"],
+                        tiempo_fin=hab["tiempo_fin"],
+                    )
+
+            analisis.status = "completado"
+            analisis.save()
+    except IntegrityError as e:
+        if not AnalisisComportamiento.objects.filter(pk=analisis.pk).exists():
+            print(f"Analysis {analisis.id} removed before save; skipping. ({e})")
+            _cleanup_temp()
+            return {"skipped": True, "reason": "analysis_deleted"}
+        raise
+
+    print("Analisis completado y guardado.")
     _cleanup_temp()
     return {"id": analisis.id, "status": "completado"}
 

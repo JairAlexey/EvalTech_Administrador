@@ -34,7 +34,8 @@ from django.http import HttpResponse
 from authentication.utils import jwt_required
 from django.views.decorators.http import require_POST, require_GET
 import logging
-
+from django.utils import timezone
+from django.db import transaction
 logger = logging.getLogger(__name__)
 from behavior_analysis.models import AnalisisComportamiento
 from events.tasks import delete_event_media_from_s3
@@ -2326,12 +2327,14 @@ def evaluation_detail(request, evaluation_id):
     participants_data = []
 
     for p in participants:
-        # Obtener estado de monitoreo
+        # Obtener estado de monitoreo y bloqueo
         monitoring_status = False
+        is_blocked_status = False
 
         try:
             participant_event = ParticipantEvent.objects.get(event=event, participant=p)
             monitoring_status = getattr(participant_event, "is_monitoring", False)
+            is_blocked_status = getattr(participant_event, "is_blocked", False)
         except ParticipantEvent.DoesNotExist:
             pass
 
@@ -2341,6 +2344,7 @@ def evaluation_detail(request, evaluation_id):
                 "name": p.name,
                 "initials": p.get_initials() if hasattr(p, "get_initials") else "",
                 "monitoring_is_active": monitoring_status,
+                "is_blocked": is_blocked_status,
                 "color": f"bg-{['blue', 'green', 'purple', 'red', 'yellow', 'indigo', 'pink'][p.id % 7]}-200",
             }
         )
@@ -2856,6 +2860,7 @@ def create_s3_bucket(request):
 @require_POST
 def block_participants(request, event_id):
     """Bloquea participantes seleccionados de un evento"""
+    
     try:
         event = Event.objects.get(id=event_id)
         data = json.loads(request.body)
@@ -2867,9 +2872,39 @@ def block_participants(request, event_id):
             )
 
         # Bloquear los participantes seleccionados
-        blocked_count = ParticipantEvent.objects.filter(
-            event=event, participant_id__in=participant_ids
-        ).update(is_blocked=True, is_monitoring=False)
+        # IMPORTANTE: Guardar el tiempo de monitoreo antes de bloquear
+        blocked_count = 0
+        now = timezone.now()
+        
+        with transaction.atomic():
+            participant_events = ParticipantEvent.objects.select_for_update().filter(
+                event=event, participant_id__in=participant_ids
+            )
+            
+            for pe in participant_events:
+                # Si está monitoreando activamente, guardar el tiempo de la sesión actual
+                if pe.is_monitoring and pe.monitoring_current_session_time:
+                    start_time = pe.monitoring_current_session_time
+                    if now >= start_time:
+                        session_seconds = int((now - start_time).total_seconds())
+                        pe.monitoring_total_duration += session_seconds
+                    
+                    # Limpiar la sesión actual
+                    pe.monitoring_current_session_time = None
+                
+                # Bloquear el participante
+                pe.is_blocked = True
+                pe.is_monitoring = False
+                pe.monitoring_last_change = now
+                
+                pe.save(update_fields=[
+                    "is_blocked",
+                    "is_monitoring", 
+                    "monitoring_total_duration",
+                    "monitoring_current_session_time",
+                    "monitoring_last_change"
+                ])
+                blocked_count += 1
 
         return JsonResponse(
             {
