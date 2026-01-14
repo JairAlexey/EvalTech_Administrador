@@ -13,7 +13,7 @@ const ALL_PAGES = [
   { id: 'eventos', icon: Calendar, label: 'Eventos', section: 'GENERAL', roles: ['admin', 'superadmin', 'evaluator'] },
   { id: 'participants', icon: Users, label: 'Participantes', section: 'GENERAL', roles: ['admin', 'superadmin'] },
   { id: 'evaluaciones', icon: FileText, label: 'Evaluaciones', section: 'RESULTADOS', roles: ['superadmin', 'admin', 'evaluator'] },
-  { id: 'roles', icon: UserCog, label: 'Roles', section: 'CONFIGURACIÓN', roles: ['superadmin'] },
+  { id: 'roles', icon: UserCog, label: 'Usuarios', section: 'CONFIGURACIÓN', roles: ['superadmin'] },
   { id: 'cuenta', icon: User, label: 'Mi cuenta', section: 'CONFIGURACIÓN', roles: ['admin', 'superadmin', 'evaluator'] },
 ];
 

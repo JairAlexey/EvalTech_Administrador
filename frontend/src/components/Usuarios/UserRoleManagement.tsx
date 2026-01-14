@@ -120,8 +120,8 @@ export default function UserRoleManagement({ onNavigate, onLogout }: UserRoleMan
                 <div className="bg-white border-b border-gray-200 px-8 py-6">
                     <div className="flex items-center justify-between">
                         <div>
-                            <h1 className="text-2xl font-bold text-gray-900">Gestión de Roles</h1>
-                            <p className="text-gray-600 mt-1">Asigne roles a los usuarios del sistema</p>
+                            <h1 className="text-2xl font-bold text-gray-900">Usuarios</h1>
+                            <p className="text-gray-600 mt-1">Gestione los usuarios del sistema</p>
                         </div>
                         <button
                             className="bg-blue-600 text-white px-4 py-2 rounded font-medium hover:bg-blue-700"

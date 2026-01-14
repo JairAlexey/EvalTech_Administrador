@@ -228,7 +228,7 @@ export default function EvaluationsList({ onNavigate, onViewEvaluation, onLogout
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Evaluaciones</h1>
-              <p className="text-gray-600 mt-1">Visualiza las evaluaciones en progreso y completadas</p>
+              <p className="text-gray-600 mt-1">Visualiza las evaluaciones por evento</p>
             </div>
           </div>
         </div>
