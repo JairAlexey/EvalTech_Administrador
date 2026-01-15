@@ -596,6 +596,7 @@ def log_participant_screen_event(request: HttpRequest):
         if not getattr(participant_event, "is_monitoring", False):
             return JsonResponse({"error": "Monitoring not started"}, status=403)
 
+        now = timezone.now()
         s3_key = None
         monitor_name = "Unknown Monitor"
 

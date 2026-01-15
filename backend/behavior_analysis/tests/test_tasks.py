@@ -83,3 +83,73 @@ class BehaviorAnalysisTasksTests(TestCase):
 
         self.assertTrue(result["success"])
         self.assertEqual(result["analysis_task_id"], "analysis-1")
+
+    def test_analyze_behavior_task_skips_when_missing_analysis(self):
+        result = tasks.analyze_behavior_task("media/key", 9999)
+        self.assertFalse(result["success"])
+        self.assertTrue(result["skipped"])
+
+    def test_process_participant_completion_task_missing_participant_event(self):
+        with mock.patch.object(
+            Task,
+            "request",
+            new_callable=mock.PropertyMock,
+            return_value=SimpleNamespace(id="req-missing"),
+        ):
+            result = tasks.process_participant_completion_task.run(
+                9999, self.event.id, self.event.name
+            )
+
+        self.assertFalse(result["success"])
+        self.assertIn("not found", result["error"])
+
+    def test_process_participant_completion_task_merge_failed(self):
+        with mock.patch.object(
+            Task,
+            "request",
+            new_callable=mock.PropertyMock,
+            return_value=SimpleNamespace(id="req-fail"),
+        ), mock.patch(
+            "behavior_analysis.tasks.video_merger_service.merge_participant_videos",
+            return_value={"success": False, "error": "boom"},
+        ):
+            result = tasks.process_participant_completion_task.run(
+                self.participant_event.id, self.event.id, self.event.name
+            )
+
+        self.assertFalse(result["success"])
+        self.assertIn("Video merge failed", result["error"])
+
+    def test_process_participant_completion_task_missing_video_key(self):
+        with mock.patch.object(
+            Task,
+            "request",
+            new_callable=mock.PropertyMock,
+            return_value=SimpleNamespace(id="req-nokey"),
+        ), mock.patch(
+            "behavior_analysis.tasks.video_merger_service.merge_participant_videos",
+            return_value={"success": True, "merged_count": 1},
+        ):
+            result = tasks.process_participant_completion_task.run(
+                self.participant_event.id, self.event.id, self.event.name
+            )
+
+        self.assertFalse(result["success"])
+        self.assertIn("S3 key", result["error"])
+
+    def test_process_participant_completion_task_exception(self):
+        with mock.patch.object(
+            Task,
+            "request",
+            new_callable=mock.PropertyMock,
+            return_value=SimpleNamespace(id="req-exc"),
+        ), mock.patch(
+            "behavior_analysis.tasks.video_merger_service.merge_participant_videos",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = tasks.process_participant_completion_task.run(
+                self.participant_event.id, self.event.id, self.event.name
+            )
+
+        self.assertFalse(result["success"])
+        self.assertIn("Unexpected error", result["error"])

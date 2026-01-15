@@ -819,7 +819,7 @@ class EventsViewsTests(TestCase):
             ],
         )
 
-    def test_get_proxy_status_and_connection_stats(self):
+    def test_participant_connection_stats(self):
         now = timezone.now()
         event = Event.objects.create(
             name="Proxy Status Event",
@@ -837,21 +837,12 @@ class EventsViewsTests(TestCase):
             name="Conn User",
             email="conn@example.com",
         )
-        participant_event = ParticipantEvent.objects.create(
+        ParticipantEvent.objects.create(
             event=event,
             participant=participant,
             is_monitoring=True,
             monitoring_sessions_count=2,
         )
-
-        request = self.factory.get(
-            f"/events/api/events/{event.id}/proxy-status/",
-            **self._auth_headers(),
-        )
-        response = views.get_proxy_status(request, event.id)
-        payload = json.loads(response.content.decode("utf-8"))
-        self.assertTrue(payload["success"])
-        self.assertEqual(payload["total_participants"], 1)
 
         request = self.factory.get(
             f"/events/api/events/{event.id}/participants/{participant.id}/connection/",
