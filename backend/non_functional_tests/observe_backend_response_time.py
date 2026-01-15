@@ -6,7 +6,7 @@ import urllib.error
 import urllib.request
 
 
-DEFAULT_BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8000")
+DEFAULT_BASE_URL = os.getenv("BASE_URL", "https://backend-production-b180.up.railway.app")
 DEFAULT_PATH = os.getenv(
     "BACKEND_TEST_PATH", "/events/api/events-status/pending-start/"
 )
