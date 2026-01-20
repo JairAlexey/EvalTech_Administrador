@@ -1,162 +1,44 @@
 import json
-from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth.models import User
+from django.contrib.auth.hashers import check_password, make_password
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
-from django.middleware.csrf import get_token
-from django.contrib.auth.decorators import login_required
-import jwt
-import datetime
-import os
-from django.conf import settings
-from .models import UserRole
-
-# Clave secreta para JWT - en producción debe estar en variables de entorno
-JWT_SECRET = getattr(settings, "SECRET_KEY", "django-insecure-token")
-JWT_ALGORITHM = "HS256"
-JWT_EXP_DELTA_SECONDS = 60 * 60 * 24  # 24 horas
-
-
-def generate_token(user):
-    """Genera un token JWT para el usuario"""
-    payload = {
-        "user_id": user.id,
-        "username": user.username,
-        "exp": datetime.datetime.utcnow()
-        + datetime.timedelta(seconds=JWT_EXP_DELTA_SECONDS),
-    }
-    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-    return token
-
-
-def verify_token(token):
-    """Verifica un token JWT y devuelve el payload si es válido"""
-    try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        return payload
-    except jwt.ExpiredSignatureError:
-        return None
-    except jwt.InvalidTokenError:
-        return None
-
-
-def get_user_data(user):
-    """Helper function to get user data with role"""
-    try:
-        user_role = UserRole.objects.get(user=user)
-        role = user_role.role
-    except UserRole.DoesNotExist:
-        role = "sin_rol"
-
-    return {
-        "id": user.id,
-        "username": user.username,
-        "email": user.email,
-        "firstName": user.first_name,
-        "lastName": user.last_name,
-        "isStaff": user.is_staff,
-        "role": role,
-    }
+from django.core.validators import validate_email
+from django.core.exceptions import ValidationError
+from .models import UserRole, CustomUser
+import hashlib
+from events.models import Event
+from .utils import jwt_required, generate_token, verify_token, get_user_data
+from django.views.decorators.http import require_http_methods
 
 
 @csrf_exempt
 @require_POST
 def login_view(request):
-    """Vista para autenticar un usuario y devolver un token JWT"""
     try:
         data = json.loads(request.body)
-        username = data.get(
-            "email"
-        )  # El frontend envía 'email' pero usaremos como username
+        email = data.get("email")
         password = data.get("password")
+        if not email or not password:
+            return JsonResponse({"error": "Email y contraseña requeridos"}, status=400)
 
-        if not username or not password:
-            return JsonResponse(
-                {"error": "Se requieren email y contraseña"}, status=400
-            )
-
-        # Intentamos autenticar con el email como username
-        user = authenticate(username=username, password=password)
-
-        # Si no funciona, intentamos buscar por email (asumiendo que el username podría ser diferente al email)
-        if not user:
-            try:
-                user_obj = User.objects.get(email=username)
-                user = authenticate(username=user_obj.username, password=password)
-            except User.DoesNotExist:
-                pass
-
+        user = CustomUser.objects.filter(email=email).first()
         if not user:
             return JsonResponse({"error": "Credenciales inválidas"}, status=401)
 
-        # Generar token JWT
+        # Primero intenta con los hashers de Django
+        if not user.check_password(password):
+            # Fallback: por si tienes SHA-256 plano desde la migración 0002
+            if user.password == hashlib.sha256(password.encode("utf-8")).hexdigest():
+                user.set_password(password)
+                user.save(update_fields=["password"])
+            else:
+                return JsonResponse({"error": "Credenciales inválidas"}, status=401)
+
         token = generate_token(user)
-
-        # Login del usuario en la sesión de Django (opcional si solo usas JWT)
-        login(request, user)
-
         return JsonResponse({"token": token, "user": get_user_data(user)})
     except json.JSONDecodeError:
-        return JsonResponse({"error": "Formato JSON inválido"}, status=400)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
-
-
-@csrf_exempt
-def logout_view(request):
-    """Vista para cerrar sesión"""
-    logout(request)
-    return JsonResponse({"message": "Sesión cerrada correctamente"})
-
-
-@csrf_exempt
-@require_POST
-def register_view(request):
-    """Vista para registrar un nuevo usuario"""
-    try:
-        data = json.loads(request.body)
-        username = data.get("email")  # Usamos el email como username
-        email = data.get("email")
-        password = data.get("password")
-        first_name = data.get("firstName", "")
-        last_name = data.get("lastName", "")
-
-        if not username or not email or not password:
-            return JsonResponse(
-                {"error": "Se requieren email y contraseña"}, status=400
-            )
-
-        # Verificar si ya existe un usuario con ese email o username
-        if User.objects.filter(username=username).exists():
-            return JsonResponse(
-                {"error": "El nombre de usuario ya está en uso"}, status=400
-            )
-
-        if User.objects.filter(email=email).exists():
-            return JsonResponse({"error": "El email ya está registrado"}, status=400)
-
-        # Crear el usuario
-        user = User.objects.create_user(
-            username=username,
-            email=email,
-            password=password,
-            first_name=first_name,
-            last_name=last_name,
-        )
-
-        # El nuevo usuario no tiene rol asignado inicialmente
-        # No creamos un UserRole aquí, lo asignará un administrador
-
-        # Generar token JWT
-        token = generate_token(user)
-
-        # Login del usuario recién creado
-        login(request, user)
-
-        return JsonResponse({"token": token, "user": get_user_data(user)}, status=201)
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "Formato JSON inválido"}, status=400)
+        return JsonResponse({"error": "JSON inválido"}, status=400)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
@@ -180,9 +62,9 @@ def verify_token_view(request):
 
         # Si el token es válido, buscamos el usuario
         try:
-            user = User.objects.get(id=payload["user_id"])
+            user = CustomUser.objects.get(id=payload["user_id"])
             return JsonResponse({"valid": True, "user": get_user_data(user)})
-        except User.DoesNotExist:
+        except CustomUser.DoesNotExist:
             return JsonResponse(
                 {"valid": False, "error": "Usuario no encontrado"}, status=401
             )
@@ -194,156 +76,48 @@ def verify_token_view(request):
 
 
 @csrf_exempt
+@jwt_required()
 @require_GET
 def user_info_view(request):
     """Vista para obtener información del usuario autenticado mediante token JWT"""
-    # Obtener el token de los headers de la petición
-    auth_header = request.headers.get("Authorization", "")
 
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse(
-            {"error": "Encabezado de autorización inválido"}, status=401
-        )
-
-    token = auth_header.split(" ")[1]
-    payload = verify_token(token)
-
-    if not payload:
-        return JsonResponse({"error": "Token inválido o expirado"}, status=401)
-
-    # Obtener el usuario
-    try:
-        user = User.objects.get(id=payload["user_id"])
-        return JsonResponse(get_user_data(user))
-    except User.DoesNotExist:
-        return JsonResponse({"error": "Usuario no encontrado"}, status=404)
+    user = request.user
+    return JsonResponse(get_user_data(user))
 
 
 @csrf_exempt
+@jwt_required(roles=["superadmin"])
+@require_GET
 def role_management_view(request):
-    """Vista para gestionar los roles de usuario"""
-    auth_header = request.headers.get("Authorization", "")
+    """Vista para gestionar los roles de usuario (solo superadmin)"""
+    users = CustomUser.objects.all()
+    user_list = []
 
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse(
-            {"error": "Encabezado de autorización inválido"}, status=401
-        )
-
-    token = auth_header.split(" ")[1]
-    payload = verify_token(token)
-
-    if not payload:
-        return JsonResponse({"error": "Token inválido o expirado"}, status=401)
-
-    # Verificar que el usuario sea superadmin (solo superadmin puede gestionar roles)
-    try:
-        admin_user = User.objects.get(id=payload["user_id"])
+    for user in users:
+        user_data = {
+            "id": user.id,
+            "email": user.email,
+            "firstName": user.first_name,
+            "lastName": user.last_name,
+        }
         try:
-            admin_role = UserRole.objects.get(user=admin_user)
-            if admin_role.role != "superadmin":
-                return JsonResponse(
-                    {"error": "No tienes permisos para gestionar roles"}, status=403
-                )
+            user_role = UserRole.objects.get(user=user)
+            user_data["role"] = user_role.role
+            user_data["roleName"] = user_role.get_role_display()
         except UserRole.DoesNotExist:
-            return JsonResponse({"error": "No tienes un rol asignado"}, status=403)
+            user_data["role"] = "sin_rol"
+            user_data["roleName"] = "Sin rol asignado"
 
-    except User.DoesNotExist:
-        return JsonResponse({"error": "Usuario no encontrado"}, status=404)
+        user_list.append(user_data)
 
-    # Ahora procesamos la solicitud
-    if request.method == "GET":
-        # Obtener la lista de usuarios con sus roles
-        users = User.objects.all()
-        user_list = []
-
-        for user in users:
-            user_data = {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "firstName": user.first_name,
-                "lastName": user.last_name,
-                "isStaff": user.is_staff,
-            }
-
-            try:
-                user_role = UserRole.objects.get(user=user)
-                user_data["role"] = user_role.role
-                user_data["roleName"] = user_role.get_role_display()
-            except UserRole.DoesNotExist:
-                user_data["role"] = "sin_rol"
-                user_data["roleName"] = "Sin rol asignado"
-
-            user_list.append(user_data)
-
-        return JsonResponse({"users": user_list})
-
-    elif request.method == "POST":
-        try:
-            data = json.loads(request.body)
-            user_id = data.get("userId")
-            role = data.get("role")
-
-            if not user_id or not role:
-                return JsonResponse(
-                    {"error": "Se requiere ID de usuario y rol"}, status=400
-                )
-
-            if role not in ["superadmin", "admin", "evaluator"]:
-                return JsonResponse({"error": "Rol inválido"}, status=400)
-
-            try:
-                target_user = User.objects.get(id=user_id)
-            except User.DoesNotExist:
-                return JsonResponse({"error": "Usuario no encontrado"}, status=404)
-
-            # Actualizar o crear el rol del usuario
-            user_role, created = UserRole.objects.update_or_create(
-                user=target_user, defaults={"role": role}
-            )
-
-            return JsonResponse(
-                {
-                    "success": True,
-                    "message": f"Rol actualizado a {user_role.get_role_display()}",
-                    "user": get_user_data(target_user),
-                }
-            )
-
-        except json.JSONDecodeError:
-            return JsonResponse({"error": "Formato JSON inválido"}, status=400)
-        except Exception as e:
-            return JsonResponse({"error": str(e)}, status=500)
-    else:
-        return JsonResponse({"error": "Método no permitido"}, status=405)
+    return JsonResponse({"users": user_list})
 
 
 @csrf_exempt
+@jwt_required(roles=["superadmin"])
 @require_POST
 def create_user_view(request):
     """Vista para crear un nuevo usuario con rol asignado (solo superadmin)"""
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse(
-            {"error": "Encabezado de autorización inválido"}, status=401
-        )
-
-    token = auth_header.split(" ")[1]
-    payload = verify_token(token)
-    if not payload:
-        return JsonResponse({"error": "Token inválido o expirado"}, status=401)
-
-    # Verificar que el usuario sea superadmin
-    try:
-        admin_user = User.objects.get(id=payload["user_id"])
-        admin_role = UserRole.objects.get(user=admin_user)
-        if admin_role.role != "superadmin":
-            return JsonResponse(
-                {"error": "No tienes permisos para crear usuarios"}, status=403
-            )
-    except (User.DoesNotExist, UserRole.DoesNotExist):
-        return JsonResponse({"error": "No tienes permisos"}, status=403)
-
     try:
         data = json.loads(request.body)
         email = data.get("email")
@@ -353,8 +127,29 @@ def create_user_view(request):
         role = data.get("role")
 
         # Validar que hay valores en campos
-        if not all([first_name, last_name, email, password, role]):
-            return JsonResponse({"error": "Faltan campos requeridos"}, status=400)
+        field_names = {
+            "firstName": "nombre",
+            "lastName": "apellidos",
+            "email": "correo electrónico",
+            "role": "rol",
+        }
+        required_fields = ["firstName", "lastName", "email", "role"]
+        for field in required_fields:
+            if not data.get(field):
+                return JsonResponse(
+                    {
+                        "error": f"El campo {field_names.get(field, field)} es obligatorio"
+                    },
+                    status=400,
+                )
+
+        # Validar formato de email
+        try:
+            validate_email(email)
+        except ValidationError:
+            return JsonResponse(
+                {"error": "El correo electrónico no es válido."}, status=400
+            )
 
         # Validación de longitud mínima de contraseña
         if len(password) < 4:
@@ -367,19 +162,18 @@ def create_user_view(request):
             return JsonResponse({"error": "Rol inválido"}, status=400)
 
         # Verificar si ya existe el usuario
-        if User.objects.filter(email=email).exists():
+        if CustomUser.objects.filter(email=email).exists():
             return JsonResponse({"error": "El email ya está registrado"}, status=400)
 
         # Crear usuario
-        user = User.objects.create_user(
-            username=email,
+        user = CustomUser.objects.create(
             email=email,
-            password=password,
+            password=make_password(password),
             first_name=first_name,
             last_name=last_name,
         )
 
-        # Asignar rol inmediatamente
+        # Asignar rol
         UserRole.objects.create(user=user, role=role)
 
         return JsonResponse({"success": True, "user": get_user_data(user)}, status=201)
@@ -391,86 +185,43 @@ def create_user_view(request):
 
 
 @csrf_exempt
+@jwt_required(roles=["superadmin"])
+@require_http_methods(["DELETE"])
 def delete_user_view(request, user_id):
     """Endpoint para eliminar un usuario (solo superadmin)"""
-    if request.method != "DELETE":
-        return JsonResponse({"error": "Método no permitido"}, status=405)
-
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse(
-            {"error": "Encabezado de autorización inválido"}, status=401
-        )
-
-    token = auth_header.split(" ")[1]
-    payload = verify_token(token)
-    if not payload:
-        return JsonResponse({"error": "Token inválido o expirado"}, status=401)
-
-    # Verificar permisos de superadmin
-    try:
-        admin_user = User.objects.get(id=payload["user_id"])
-        admin_role = UserRole.objects.get(user=admin_user)
-        if admin_role.role != "superadmin":
-            return JsonResponse(
-                {"error": "No tienes permisos para eliminar usuarios"}, status=403
-            )
-    except (User.DoesNotExist, UserRole.DoesNotExist):
-        return JsonResponse({"error": "No tienes permisos"}, status=403)
 
     # No permitir que el superadmin se elimine a sí mismo
-    if admin_user.id == user_id:
+    if request.user.id == user_id:
         return JsonResponse({"error": "No puedes eliminarte a ti mismo"}, status=400)
 
     try:
-        user = User.objects.get(id=user_id)
-        user.delete()
-        return JsonResponse(
-            {"success": True, "message": "Usuario eliminado correctamente"}
-        )
-    except User.DoesNotExist:
+        user = CustomUser.objects.get(id=user_id)
+        try:
+            user.delete()
+            return JsonResponse(
+                {"success": True, "message": "Usuario eliminado correctamente"}
+            )
+        except Exception as e:
+            from django.db.models.deletion import RestrictedError
+
+            if isinstance(e, RestrictedError):
+                return JsonResponse(
+                    {
+                        "error": "No se puede eliminar el usuario porque está asignado como evaluador en uno o más eventos."
+                    },
+                    status=400,
+                )
+            raise
+    except CustomUser.DoesNotExist:
         return JsonResponse({"error": "Usuario no encontrado"}, status=404)
 
 
 @csrf_exempt
+@jwt_required(roles=["superadmin"])
 @require_POST
 def edit_user_view(request, user_id):
-    """Endpoint para editar datos de usuario (solo superadmin)"""
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return JsonResponse(
-            {"error": "Encabezado de autorización inválido"}, status=401
-        )
-    token = auth_header.split(" ")[1]
-    payload = verify_token(token)
-    if not payload:
-        return JsonResponse({"error": "Token inválido o expirado"}, status=401)
-
-    # Verificar permisos de superadmin
     try:
-        admin_user = User.objects.get(id=payload["user_id"])
-        admin_role = UserRole.objects.get(user=admin_user)
-        if admin_role.role != "superadmin":
-            return JsonResponse(
-                {"error": "No tienes permisos para editar usuarios"}, status=403
-            )
-    except (User.DoesNotExist, UserRole.DoesNotExist):
-        return JsonResponse({"error": "No tienes permisos"}, status=403)
-
-    try:
-        user = User.objects.get(id=user_id)
-
-        # No permitir editar a un superadmin
-        try:
-            user_role = UserRole.objects.get(user=user)
-            if user_role.role == "superadmin":
-                return JsonResponse(
-                    {"error": "No puedes editar un usuario superadmin"}, status=400
-                )
-        except UserRole.DoesNotExist:
-            pass
-
-        # Datos enviados
+        user = CustomUser.objects.get(id=user_id)
         data = json.loads(request.body)
         first_name = data.get("firstName")
         last_name = data.get("lastName")
@@ -478,9 +229,30 @@ def edit_user_view(request, user_id):
         password = data.get("password")
         role = data.get("role")
 
-        # Validar que hay valores en campos
-        if not all([first_name, last_name, email, role]):
-            return JsonResponse({"error": "Faltan campos requeridos"}, status=400)
+        # Validaciones requeridas
+        field_names = {
+            "firstName": "nombre",
+            "lastName": "apellidos",
+            "email": "correo electrónico",
+            "role": "rol",
+        }
+        required_fields = ["firstName", "lastName", "email", "role"]
+        for field in required_fields:
+            if not data.get(field):
+                return JsonResponse(
+                    {
+                        "error": f"El campo {field_names.get(field, field)} es obligatorio"
+                    },
+                    status=400,
+                )
+
+        # Validar formato de email
+        try:
+            validate_email(email)
+        except ValidationError:
+            return JsonResponse(
+                {"error": "El correo electrónico no es válido."}, status=400
+            )
 
         # Validar caracteres en contrasena
         if password and len(password) < 4:
@@ -493,8 +265,31 @@ def edit_user_view(request, user_id):
             return JsonResponse({"error": "Rol inválido"}, status=400)
 
         # Verificar si ya existe el usuario con ese email (y no es el mismo que se está editando)
-        if User.objects.filter(email=email).exclude(id=user_id).exists():
+        if CustomUser.objects.filter(email=email).exclude(id=user_id).exists():
             return JsonResponse({"error": "El email ya está registrado"}, status=400)
+
+        # No permitir editar a un superadmin
+        try:
+            user_role = UserRole.objects.get(user=user)
+            if user_role.role == "superadmin":
+                return JsonResponse(
+                    {"error": "No puedes editar un usuario superadmin"}, status=400
+                )
+
+            # Si es evaluador y tiene eventos, solo bloquear cambio de rol
+            if (
+                user_role.role == "evaluator"
+                and Event.objects.filter(evaluator=user).exists()
+            ):
+                if role != user_role.role:
+                    return JsonResponse(
+                        {
+                            "error": "No puedes cambiar el rol de un usuario evaluador que tiene eventos asignados."
+                        },
+                        status=400,
+                    )
+        except UserRole.DoesNotExist:
+            pass
 
         # Actualizar solo si el valor cambia
         if user.first_name != first_name:
@@ -507,17 +302,165 @@ def edit_user_view(request, user_id):
             user.set_password(password)
         user.save()
 
-        # Actualizar el rol si corresponde
+        # Actualizar el rol si corresponde y está permitido
         try:
             user_role = UserRole.objects.get(user=user)
-            if user_role.role != role:
+            # Si es evaluador con eventos, ya se bloqueó arriba el cambio de rol
+            if user_role.role != role and not (
+                user_role.role == "evaluator"
+                and Event.objects.filter(evaluator=user).exists()
+            ):
                 user_role.role = role
                 user_role.save()
         except UserRole.DoesNotExist:
             UserRole.objects.create(user=user, role=role)
 
         return JsonResponse({"success": True, "user": get_user_data(user)})
-    except User.DoesNotExist:
+    except CustomUser.DoesNotExist:
         return JsonResponse({"error": "Usuario no encontrado"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+@jwt_required()
+@require_GET
+def evaluator_users(request):
+    evaluators = UserRole.objects.filter(role="evaluator")
+    users = [
+        {
+            "id": str(er.user.id),
+            "name": f"{er.user.first_name} {er.user.last_name}".strip()
+            or er.user.email,
+        }
+        for er in evaluators
+    ]
+    return JsonResponse({"users": users})
+
+
+@csrf_exempt
+@jwt_required()
+@require_POST
+def update_profile_view(request):
+    """Vista para actualizar el perfil del usuario autenticado"""
+
+    try:
+        user = request.user
+        data = json.loads(request.body)
+
+        first_name = data.get("firstName")
+        last_name = data.get("lastName")
+        email = data.get("email")
+        current_password = data.get("currentPassword")
+        new_password = data.get("newPassword")
+
+        # Validar que hay valores en campos obligatorios
+        field_names = {
+            "firstName": "nombre",
+            "lastName": "apellidos",
+            "email": "correo electrónico",
+        }
+        required_fields = ["firstName", "lastName", "email"]
+        for field in required_fields:
+            if not data.get(field):
+                return JsonResponse(
+                    {
+                        "error": f"El campo {field_names.get(field, field)} es obligatorio"
+                    },
+                    status=400,
+                )
+
+        # Validar formato de email
+        try:
+            validate_email(email)
+        except ValidationError:
+            return JsonResponse(
+                {"error": "El correo electrónico no es válido"}, status=400
+            )
+
+        # Verificar si ya existe otro usuario con ese email
+        if CustomUser.objects.filter(email=email).exclude(id=user.id).exists():
+            return JsonResponse({"error": "El email ya está registrado"}, status=400)
+
+        # Si se proporciona nueva contraseña, validar contraseña actual
+        if new_password:
+            if not current_password:
+                return JsonResponse(
+                    {"error": "Debes ingresar tu contraseña actual para cambiarla"},
+                    status=400,
+                )
+
+            if not user.check_password(current_password):
+                return JsonResponse(
+                    {"error": "La contraseña actual es incorrecta"}, status=400
+                )
+
+            if len(new_password) < 4:
+                return JsonResponse(
+                    {"error": "La nueva contraseña debe tener al menos 4 caracteres"},
+                    status=400,
+                )
+
+            if current_password == new_password:
+                return JsonResponse(
+                    {"error": "La nueva contraseña debe ser diferente a la actual"},
+                    status=400,
+                )
+
+            user.set_password(new_password)
+
+        # Actualizar datos
+        user.first_name = first_name
+        user.last_name = last_name
+        user.email = email
+        user.save()
+
+        return JsonResponse(
+            {
+                "success": True,
+                "message": "Perfil actualizado correctamente",
+                "user": get_user_data(user),
+            }
+        )
+
+    except CustomUser.DoesNotExist:
+        return JsonResponse({"error": "Usuario no encontrado"}, status=404)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Formato JSON inválido"}, status=400)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def refresh_token_view(request):
+    """Vista para renovar el token JWT del usuario si está activo"""
+    try:
+        data = json.loads(request.body)
+        token = data.get("token")
+
+        if not token:
+            return JsonResponse({"error": "Token no proporcionado"}, status=400)
+
+        payload = verify_token(token)
+        if not payload:
+            # Token expirado o inválido - no se puede renovar
+            return JsonResponse(
+                {
+                    "error": "Token inválido o expirado. Por favor, inicia sesión nuevamente."
+                },
+                status=401,
+            )
+
+        # Si el token es válido, buscar el usuario y generar un nuevo token
+        try:
+            user = CustomUser.objects.get(id=payload["user_id"])
+            new_token = generate_token(user)
+            return JsonResponse({"token": new_token, "user": get_user_data(user)})
+        except CustomUser.DoesNotExist:
+            return JsonResponse({"error": "Usuario no encontrado"}, status=404)
+
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Formato JSON inválido"}, status=400)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)

@@ -3,41 +3,43 @@ import { API_URL } from './authService';
 // Interfaces
 export interface Event {
   id: string;
-  code: string;
   name: string;
-  date: string;
-  time?: string;
+  startDate: string;
+  startTime: string;
+  closeDate: string;
+  closeTime: string;
+  duration: number;
+  endDate: string;
+  endTime: string;
   status: string;
-  participants?: number;
-  duration?: string;
+  participants: number;
+  evaluator: string;
+  selected: boolean;
 }
 
 export interface EventDetail {
   id: string;
-  code: string;
   name: string;
-  date: string;
-  time: string;
-  startDate?: string;
-  startTime?: string;
-  duration: string;
-  status: 'Programado' | 'En progreso' | 'Completado' | 'Cancelado';
-  description?: string;
-  evaluationType?: string;
-  evaluator?: string;
-  cameraEnabled?: boolean;
-  micEnabled?: boolean;
-  screenEnabled?: boolean;
-  participants?: {
+  startDate: string;
+  startTime: string;
+  closeDate: string;
+  closeTime: string;
+  status: string; // Cambiado de 'Programado' | 'En progreso' | 'Completado' a string
+  description: string;
+  evaluator: string;
+  evaluatorId: string;
+  duration: number;
+  endDate: string;
+  endTime: string;
+  blockedWebsites?: string[];
+  participants: {
     id: string;
     name: string;
     email: string;
-    is_active: boolean;
-    event_key: string;
-    status?: string;
-    position?: string;
-    initials?: string;
-    color?: string;
+    status: string;
+    initials: string;
+    color: string;
+    selected?: boolean;
   }[];
 }
 
@@ -45,29 +47,33 @@ export interface EventDetailResponse {
   event: EventDetail;
 }
 
-export interface Candidate {
+export interface Participant {
   id: string;
   name: string;
   email: string;
-  selected?: boolean;
-  role?: string;
-  initials?: string;
-  color?: string;
+  selected: boolean;
+  initials: string;
+  color: string;
 }
 
 export interface EventFormData {
   eventName: string;
   description: string;
   startDate: string;
-  startTime: string;
-  duration: string;
-  evaluationType: string;
   evaluator: string;
-  cameraEnabled: boolean;
-  micEnabled: boolean;
-  screenEnabled: boolean;
-  candidates?: Candidate[];
+  participants: Array<{
+    id: string;
+    name: string;
+    email: string;
+    selected: boolean;
+    initials: string;
+    color: string;
+  }>;
   timezone: string;
+  startTime: string;
+  closeTime: string;
+  duration: number;
+  blockedWebsites?: string[];
 }
 
 export const eventService = {
@@ -146,7 +152,7 @@ export const eventService = {
       }
 
       const data = await response.json();
-      return { id: data.id };
+      return { id: data.id ?? data.eventId };
     } catch (error) {
       console.error('Error al crear evento:', error);
       throw error;
@@ -253,21 +259,27 @@ export const eventService = {
   /**
    * Envía correos electrónicos a los participantes del evento
    * @param eventId ID del evento
+   * @param participantIds (opcional) IDs de participantes seleccionados
    * @returns Promise con confirmación de éxito
    */
-  async sendEventEmails(eventId: string): Promise<void> {
+  async sendEventEmails(eventId: string, participantIds: string[]): Promise<void> {
     try {
       const token = localStorage.getItem('auth_token');
       if (!token) {
         throw new Error('No hay token de autenticación');
       }
 
+      const body = participantIds && participantIds.length > 0
+        ? JSON.stringify({ participantIds })
+        : undefined;
+
       const response = await fetch(`${API_URL}/events/api/events/${eventId}/emails`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
-        }
+        },
+        body
       });
 
       if (!response.ok) {
@@ -276,6 +288,68 @@ export const eventService = {
       }
     } catch (error) {
       console.error(`Error al enviar correos para el evento ${eventId}:`, error);
+      throw error;
+    }
+  },
+
+  /**
+   * Bloquea participantes de un evento
+   * @param eventId ID del evento
+   * @param participantIds IDs de participantes a bloquear
+   */
+  async blockParticipants(eventId: string, participantIds: string[]): Promise<void> {
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        throw new Error('No hay token de autenticación');
+      }
+
+      const response = await fetch(`${API_URL}/events/api/events/${eventId}/participants/block`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ participant_ids: participantIds })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Error al bloquear participantes');
+      }
+    } catch (error) {
+      console.error(`Error al bloquear participantes del evento ${eventId}:`, error);
+      throw error;
+    }
+  },
+
+  /**
+   * Desbloquea participantes de un evento
+   * @param eventId ID del evento
+   * @param participantIds IDs de participantes a desbloquear
+   */
+  async unblockParticipants(eventId: string, participantIds: string[]): Promise<void> {
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        throw new Error('No hay token de autenticación');
+      }
+
+      const response = await fetch(`${API_URL}/events/api/events/${eventId}/participants/unblock`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ participant_ids: participantIds })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Error al desbloquear participantes');
+      }
+    } catch (error) {
+      console.error(`Error al desbloquear participantes del evento ${eventId}:`, error);
       throw error;
     }
   }

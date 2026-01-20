@@ -11,9 +11,15 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
 from pathlib import Path
+import django.contrib.auth.management
+import os
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load environment variables
+load_dotenv()
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
@@ -34,26 +40,29 @@ CSRF_TRUSTED_ORIGINS = [
 # Application definition
 
 INSTALLED_APPS = [
-    "django.contrib.auth",
-    "django.contrib.contenttypes",
-    "django.contrib.sessions",
-    "django.contrib.messages",
-    "django.contrib.staticfiles",
+    "authentication",
     "corsheaders",
     "events",
     "proxy.apps.ProxyConfig",
-    "authentication",
+    "behavior_analysis",
+    "storages",
 ]
 
+AUTH_USER_MODEL = "authentication.CustomUser"
+
+
+def disable_permissions(*args, **kwargs):
+    """Función que no hace nada para deshabilitar permisos"""
+    pass
+
+
+# Sobrescribir la función que crea permisos
+django.contrib.auth.management.create_permissions = disable_permissions
+
+
 MIDDLEWARE = [
-    "django.middleware.security.SecurityMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
-    # 'django.middleware.csrf.CsrfViewMiddleware',
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django.contrib.messages.middleware.MessageMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
 ROOT_URLCONF = "administradormonitoreo.urls"
@@ -103,8 +112,15 @@ LOGGING = {
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("DB_NAME", "railway"),
+        "USER": os.getenv("DB_USER", "postgres"),
+        "PASSWORD": os.getenv("DB_PASSWORD", ""),
+        "HOST": os.getenv(
+            "DB_HOST",
+            "host.docker.internal" if os.getenv("DOCKER_ENV") else "localhost",
+        ),
+        "PORT": os.getenv("DB_PORT", "5432"),
     }
 }
 
@@ -142,18 +158,40 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "static"
-MEDIA_URL = "media/"
-MEDIA_ROOT = BASE_DIR / "media"
+
+# Configuraciones para archivos multimedia
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB en memoria
+DATA_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024  # 50MB máximo en memoria
+FILE_UPLOAD_TEMP_DIR = None  # Usar directorio temporal del sistema
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Celery Configuration
+REDIS_URL = os.getenv("REDIS_URL")
+
+if REDIS_URL:
+    # Railway / Producción
+    CELERY_BROKER_URL = REDIS_URL
+    CELERY_RESULT_BACKEND = REDIS_URL
+else:
+    # Local / Docker
+    redis_host = "host.docker.internal" if os.getenv("DOCKER_ENV") else "localhost"
+    CELERY_BROKER_URL = f"redis://{redis_host}:6379/0"
+    CELERY_RESULT_BACKEND = f"redis://{redis_host}:6379/0"
+
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE
+
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
-    "http://127.0.0.1:5173",
+    "http://localhost:8080",
+    "https://frontend-production-c48c.up.railway.app",
 ]
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = [
@@ -176,5 +214,69 @@ CORS_ALLOW_HEADERS = [
     "x-requested-with",
 ]
 
-BASE_URL = "http://127.0.0.1:8000/api"
-ADMINISTRADORMONITOREO_API_LOG_HTTP_REQUEST = "/logging/http-request"
+# Configuración de logging para filtrar broken pipe en desarrollo
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "filters": {
+        "require_debug_true": {
+            "()": "django.utils.log.RequireDebugTrue",
+        },
+        "skip_broken_pipe": {
+            "()": "django.utils.log.CallbackFilter",
+            "callback": lambda record: "Broken pipe" not in record.getMessage(),
+        },
+    },
+    "handlers": {
+        "console": {
+            "level": "INFO",
+            "filters": ["require_debug_true", "skip_broken_pipe"],
+            "class": "logging.StreamHandler",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+    },
+    "loggers": {
+        "django.server": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "filters": ["skip_broken_pipe"],
+            "propagate": False,
+        },
+    },
+}
+
+BASE_URL = "http://127.0.0.1:8000"
+ADMINISTRADORMONITOREO_API_LOG_HTTP_REQUEST = "/events/api/logging/http-request"
+
+# AWS S3 Configuration
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+AWS_STORAGE_BUCKET_NAME = os.getenv(
+    "AWS_STORAGE_BUCKET_NAME", "evaltech-monitoring-media"
+)
+AWS_S3_REGION_NAME = os.getenv("AWS_S3_REGION_NAME", "us-east-1")
+AWS_S3_CUSTOM_DOMAIN = os.getenv("AWS_S3_CUSTOM_DOMAIN", None)
+AWS_DEFAULT_ACL = os.getenv("AWS_DEFAULT_ACL", "private")
+
+# S3 Object Parameters
+AWS_S3_OBJECT_PARAMETERS = {
+    "CacheControl": "max-age=86400",
+}
+
+# S3 File Settings
+AWS_S3_FILE_OVERWRITE = False
+AWS_QUERYSTRING_AUTH = True  # Generate signed URLs for private access
+AWS_QUERYSTRING_EXPIRE = 3600  # URLs expire after 1 hour
+AWS_S3_SIGNATURE_VERSION = "s3v4"
+
+# Use S3 for media files storage
+if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
+    DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
+    AWS_LOCATION = "media"
+    MEDIA_URL = f"https://{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com/{AWS_LOCATION}/"
+else:
+    # Fallback to local storage if AWS credentials are not provided
+    MEDIA_URL = "media/"
+    MEDIA_ROOT = BASE_DIR / "media"

@@ -3,7 +3,7 @@ export const TOKEN_KEY = 'auth_token';
 export const USER_INFO_KEY = 'user_info';
 
 // URL base de la API
-export const API_URL = 'http://localhost:8000';
+export const API_URL = import.meta.env.VITE_API_URL;
 
 // Interfaces para tipar las respuestas
 export interface User {
@@ -12,7 +12,6 @@ export interface User {
   email: string;
   firstName: string;
   lastName: string;
-  isStaff: boolean;
   role: string;
 }
 
@@ -148,20 +147,11 @@ export const authService = {
    */
   logout(): void {
     try {
-      // Llamar al endpoint de logout en el servidor
-      fetch(`${API_URL}/auth/logout/`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.getToken()}`,
-        },
-        credentials: 'include',
-      });
-    } catch (error) {
-      console.error('Error en logout:', error);
-    } finally {
       // Eliminar los datos de autenticación del localStorage
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(USER_INFO_KEY);
+    } catch (error) {
+      console.error('Error en logout:', error);
     }
   },
 
@@ -299,40 +289,43 @@ export const authService = {
   },
 
   /**
-   * Asigna un rol a un usuario (solo para administradores)
-   * @param userId ID del usuario
-   * @param role Rol a asignar ('admin' o 'evaluator')
-   * @returns Promesa con confirmación
+   * Renueva el token JWT si el usuario está activo
+   * @returns Promesa con el nuevo token y la información del usuario
    */
-
-  // CAMIBARLOO
-  async assignRole(userId: number, role: string): Promise<any> {
+  async refreshToken(): Promise<AuthResponse> {
     try {
       const token = this.getToken();
       if (!token) {
         throw new Error('No hay token de autenticación');
       }
 
-      const response = await fetch(`${API_URL}/auth/roles/`, {
+      const response = await fetch(`${API_URL}/auth/refresh-token/`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ userId, role })
+        credentials: 'include',
+        body: JSON.stringify({ token }),
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Error al asignar rol');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Error al renovar token');
       }
 
-      return await response.json();
+      const data = await response.json();
+      
+      // Guardar el nuevo token y la información del usuario
+      localStorage.setItem(TOKEN_KEY, data.token);
+      localStorage.setItem(USER_INFO_KEY, JSON.stringify(data.user));
+      
+      return data;
     } catch (error) {
-      console.error('Error al asignar rol:', error);
+      console.error('Error al renovar token:', error);
       throw error;
     }
-  }
+  },
+
 };
 
 export default authService;

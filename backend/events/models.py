@@ -1,50 +1,31 @@
 from django.db import models
 import hashlib
+from authentication.models import CustomUser
 
 
-# Create your models here.
 class Event(models.Model):
-    TYPE_CHOICES = [
-        ("tecnica", "Evaluación Técnica"),
-        ("practica", "Evaluación Práctica"),
-        ("teorica", "Evaluación Teórica"),
-    ]
 
     STATUS_CHOICES = [
         ("programado", "Programado"),
         ("en_progreso", "En progreso"),
         ("completado", "Completado"),
-        ("cancelado", "Cancelado"),
     ]
 
-    name = models.CharField(max_length=200)
-    description = models.TextField(blank=True, null=True)
-    start_date = models.DateTimeField(null=True)
-    end_date = models.DateTimeField(null=True)
-    duration = models.IntegerField(default=60, help_text="Duración en minutos")
-    event_type = models.CharField(
-        max_length=20, choices=TYPE_CHOICES, default="tecnica"
+    name = models.CharField(max_length=200, unique=True)
+    description = models.TextField()
+    start_date = models.DateTimeField()
+    close_date = models.DateTimeField()
+    duration = models.IntegerField(help_text="Duración en minutos")
+    end_date = models.DateTimeField()
+    evaluator = models.ForeignKey(
+        CustomUser, on_delete=models.RESTRICT, related_name="events_as_evaluator"
     )
-    evaluator = models.CharField(max_length=200, null=True, blank=True)
-    camera_enabled = models.BooleanField(default=True)
-    mic_enabled = models.BooleanField(default=True)
-    screen_enabled = models.BooleanField(default=True)
-    status = models.CharField(
-        max_length=20, choices=STATUS_CHOICES, default="programado"
-    )
-    code = models.CharField(max_length=20, blank=True, null=True, unique=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
 
     class Meta:
         db_table = "eventos"
 
     def save(self, *args, **kwargs):
-        # Generar un código único para el evento si no existe
-        if not self.code and self.id:
-            self.code = (
-                f"EVT-{self.start_date.year}-{self.id:03d}"
-                if self.start_date
-                else f"EVT-{self.id:03d}"
-            )
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -52,102 +33,174 @@ class Event(models.Model):
 
 
 class Participant(models.Model):
-    STATUS_CHOICES = [
-        ("activo", "Activo"),
-        ("inactivo", "Inactivo"),
-        ("pendiente", "Pendiente"),
-        ("cancelado", "Cancelado"),
-    ]
-
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
-    name = models.CharField(max_length=200)  # Nombre completo
-    email = models.EmailField()
-    position = models.CharField(max_length=100, blank=True, null=True)  # Puesto
-    experience_years = models.IntegerField(blank=True, null=True)  # Años de experiencia
-    skills = models.TextField(blank=True, null=True)  # Habilidades
-    notes = models.TextField(blank=True, null=True)  # Notas adicionales
-    event = models.ForeignKey(
-        Event,
-        on_delete=models.CASCADE,
-        related_name="participants",
-        null=True,
-        blank=True,
+    name = models.CharField(max_length=200)
+    email = models.EmailField(unique=True)
+    events = models.ManyToManyField(
+        Event, through="ParticipantEvent", related_name="participants", blank=True
     )
-    event_key = models.CharField(max_length=128, blank=True, null=True, unique=True)
-    is_active = models.BooleanField(default=False)
-    status = models.CharField(
-        max_length=20, choices=STATUS_CHOICES, default="pendiente"
-    )
-    send_credentials = models.BooleanField(default=True)
-    send_reminder = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.name
 
-    def generate_event_key(self):
-        if self.event:
-            self.event_key = hashlib.blake2b(
-                (str(self.event.id) + self.email).encode(), digest_size=8
-            ).hexdigest()
-        else:
-            # Si no hay evento, generamos una clave usando solo el email
-            self.event_key = hashlib.blake2b(
-                (self.email + "no_event").encode(), digest_size=8
-            ).hexdigest()
+    class Meta:
+        db_table = "participantes"
 
     def get_initials(self):
-        """Obtener las iniciales del nombre para mostrar en la UI"""
-        parts = self.name.split()
-        if len(parts) >= 2:
-            return f"{parts[0][0]}{parts[-1][0]}".upper()
-        elif len(parts) == 1:
-            if len(parts[0]) >= 2:
-                return parts[0][:2].upper()
-            else:
-                return parts[0][0].upper()
-        return "?"
+        # Usa first_name y last_name si existen, si no, usa name
+        if hasattr(self, "first_name") and hasattr(self, "last_name"):
+            initials = (self.first_name[:1] + self.last_name[:1]).upper()
+        elif hasattr(self, "name"):
+            parts = self.name.split()
+            initials = "".join([p[0] for p in parts[:2]]).upper()
+        else:
+            initials = ""
+        return initials
+
+    def save(self, *args, **kwargs):
+        if not self.name:
+            self.name = f"{self.first_name} {self.last_name}".strip()
+        return super().save(*args, **kwargs)
+
+
+class ParticipantEvent(models.Model):
+    # Participante no se puede eliminar si tiene eventos asociados
+    participant = models.ForeignKey(
+        Participant, on_delete=models.RESTRICT, related_name="participant_events"
+    )
+
+    # Evento se elimina en cascada aunque tenga participantes asociados
+    event = models.ForeignKey(
+        Event, on_delete=models.CASCADE, related_name="participant_events"
+    )
+    event_key = models.CharField(max_length=128, blank=True, null=True, unique=True)
+    # Indica si el participante pulsó "Empezar monitoreo" y por tanto las capturas/logs
+    # deben contarse y mostrarse como activo
+    is_monitoring = models.BooleanField(default=False)
+    # Indica si el participante está bloqueado por el administrador
+    is_blocked = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    # Campos de monitoreo (separados del proxy connection)
+    monitoring_current_session_time = models.DateTimeField(blank=True, null=True, help_text="Tiempo de inicio de la sesión de monitoreo actual")
+    monitoring_total_duration = models.IntegerField(default=0, help_text="Duración total de monitoreo en segundos")
+    monitoring_last_change = models.DateTimeField(blank=True, null=True, help_text="Momento del último cambio de estado de monitoreo")
+    monitoring_sessions_count = models.IntegerField(default=0, help_text="Número de veces que se inició el monitoreo")
 
     class Meta:
+        db_table = "eventos_participantes"
         constraints = [
-            # Asegura que la combinación de evento y email sea única, solo cuando hay evento
             models.UniqueConstraint(
-                fields=["event", "email"],
-                name="unique_email_per_event",
-                condition=models.Q(event__isnull=False),
+                fields=["event", "participant"], name="unique_participant_per_event"
             )
         ]
 
-        db_table = "participantes"
+    def generate_event_key(self):
+        self.event_key = hashlib.blake2b(
+            (str(self.event.id) + self.participant.email).encode(), digest_size=8
+        ).hexdigest()
 
     def save(self, *args, **kwargs):
-        # Actualizar el nombre completo
-        if not self.name:
-            self.name = f"{self.first_name} {self.last_name}".strip()
         self.generate_event_key()
         return super().save(*args, **kwargs)
+
+    def get_total_monitoring_time(self):
+        """Retorna el tiempo total de monitoreo en minutos, incluyendo sesión actual si está activa"""
+        return self.get_total_monitoring_seconds() // 60
+
+    def get_total_monitoring_seconds(self):
+        """Retorna el tiempo total de monitoreo en SEGUNDOS, incluyendo sesión actual si está activa"""
+        from django.utils import timezone
+        
+        total_seconds = self.monitoring_total_duration or 0
+
+        # Incluir la sesión en curso SOLO si está en modo monitoreo
+        if self.is_monitoring and self.monitoring_current_session_time:
+            try:
+                current_seconds = int((timezone.now() - self.monitoring_current_session_time).total_seconds())
+                total_seconds += current_seconds
+            except Exception:
+                pass
+
+        return total_seconds
+
+    def has_monitoring_time_remaining(self):
+        """Verifica si aún hay tiempo disponible para monitoreo según la duración del evento"""
+        total_minutes = self.get_total_monitoring_time()
+        return total_minutes < self.event.duration
+
+    def get_remaining_monitoring_time(self):
+        """Obtiene el tiempo restante de monitoreo en minutos"""
+        total_minutes = self.get_total_monitoring_time()
+        event_duration = self.event.duration
+        return max(0, event_duration - total_minutes)
+
+    def __str__(self):
+        return f"{self.participant.name} - {self.event.name}"
 
 
 class ParticipantLog(models.Model):
     name = models.CharField(max_length=200)
-    file = models.FileField(upload_to="logs", null=True, blank=True)
+    url = models.URLField(max_length=1000, null=True, blank=True)
     message = models.TextField()
-    participant = models.ForeignKey(Participant, on_delete=models.CASCADE, null=True)
+    participant_event = models.ForeignKey(
+        ParticipantEvent, on_delete=models.CASCADE, null=True
+    )
+    timestamp = models.DateTimeField(auto_now_add=True, editable=False, help_text="Hora UTC en que se registró el log")
+
+    class Meta:
+        db_table = "logs_participantes"
 
     def __str__(self):
         return self.name
 
 
+class Website(models.Model):
+    hostname = models.CharField(max_length=255, unique=True)
+
+    class Meta:
+        db_table = "paginas"
+
+    def __str__(self):
+        return self.hostname
+
+
 class BlockedHost(models.Model):
+
+    # Cuando un evento se elimina los sitios bloqueados asociados tambien lo hacen
     event = models.ForeignKey(
         Event, on_delete=models.CASCADE, related_name="blocked_hosts"
     )
-    hostname = models.CharField(max_length=255)
+
+    # Una pagina no se puede eliminar si esta asociado a eventos
+    website = models.ForeignKey(
+        Website, on_delete=models.RESTRICT, related_name="blocked_in_events"
+    )
 
     class Meta:
         db_table = "paginas_bloqueadas"
+        unique_together = ("event", "website")
 
     def __str__(self):
-        return f"{self.hostname} ({self.event.name})"
+        return f"{self.website.hostname} ({self.event.name})"
+    
+class EventConsent(models.Model):
+    participant = models.ForeignKey(Participant, on_delete=models.CASCADE, related_name='consents')
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='consents')
+    accepted_at = models.DateTimeField(auto_now_add=True)
+    consent_version = models.CharField(max_length=50)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'event_consents'
+        constraints = [
+            models.UniqueConstraint(fields=['participant', 'event'], name='unique_consent_per_participant_event')
+        ]
+
+    def __str__(self):
+        return f'Consent: {self.participant} - {self.event} ({self.consent_version})'
+

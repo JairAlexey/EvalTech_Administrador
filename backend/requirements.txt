@@ -5,3 +5,15 @@ python-dotenv
 requests
 PyJWT
 supervisor
+openpyxl
+opencv-python
+mediapipe==0.10.14
+numpy
+moviepy
+redis
+celery
+librosa
+psycopg2-binary
+boto3
+django-storages
+ffmpeg-python
