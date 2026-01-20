@@ -1,8 +1,10 @@
 from django.http import JsonResponse
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 from django.views.decorators.csrf import csrf_exempt
 from django.db import transaction
+from django.core.cache import cache
 import json
+import time
 
 from events.models import ParticipantEvent
 from events.views import validate_event_access
@@ -264,6 +266,36 @@ def proxy_disconnect_http(request):
             
     except Exception as e:
         logger.error(f"Error en proxy_disconnect_http: {str(e)}")
+        return JsonResponse({'error': 'Error interno del servidor'}, status=500)
+
+
+@csrf_exempt
+@require_GET
+def proxy_blocklist_version(request):
+    """Devuelve la version actual de hosts bloqueados para el event_key."""
+    try:
+        auth_header = request.headers.get('Authorization', '')
+        if not auth_header.startswith('Bearer '):
+            return JsonResponse({'error': 'Token de autorizacion requerido'}, status=401)
+
+        event_key = auth_header.replace('Bearer ', '')
+
+        proxy_manager = DynamicProxyManager()
+        participant_event = proxy_manager._validate_event_key(event_key)
+
+        if not participant_event:
+            return JsonResponse({'error': 'Token invalido'}, status=401)
+
+        cache_key = f"proxy_blocklist_version:{participant_event.event.id}"
+        version = cache.get(cache_key)
+        if version is None:
+            version = int(time.time() * 1000)
+            cache.set(cache_key, version, None)
+
+        return JsonResponse({'version': version})
+
+    except Exception as e:
+        logger.error(f"Error en proxy_blocklist_version: {str(e)}")
         return JsonResponse({'error': 'Error interno del servidor'}, status=500)
 
 

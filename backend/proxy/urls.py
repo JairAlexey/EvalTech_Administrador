@@ -4,7 +4,8 @@ from .views import (
     stop_monitoring,
     proxy_authenticate_http,
     proxy_validate_url,
-    proxy_disconnect_http
+    proxy_disconnect_http,
+    proxy_blocklist_version
 )
 
 urlpatterns = [
@@ -16,5 +17,6 @@ urlpatterns = [
     path("auth-http/", proxy_authenticate_http, name="proxy_authenticate_http"),
     path("validate/", proxy_validate_url, name="proxy_validate_url"),
     path("disconnect-http/", proxy_disconnect_http, name="proxy_disconnect_http"),
+    path("blocklist-version/", proxy_blocklist_version, name="proxy_blocklist_version"),
 
 ]

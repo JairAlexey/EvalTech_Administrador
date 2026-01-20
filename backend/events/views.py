@@ -2,6 +2,7 @@ from django.utils import timezone
 from datetime import timedelta, datetime
 from django.http import JsonResponse, HttpRequest
 import json, re
+import time
 from events.communication import send_emails
 from .models import (
     Event,
@@ -1643,6 +1644,8 @@ def notify_proxy_blocked_hosts_update(request, event_id):
     y devuelve los dominios que necesitan limpieza de caché"""
     if request.method == "POST":
         try:
+            cache_key = f"proxy_blocklist_version:{event_id}"
+            cache.set(cache_key, int(time.time() * 1000), None)
             # Sistema de señales eliminado - ya no es necesario con arquitectura HTTP directa
             return JsonResponse(
                 {

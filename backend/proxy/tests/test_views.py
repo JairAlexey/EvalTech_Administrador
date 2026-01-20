@@ -107,3 +107,13 @@ class ProxyViewsTests(TestCase):
             response = views.proxy_disconnect_http(request)
 
         self.assertEqual(response.status_code, 200)
+
+    def test_proxy_blocklist_version(self):
+        request = self.factory.get(
+            "/proxy/blocklist-version/",
+            HTTP_AUTHORIZATION=f"Bearer {self.participant_event.event_key}",
+        )
+        response = views.proxy_blocklist_version(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("version", json.loads(response.content))
