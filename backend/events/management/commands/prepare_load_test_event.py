@@ -33,8 +33,18 @@ def _apply_env_file(env_file: str | None) -> None:
 
     load_dotenv(env_path, override=True)
     settings.DATABASES["default"] = _build_database_config()
-    connections.databases = settings.DATABASES
     connections.close_all()
+    if "settings" in connections.__dict__:
+        del connections.__dict__["settings"]
+    if hasattr(connections, "_settings"):
+        connections._settings = settings.DATABASES
+    try:
+        storage = getattr(connections, "_connections", None)
+        storage_obj = getattr(storage, "_storage", None)
+        if storage_obj is not None:
+            storage_obj.__dict__.pop("default", None)
+    except Exception:
+        pass
 
 
 class Command(BaseCommand):
