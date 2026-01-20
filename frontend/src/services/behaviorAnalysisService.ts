@@ -10,12 +10,18 @@ export interface AnalysisStatus {
     name: string;
     email: string;
   };
+  participant_event_id?: number;
   analysis: {
     id: number | null;
     status: string;
     video_link: string | null;
     fecha_procesamiento: string | null;
   };
+}
+
+export interface AnalysisTriggerResponse {
+  message: string;
+  task_id: string;
 }
 
 export interface AnalysisReport {
@@ -129,6 +135,33 @@ const behaviorAnalysisService = {
       const errorText = await response.text();
       console.error('Error al obtener estado de análisis:', response.status, errorText);
       throw new Error('No se pudo obtener el estado del análisis');
+    }
+
+    return response.json();
+  },
+
+  async triggerAnalysis(participantEventId: number): Promise<AnalysisTriggerResponse> {
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+      throw new Error('No hay token de autenticacion');
+    }
+
+    const response = await fetch(
+      `${API_URL}/analysis/analyze/`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ participant_event_id: participantEventId }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Error al reintentar analisis:', response.status, errorText);
+      throw new Error('No se pudo reintentar el analisis');
     }
 
     return response.json();

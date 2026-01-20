@@ -195,6 +195,7 @@ def analysis_status(request, event_id, participant_id):
             "name": participant_event.participant.name,
             "email": participant_event.participant.email,
         },
+        "participant_event_id": participant_event.id,
         "analysis": {
             "id": getattr(analysis, "id", None),
             "status": getattr(analysis, "status", "no_solicitado"),

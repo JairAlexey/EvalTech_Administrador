@@ -88,6 +88,7 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
     const [reportData, setReportData] = useState<AnalysisReport | null>(null);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
+    const [retrying, setRetrying] = useState<boolean>(false);
     const [activeTab, setActiveTab] = useState<'resumen' | 'comportamiento' | 'actividad' | 'puntuaciones'>('resumen');
     const videoRef = useRef<HTMLVideoElement>(null);
     const videoRefreshAttempts = useRef<number>(0);
@@ -123,39 +124,45 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
         setCollapsedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
     };
 
-    useEffect(() => {
-        const loadData = async () => {
-            try {
+    const loadData = async (showLoading = true) => {
+        try {
+            if (showLoading) {
                 setLoading(true);
-                setError(null);
+            }
+            setError(null);
 
-                // Cargar estado
-                const status = await behaviorAnalysisService.getAnalysisStatus(eventId, participantId);
-                setStatusData(status);
+            // Cargar estado
+            const status = await behaviorAnalysisService.getAnalysisStatus(eventId, participantId);
+            setStatusData(status);
 
-                // Solo cargar reporte si está completado
-                const normalizedStatus = normalizeStatus(status.analysis?.status);
-                console.log('Status normalizado:', normalizedStatus);
+            // Solo cargar reporte si está completado
+            const normalizedStatus = normalizeStatus(status.analysis?.status);
+            console.log('Status normalizado:', normalizedStatus);
 
-                if (normalizedStatus === 'completado') {
-                    console.log('Cargando reporte...');
-                    try {
-                        const report = await behaviorAnalysisService.getAnalysisReport(eventId, participantId);
-                        console.log('Reporte cargado:', report);
-                        setReportData(report);
-                    } catch (reportError) {
-                        console.error('Error al cargar reporte:', reportError);
-                        setError(reportError instanceof Error ? reportError.message : 'Error al cargar el reporte');
-                    }
+            if (normalizedStatus === 'completado') {
+                console.log('Cargando reporte...');
+                try {
+                    const report = await behaviorAnalysisService.getAnalysisReport(eventId, participantId);
+                    console.log('Reporte cargado:', report);
+                    setReportData(report);
+                } catch (reportError) {
+                    console.error('Error al cargar reporte:', reportError);
+                    setError(reportError instanceof Error ? reportError.message : 'Error al cargar el reporte');
                 }
-            } catch (err) {
-                console.error('Error al cargar datos:', err);
-                setError(err instanceof Error ? err.message : 'No se pudo obtener el análisis');
-            } finally {
+            } else {
+                setReportData(null);
+            }
+        } catch (err) {
+            console.error('Error al cargar datos:', err);
+            setError(err instanceof Error ? err.message : 'No se pudo obtener el análisis');
+        } finally {
+            if (showLoading) {
                 setLoading(false);
             }
-        };
+        }
+    };
 
+    useEffect(() => {
         loadData();
     }, [eventId, participantId]);
 
@@ -185,6 +192,32 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
             console.error('Error al refrescar reporte:', reportError);
             setError(reportError instanceof Error ? reportError.message : 'No se pudo refrescar el reporte');
             return null;
+        }
+    };
+
+    const handleRetryAnalysis = async () => {
+        if (retrying) return;
+        const participantEventId = statusData?.participant_event_id;
+        if (!participantEventId) {
+            setError('No se pudo reintentar el analisis');
+            return;
+        }
+
+        try {
+            setRetrying(true);
+            setError(null);
+            await behaviorAnalysisService.triggerAnalysis(participantEventId);
+            setStatusData((prev) =>
+                prev
+                    ? { ...prev, analysis: { ...prev.analysis, status: 'pendiente' } }
+                    : prev
+            );
+            setReportData(null);
+        } catch (retryError) {
+            console.error('Error al reintentar analisis:', retryError);
+            setError(retryError instanceof Error ? retryError.message : 'No se pudo reintentar el analisis');
+        } finally {
+            setRetrying(false);
         }
     };
 
@@ -363,6 +396,15 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                             <p className="text-gray-600">
                                 Ocurrió un error durante el procesamiento del análisis. Por favor, contacta al administrador.
                             </p>
+                            <div className="mt-4 flex justify-center">
+                                <button
+                                    onClick={handleRetryAnalysis}
+                                    disabled={retrying || !statusData?.participant_event_id}
+                                    className="inline-flex items-center px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {retrying ? 'Reintentando...' : 'Reintentar analisis'}
+                                </button>
+                            </div>
                         </div>
                     )}
 
