@@ -19,7 +19,7 @@ const penalizacionInfo: Record<string, { titulo: string; descripcion: string; pe
         descripcion: 'Evalúa el tiempo que el participante estuvo presente frente a la cámara durante la evaluación.',
         penalizaciones: [
             '• Penalización base: -2 puntos por cada segundo de ausencia',
-            '• Penalización adicional: Si las ausencias superan el 10% de la duración del evento, se reduce la puntuación a la mitad',
+            '• Penalización adicional: Si las ausencias superan el 10% de la duración del video, se reduce la puntuación a la mitad',
         ]
     },
     'Comportamiento Visual': {
@@ -930,7 +930,9 @@ export default function ReportPage({ eventId, participantId, onBack, onNavigate,
                                         <div className="space-y-6">
                                             {/* Función auxiliar para calcular puntuaciones */}
                                             {(() => {
-                                                const duracionTotal = reportData.monitoring.total_duration_seconds || 1;
+                                                // Usar duración del video si está disponible, sino usar duración total de monitoreo
+                                                const duracionVideo = videoRef.current?.duration || null;
+                                                const duracionTotal = duracionVideo || reportData.monitoring.total_duration_seconds || 1;
 
                                                 // 1. Presencia Continua (100 - penalización por ausencias)
                                                 const tiempoAusencia = reportData.statistics.tiempo_total_ausencia_segundos;
