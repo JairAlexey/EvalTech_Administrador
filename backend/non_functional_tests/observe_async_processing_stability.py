@@ -6,10 +6,12 @@ import time
 from pathlib import Path
 from typing import List, Optional, Union
 
+from dotenv import load_dotenv
 
 VIDEO_EXTENSIONS = (".mp4", ".webm", ".mov", ".mkv", ".avi")
 DEFAULT_EVALUATOR_EMAIL = "nf_async_evaluator@example.com"
 DEFAULT_EVALUATOR_PASSWORD = "nf_async_test"
+DEFAULT_BASE_URL = os.getenv("BASE_URL", "")
 
 
 def ensure_django(base_dir: Path) -> None:
@@ -19,6 +21,26 @@ def ensure_django(base_dir: Path) -> None:
     import django
 
     django.setup()
+
+
+def apply_env_file(env_file: str) -> None:
+    if not env_file:
+        return
+    env_path = Path(env_file).expanduser()
+    if not env_path.is_absolute():
+        env_path = (Path.cwd() / env_path)
+    if not env_path.exists():
+        print(f"[NF] Env file not found: {env_path}")
+        raise SystemExit(2)
+    load_dotenv(env_path, override=True)
+
+
+def apply_base_url(base_url: str) -> None:
+    if not base_url:
+        return
+    from django.conf import settings
+
+    settings.BASE_URL = base_url
 
 
 VideoReference = Union[Path, str]
@@ -185,6 +207,8 @@ def main() -> int:
         "--evaluator-password",
         default=os.getenv("NF_EVALUATOR_PASSWORD", DEFAULT_EVALUATOR_PASSWORD),
     )
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    parser.add_argument("--env-file", default=os.getenv("NF_ENV_FILE", ""))
     parser.add_argument("--cleanup", action="store_true")
     args = parser.parse_args()
 
@@ -206,7 +230,9 @@ def main() -> int:
         print(f"[NF] path={video_reference}")
         return 2
 
+    apply_env_file(args.env_file)
     ensure_django(base_dir)
+    apply_base_url(args.base_url)
 
     evaluator, created = ensure_evaluator(args.evaluator_email, args.evaluator_password)
     suffix = f"{int(time.time())}-{os.getpid()}"

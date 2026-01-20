@@ -2,12 +2,39 @@ import json
 import os
 from datetime import timedelta
 
+from dotenv import load_dotenv
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
+from django.db import connections
 from django.utils import timezone
 
 from authentication.models import CustomUser
 from events.models import Event, Participant, ParticipantEvent
+
+
+def _build_database_config():
+    host_default = "host.docker.internal" if os.getenv("DOCKER_ENV") else "localhost"
+    return {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("DB_NAME", "railway"),
+        "USER": os.getenv("DB_USER", "postgres"),
+        "PASSWORD": os.getenv("DB_PASSWORD", ""),
+        "HOST": os.getenv("DB_HOST", host_default),
+        "PORT": os.getenv("DB_PORT", "5432"),
+    }
+
+
+def _apply_env_file(env_file: str | None) -> None:
+    if not env_file:
+        return
+    env_path = os.path.abspath(env_file)
+    if not os.path.exists(env_path):
+        raise CommandError(f"Env file not found: {env_path}")
+
+    load_dotenv(env_path, override=True)
+    settings.DATABASES["default"] = _build_database_config()
+    connections.databases = settings.DATABASES
+    connections.close_all()
 
 
 class Command(BaseCommand):
@@ -18,8 +45,11 @@ class Command(BaseCommand):
         parser.add_argument("--event-name", default="Load Test Event")
         parser.add_argument("--duration-minutes", type=int, default=120)
         parser.add_argument("--output", default=None)
+        parser.add_argument("--env-file", default=None)
 
     def handle(self, *args, **options):
+        _apply_env_file(options.get("env_file"))
+
         count = max(1, int(options["count"]))
         event_name = options["event_name"]
         duration_minutes = max(1, int(options["duration_minutes"]))
