@@ -1,6 +1,6 @@
 ## Comandos para ejecutar test no funcionales
 
-set REDIS_URL=redis://default:FEjzHYluEhWtigxBEYVwgPrEYUZmCkJU@maglev.proxy.rlwy.net:15951
+set REDIS_URL=xxx
 
 Test estabilidad de procesamiento async
 python non_functional_tests/observe_async_processing_stability.py --video RUTA_O_S3 --count 2 --poll-seconds 10 --timeout-seconds 1800 --evaluator-email pablobarrios@iqlatam.com --evaluator-password admin123 --base-url https://backend-production-b180.up.railway.app --env-file non_functional_tests/.env
