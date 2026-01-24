@@ -42,7 +42,7 @@ from behavior_analysis.models import AnalisisComportamiento
 from events.tasks import delete_event_media_from_s3
 
 EVENT_EXPIRATION_DAYS = 182
-MONITORING_UPLOAD_GRACE_SECONDS = 120
+MONITORING_UPLOAD_GRACE_SECONDS = 300
 
 # Funciones
 
@@ -295,17 +295,27 @@ def get_participant_event(event_key):
 
 
 def _allow_upload_after_block(participant_event, now=None):
+    if now is None:
+        now = timezone.now()
+
     if getattr(participant_event, "is_monitoring", False):
         return True
-    if not getattr(participant_event, "is_blocked", False):
-        return False
+
     if getattr(participant_event, "monitoring_sessions_count", 0) <= 0:
         return False
+
+    event = getattr(participant_event, "event", None)
+    if event and event.end_date:
+        if now <= event.end_date + timedelta(seconds=MONITORING_UPLOAD_GRACE_SECONDS):
+            return True
+
+    if not getattr(participant_event, "is_blocked", False):
+        return False
+
     last_change = getattr(participant_event, "monitoring_last_change", None)
     if not last_change:
         return False
-    if now is None:
-        now = timezone.now()
+
     delta_seconds = (now - last_change).total_seconds()
     return 0 <= delta_seconds <= MONITORING_UPLOAD_GRACE_SECONDS
 
@@ -511,7 +521,7 @@ def presign_participant_screen_upload(request: HttpRequest):
         if not participant_event:
             return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
 
-        if not getattr(participant_event, "is_monitoring", False):
+        if not _allow_upload_after_block(participant_event, timezone.now()):
             return JsonResponse({"error": "Monitoring not started"}, status=403)
 
         upload_result = s3_service.generate_presigned_upload(
@@ -548,7 +558,7 @@ def presign_participant_media_upload(request: HttpRequest):
         if not participant_event:
             return JsonResponse({"error": "ParticipantEvent not found"}, status=404)
 
-        if not getattr(participant_event, "is_monitoring", False):
+        if not _allow_upload_after_block(participant_event, timezone.now()):
             return JsonResponse({"error": "Monitoring not started"}, status=403)
 
         media_type = "video"
