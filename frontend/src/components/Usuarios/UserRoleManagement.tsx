@@ -28,6 +28,8 @@ export default function UserRoleManagement({ onNavigate, onLogout }: UserRoleMan
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [userToDelete, setUserToDelete] = useState<User | null>(null);
+    const [showFilterMenu, setShowFilterMenu] = useState(false);
+    const [selectedRoleFilter, setSelectedRoleFilter] = useState<string>('all');
 
     const ROLE_OPTIONS = [
         { value: 'superadmin', label: 'Super Administrador' },
@@ -101,14 +103,36 @@ export default function UserRoleManagement({ onNavigate, onLogout }: UserRoleMan
         fetchUsers();
     }, []);
 
-    // Filtrar usuarios según el término de búsqueda
+    // Cerrar el menú de filtros al hacer clic fuera
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            const target = event.target as HTMLElement;
+            if (showFilterMenu && !target.closest('.relative')) {
+                setShowFilterMenu(false);
+            }
+        };
+
+        if (showFilterMenu) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [showFilterMenu]);
+
+    // Filtrar usuarios según el término de búsqueda y rol seleccionado
     const filteredUsers = users.filter(user => {
         const fullName = `${user.firstName} ${user.lastName}`.toLowerCase();
         const searchLower = searchTerm.toLowerCase();
 
-        return fullName.includes(searchLower) ||
+        const matchesSearch = fullName.includes(searchLower) ||
             user.email.toLowerCase().includes(searchLower) ||
             (user.roleName || '').toLowerCase().includes(searchLower);
+
+        const matchesRole = selectedRoleFilter === 'all' || user.role === selectedRoleFilter;
+
+        return matchesSearch && matchesRole;
     });
 
 
@@ -155,13 +179,64 @@ export default function UserRoleManagement({ onNavigate, onLogout }: UserRoleMan
                                 </div>
 
                                 <div className="flex items-center gap-3">
-                                    <button
-                                        className="flex items-center gap-2 px-4 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition text-sm font-medium"
-                                        disabled={loading || users.length === 0}
-                                    >
-                                        <Filter className="w-4 h-4" />
-                                        Filtros
-                                    </button>
+                                    <div className="relative">
+                                        <button
+                                            onClick={() => setShowFilterMenu(!showFilterMenu)}
+                                            className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg transition text-sm font-medium ${
+                                                selectedRoleFilter !== 'all' 
+                                                    ? 'border-blue-500 bg-blue-50 text-blue-700' 
+                                                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                                            }`}
+                                            disabled={loading || users.length === 0}
+                                        >
+                                            <Filter className="w-4 h-4" />
+                                            Filtros
+                                            {selectedRoleFilter !== 'all' && (
+                                                <span className="ml-1 px-1.5 py-0.5 bg-blue-600 text-white rounded-full text-xs">
+                                                    1
+                                                </span>
+                                            )}
+                                        </button>
+                                        
+                                        {showFilterMenu && (
+                                            <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-10">
+                                                <div className="p-2">
+                                                    <p className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase">
+                                                        Filtrar por rol
+                                                    </p>
+                                                    <button
+                                                        onClick={() => {
+                                                            setSelectedRoleFilter('all');
+                                                            setShowFilterMenu(false);
+                                                        }}
+                                                        className={`w-full text-left px-3 py-2 rounded-md text-sm transition ${
+                                                            selectedRoleFilter === 'all'
+                                                                ? 'bg-blue-50 text-blue-700 font-medium'
+                                                                : 'text-gray-700 hover:bg-gray-50'
+                                                        }`}
+                                                    >
+                                                        Todos los roles
+                                                    </button>
+                                                    {ROLE_OPTIONS.map((role) => (
+                                                        <button
+                                                            key={role.value}
+                                                            onClick={() => {
+                                                                setSelectedRoleFilter(role.value);
+                                                                setShowFilterMenu(false);
+                                                            }}
+                                                            className={`w-full text-left px-3 py-2 rounded-md text-sm transition ${
+                                                                selectedRoleFilter === role.value
+                                                                    ? 'bg-blue-50 text-blue-700 font-medium'
+                                                                    : 'text-gray-700 hover:bg-gray-50'
+                                                            }`}
+                                                        >
+                                                            {role.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
